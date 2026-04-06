@@ -1,6 +1,6 @@
 # AionUi 项目结构说明文档（二次开发参考）
 
-> 版本：v1.9.2 | 最后更新：2026-03-28
+> 版本：v1.9.7 | 最后更新：2026-04-06
 
 ---
 
@@ -12,17 +12,19 @@ AionUi 是一个基于 Electron 的开源跨平台 AI 协作平台。它将命�
 
 | 层面 | 技术 |
 |------|------|
-| 桌面框架 | Electron 36 |
+| 桌面框架 | Electron 37.3.1 |
 | 前端 | React 19 + TypeScript |
-| 构建 | electron-vite + Vite |
-| CSS | UnoCSS（原子化）+ CSS Modules |
+| 构建 | electron-vite + Vite 6.4.1 |
+| CSS | UnoCSS 66.3.3（原子化）+ CSS Modules |
 | UI 组件库 | @arco-design/web-react |
 | 图标 | @icon-park/react |
-| 数据库 | SQLite (better-sqlite3 / bun:sqlite) |
-| 测试 | Vitest + Playwright |
+| 数据库 | SQLite (better-sqlite3 12.4.1 / bun:sqlite) |
+| Web 服务器 | Express 5.1.0 + WebSocket |
+| 测试 | Vitest 4.0.18 + Playwright |
 | Lint/Format | oxlint + oxfmt |
 | 包管理 | bun |
 | 移动端 | React Native (Expo) |
+| 总依赖数 | 83 个 production 依赖 |
 
 ### 运行模式
 
@@ -91,12 +93,20 @@ AionUi 支持四种运行模式：
 │                             ▼                                    │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │              Worker 进程 (src/process/worker/)            │   │
-│  │  ACP Worker | Codex Worker | Gemini Worker | OpenClaw    │   │
+│  │  ACP Worker | AionRS Worker | Gemini Worker | OpenClaw   │   │
+│  │  NanoBot Worker                                          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │          Team 模式 (src/process/team/)                    │   │
+│  │  TeamSessionService | TeammateManager | TeamMcpServer     │   │
+│  │  Mailbox | TaskManager | Repository                      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │          共享代码 (src/common/)                            │   │
 │  │  adapter/ | api/ | chat/ | config/ | types/ | platform/  │   │
+│  │  utils/ | update/                                        │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -205,10 +215,12 @@ AionUi-aoqi/
 | `docs/SERVER_DEPLOY_GUIDE.md` | Server 模式部署指南 |
 | `docs/WEBUI_GUIDE.md` | WebUI 使用指南 |
 | `docs/cdp.md` | Chrome DevTools Protocol 集成 |
-| `docs/conventions/` | 文件结构约定 |
-| `docs/superpowers/` | 超级能力文档（PPT 生成等） |
-| `docs/feature/` | 功能设计文档 |
-| `docs/pr/` | PR 流程指南 |
+| `docs/conventions/` | 文件结构约定、PR 自动化约定 |
+| `docs/superpowers/` | 超级能力文档（PPT 生成、进程解耦设计等） |
+| `docs/feature/` | 功能设计文档（扩展市场等） |
+| `docs/research/` | 技术调研（Team 模式架构分析、实现对比等） |
+| `docs/HUB_TEST_GUIDE.md` | Agent Hub 测试指南 |
+| `docs/readme/` | 多语言 README（中/日/韩/土/繁/西/葡） |
 
 #### `mobile/` — React Native 移动端
 
@@ -270,14 +282,15 @@ src/
 ```
 src/process/
 ├── index.ts            # 主进程初始化入口
-├── bridge/             # IPC 桥接层 ★ 核心
+├── bridge/             # IPC 桥接层 ★ 核心（42 个 bridge 文件）
 ├── task/               # AI Agent 管理器
 ├── services/           # 后端服务
 ├── channels/           # 消息渠道系统
 ├── extensions/         # 扩展系统
+├── team/               # ★ Team 多 Agent 协作系统（v1.9.3+）
 ├── worker/             # 子进程 fork 入口
-├── webserver/          # Express + WebSocket 服务
-├── agent/              # ACP 协议适配器
+├── webserver/          # Express 5 + WebSocket 服务
+├── agent/              # Agent 协议适配器（ACP / AionRS / Gemini / OpenClaw）
 ├── resources/          # 主进程资源
 └── utils/              # 主进程工具函数
 ```
@@ -315,6 +328,13 @@ src/process/
 | `bedrockBridge.ts` | Bedrock | AWS Bedrock 集成 |
 | `geminiBridge.ts` | Gemini | Google Gemini 配置 |
 | `weixinLoginBridge.ts` | 微信登录 | 微信扫码登录 |
+| `teamBridge.ts` | Team 模式 | 多 Agent 团队创建/管理/会话（v1.9.3+） |
+| `hubBridge.ts` | Agent Hub | 扩展发现、安装、生命周期管理（v1.9.5+） |
+| `officeWatchBridge.ts` | 办公监听 | 办公文件变更实时监听 |
+| `workspaceSnapshotBridge.ts` | 工作区快照 | 工作区状态快照/恢复 |
+| `speechToTextBridge.ts` | 语音输入 | Speech-to-Text 语音转文字 |
+| `geminiConversationBridge.ts` | Gemini 会话 | Gemini 专属会话管理 |
+| `testCustomAgentConnection.ts` | 连接测试 | 自定义 Agent 连接验证 |
 
 #### `task/` — AI Agent 管理器
 
@@ -323,7 +343,7 @@ src/process/
 | 文件 | Agent 后端 | 说明 |
 |------|-----------|------|
 | `AcpAgentManager.ts` | ACP | Agent Communication Protocol（Claude Code 等） |
-| `CodexAgentManager.ts` | Codex | OpenAI Codex 集成 |
+| `AionrsManager.ts` | AionRS | AionRS 协议 Agent（v1.9.5+，替代 Codex） |
 | `GeminiAgentManager.ts` | Gemini | Google Gemini 原生集成 |
 | `OpenClawAgentManager.ts` | OpenClaw | OpenClaw 协议 Agent |
 | `RemoteAgentManager.ts` | Remote | 远程 Agent 连接 |
@@ -396,7 +416,7 @@ extensions/
 | 文件 | Worker 类型 | 说明 |
 |------|------------|------|
 | `acp.ts` | ACP Worker | Claude Code 等 ACP 协议后端 |
-| `codex.ts` | Codex Worker | OpenAI Codex 后端 |
+| `aionrs.ts` | AionRS Worker | AionRS 协议后端（v1.9.5+，替代 Codex） |
 | `gemini.ts` | Gemini Worker | Gemini 原生后端 |
 | `nanobot.ts` | NanoBot Worker | 轻量级 Bot |
 | `openclaw-gateway.ts` | OpenClaw Gateway | OpenClaw 网关 |
@@ -417,6 +437,58 @@ webserver/
 ├── types/              # 类型定义
 └── websocket/          # WebSocket 处理
 ```
+
+#### `team/` — Team 多 Agent 协作系统（v1.9.3+）
+
+全新的多 Agent 协作模式，支持创建团队、分配任务、Agent 间通信：
+
+```
+team/
+├── index.ts                # Team 模块导出入口
+├── TeamSessionService.ts   # ★ 团队会话服务（21KB，核心调度器）
+├── TeammateManager.ts      # 团队成员 Agent 管理（26KB，生命周期）
+├── TeamMcpServer.ts        # 团队 MCP 服务器（18KB，Agent 间工具共享）
+├── TeamSession.ts          # 团队会话状态管理
+├── Mailbox.ts              # Agent 间消息邮箱
+├── TaskManager.ts          # 团队任务分配与追踪
+├── teamEventBus.ts         # 团队事件总线
+├── types.ts                # 团队类型定义
+├── adapters/               # 平台适配器
+│   ├── PlatformAdapter.ts     # 平台适配基类
+│   ├── buildRolePrompt.ts     # 角色 Prompt 构建
+│   └── xmlFallbackAdapter.ts  # XML 回退适配
+├── prompts/                # Prompt 模板
+│   ├── leadPrompt.ts          # Lead Agent Prompt
+│   └── teammatePrompt.ts      # Teammate Prompt
+└── repository/             # 数据持久化
+    ├── ITeamRepository.ts     # 仓库接口
+    └── SqliteTeamRepository.ts # SQLite 实现
+```
+
+**Team 模式数据流**：
+
+```
+用户创建团队 → teamBridge → TeamSessionService
+  └─▶ TeammateManager（启动多个 Agent 实例）
+      ├── Agent A (Lead) ─── TeamMcpServer ──┐
+      ├── Agent B ─── Mailbox 收发消息 ──────┤
+      └── Agent C ─── TaskManager 领取任务 ──┘
+```
+
+#### `agent/` — Agent 协议适配器
+
+每个 AI 后端的底层协议实现：
+
+| 目录 | Agent 后端 | 说明 |
+|------|-----------|------|
+| `acp/` | ACP | Agent Communication Protocol（66KB index.ts，最复杂的适配器） |
+| `aionrs/` | AionRS | AionRS 协议（v1.9.5+，含二进制解析、环境构建、协议定义） |
+| `gemini/` | Gemini | Google Gemini 原生协议 |
+| `nanobot/` | NanoBot | 轻量级 Bot 协议 |
+| `openclaw/` | OpenClaw | OpenClaw 网关协议 |
+| `remote/` | Remote | 远程 Agent 连接协议 |
+
+> **注意**：Codex 协议适配器已在 v1.9.5 中移除，由 AionRS 替代。
 
 ---
 
@@ -444,8 +516,9 @@ src/renderer/
 |------|------|------|
 | `guid/` | 引导页 | 首页/新对话引导、Agent 选择 |
 | `conversation/` | 对话页 | 聊天主界面（消息列表、输入框、历史、预览） |
-| `settings/` | 设置页 | Agent/模型/显示/工具/Skills/WebUI/扩展等设置 |
+| `settings/` | 设置页 | Agent/模型/显示/工具/Skills/WebUI/扩展/AionRS 等设置 |
 | `cron/` | 定时任务页 | Cron 任务管理界面 |
+| `team/` | Team 页 | ★ 多 Agent 团队协作界面（v1.9.3+） |
 | `login/` | 登录页 | WebUI 登录界面 |
 
 **对话页子模块**（最复杂的页面）：
@@ -459,7 +532,7 @@ conversation/
 ├── Workspace/          # 工作区面板
 ├── components/         # 对话专属组件
 ├── hooks/              # 对话专属 Hooks
-├── platforms/          # 平台适配（桌面/WebUI/移动端）
+├── platforms/          # Agent 平台适配（acp/aionrs/gemini/nanobot/openclaw/remote）
 └── utils/              # 对话工具函数
 ```
 
@@ -470,7 +543,8 @@ settings/
 ├── AgentSettings/      # Agent 后端配置
 ├── DisplaySettings/    # 显示设置（主题、语言、布局）
 ├── ToolsSettings/      # 工具配置（MCP、CDP）
-├── SkillsHubSettings.tsx  # Skills 市场
+├── SkillsHubSettings.tsx  # Skills 市场（32KB）
+├── AionrsSettings.tsx  # ★ AionRS 专属设置（v1.9.5+）
 ├── SystemSettings.tsx  # 系统设置
 ├── GeminiSettings.tsx  # Gemini 专属设置
 ├── ExtensionSettingsPage.tsx  # 扩展管理
@@ -661,6 +735,10 @@ tests/
 | **修改应用图标** | `resources/app.icns` / `app.ico` / `app.png` | 同时更新 electron-builder.yml |
 | **修改自动更新** | `src/process/services/autoUpdaterService.ts` | + updateBridge.ts |
 | **修改 PPT 生成** | `src/process/bridge/pptPreviewBridge.ts` | + 对应 Renderer 预览组件 |
+| **添加 Team 功能** | 后端 `src/process/team/` + 前端 `src/renderer/pages/team/` | Bridge: `teamBridge.ts`；DB: teams/mailbox/team_tasks 表 |
+| **添加新 Agent 后端（AionRS 模式）** | `src/process/agent/aionrs/` + `src/process/worker/aionrs.ts` | 前端: `platforms/aionrs/`；设置: `AionrsSettings.tsx` |
+| **管理 Agent Hub** | `src/process/bridge/hubBridge.ts` | 类型: `src/common/types/hub.ts` |
+| **语音输入** | `src/process/bridge/speechToTextBridge.ts` | 前端 Hook: `useSpeechInput.ts` |
 
 ### 数据流路径示例
 
@@ -770,3 +848,109 @@ bun run server:start:prod    # 生产模式
 | **适配器模式** | `common/adapter/` | 屏蔽 Electron/Browser/Node 环境差异 |
 | **中间件模式** | `MessageMiddleware.ts`, `webserver/middleware/` | 消息处理链和 HTTP 中间件 |
 | **平台抽象** | `common/platform/` | IPlatformServices 接口 + 多平台实现 |
+| **事件总线** | `teamEventBus.ts` | Team 模式中 Agent 间的事件解耦通信 |
+| **MCP 协议** | `TeamMcpServer.ts`, `mcpBridge.ts` | Model Context Protocol 工具共享 |
+
+---
+
+## 11. 数据库表结构
+
+SQLite 数据库，当前 schema 版本：**22**（`CURRENT_DB_VERSION`）。
+
+### 核心表
+
+| 表名 | 用途 | 主要字段 |
+|------|------|---------|
+| `users` | 用户账户 | id, username, email, password_hash, jwt_secret, avatar_path |
+| `conversations` | 会话记录 | id, user_id, name, type, extra, model, status(pending/running/finished) |
+| `messages` | 消息记录 | id, conversation_id, msg_id, type, content, position(left/right/center/pop), status(finish/pending/error/work) |
+
+### Team 模式表（v1.9.3+）
+
+| 表名 | 用途 | 主要字段 |
+|------|------|---------|
+| `teams` | 团队定义 | id, user_id, name, workspace, workspace_mode, lead_agent_id, agents(JSON) |
+| `mailbox` | Agent 邮箱 | id, team_id, to_agent_id, from_agent_id, type, content, summary, read |
+| `team_tasks` | 团队任务 | id, team_id, subject, description, status, owner, blocked_by(JSON), blocks(JSON) |
+
+### 迁移机制
+
+- 迁移文件：`src/process/services/database/migrations.ts`（1289 行）
+- 通过 SQLite `user_version` pragma 追踪版本
+- 每次升级自动执行增量迁移
+
+---
+
+## 12. i18n 国际化
+
+### 支持语言
+
+| 代码 | 语言 |
+|------|------|
+| `en-US` | English |
+| `zh-CN` | 简体中文 |
+| `zh-TW` | 繁體中文 |
+| `ja-JP` | 日本語 |
+| `ko-KR` | 한국어 |
+| `tr-TR` | Türkçe |
+
+### 模块清单（20 个 JSON 文件）
+
+| 模块 | 覆盖范围 |
+|------|---------|
+| `common.json` | 通用文本（按钮、状态、确认等） |
+| `conversation.json` | 对话页面 |
+| `messages.json` | 消息相关 |
+| `settings.json` | 设置页面 |
+| `guid.json` | 引导页 |
+| `agent.json` | Agent 管理 |
+| `agentMode.json` | Agent 模式切换 |
+| `acp.json` | ACP 协议相关 |
+| `codex.json` | Codex 相关（兼容保留） |
+| `gemini.json` | Gemini 相关 |
+| `mcp.json` | MCP 工具 |
+| `tools.json` | 工具配置 |
+| `cron.json` | 定时任务 |
+| `team.json` | Team 多 Agent 协作（v1.9.3+） |
+| `preview.json` | 文件预览 |
+| `update.json` | 自动更新 |
+| `login.json` | 登录页 |
+| `fileSelection.json` | 文件选择 |
+| `starOffice.json` | 星辰办公 |
+
+---
+
+## 13. 分支策略
+
+本仓库（`wangAoqi666/AionUi-aoqi`）是 `iOfficeAI/AionUi` 的 fork，采用双分支策略：
+
+| 分支 | 职责 | 规则 |
+|------|------|------|
+| `upstream-sync` | upstream 纯净镜像 | 始终 = `upstream/main`，禁止自定义修改，仅用于同步和代码对比 |
+| `dev` | 全集开发分支 | upstream + 所有自定义开发（智能体协作文件、二次开发等） |
+
+### 同步流程
+
+```bash
+# 1. 在 upstream-sync 上拉取最新
+git checkout upstream-sync
+git fetch upstream
+git merge upstream/main
+git push origin upstream-sync
+
+# 2. 切到 dev 合入上游更新
+git checkout dev
+git merge upstream-sync
+git push origin dev
+```
+
+---
+
+## 14. v1.9.2 → v1.9.7 主要变更摘要
+
+| 版本 | 重要变更 |
+|------|---------|
+| v1.9.3 | Team 多 Agent 协作模式上线（teams/mailbox/team_tasks 表） |
+| v1.9.5 | AionRS Agent 替代 Codex；Agent Hub 扩展发现系统；Codex 模块移除 |
+| v1.9.6 | 存储层性能优化（FileBuilder → 内存缓存）；Agent 固定宽度 Pill 按钮 |
+| v1.9.7 | ACP Agent 排序修复；Hub E2E 测试覆盖 |
