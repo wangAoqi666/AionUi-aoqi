@@ -1,6 +1,8 @@
-# AionUi Headless Server Deployment Guide
+# Agent Factory Headless Server Deployment Guide
 
-Deploy AionUi WebUI on headless Linux servers — cloud VMs, Kubernetes Pods, and containers — with proxy auto-fallback support.
+Deploy Agent Factory WebUI on headless Linux servers — cloud VMs, Kubernetes Pods, and containers — with proxy auto-fallback support.
+
+> Brand note: the product brand is `智能体工厂 / Agent Factory`; package names, executable paths, and service scripts in this guide may still use `AionUi` where the current technical identifier has not been renamed.
 
 **Translations**: [中文版](#中文版--chinese-version) below.
 
@@ -21,7 +23,7 @@ Deploy AionUi WebUI on headless Linux servers — cloud VMs, Kubernetes Pods, an
 
 - Linux x86_64 (Ubuntu 20.04+ / Debian 11+ recommended)
 - At least 2GB RAM
-- AionUi `.deb` package from [Releases](https://github.com/iOfficeAI/AionUi/releases)
+- Current Linux package artifact: `AionUi` `.deb` package from [Releases](https://github.com/iOfficeAI/AionUi/releases)
 
 ---
 
@@ -42,7 +44,7 @@ sudo apt-get install -f  # Fix missing dependencies
 
 ## Virtual Display (Xvfb)
 
-AionUi is an Electron app and requires a display server. On headless servers (no monitor), use Xvfb to create a virtual display:
+Agent Factory is an Electron app and requires a display server. On headless servers (no monitor), use Xvfb to create a virtual display:
 
 ```bash
 sudo apt-get install -y xvfb
@@ -60,7 +62,7 @@ Create `/opt/AionUi/start-aionui.sh`:
 
 ```bash
 #!/bin/bash
-# AionUi WebUI headless startup script
+# Agent Factory WebUI headless startup script (current AionUi binary)
 # Usage: ./start-aionui.sh [start|stop|restart|status]
 
 PIDFILE="/var/run/aionui.pid"
@@ -69,10 +71,10 @@ WORKDIR="$HOME"  # Change to your workspace directory
 
 start() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi is already running (PID: $(cat $PIDFILE))"
+        echo "Agent Factory is already running (PID: $(cat $PIDFILE))"
         return 1
     fi
-    echo "Starting AionUi WebUI..."
+    echo "Starting Agent Factory WebUI..."
     cd "$WORKDIR"
 
     nohup xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
@@ -81,10 +83,10 @@ start() {
     echo $! > "$PIDFILE"
     sleep 3
     if kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi started successfully (PID: $(cat $PIDFILE))"
+        echo "Agent Factory started successfully (PID: $(cat $PIDFILE))"
         echo "WebUI: http://$(hostname -I | awk '{print $1}'):25808"
     else
-        echo "AionUi failed to start. Check log: $LOGFILE"
+        echo "Agent Factory failed to start. Check log: $LOGFILE"
         rm -f "$PIDFILE"
         return 1
     fi
@@ -92,17 +94,17 @@ start() {
 
 stop() {
     if [ ! -f "$PIDFILE" ]; then
-        echo "AionUi is not running (no PID file)"
+        echo "Agent Factory is not running (no PID file)"
         return 1
     fi
     PID=$(cat "$PIDFILE")
-    echo "Stopping AionUi (PID: $PID)..."
+    echo "Stopping Agent Factory (PID: $PID)..."
     kill "$PID" 2>/dev/null
     sleep 2
     kill -9 "$PID" 2>/dev/null
     pkill -f "AionUi --webui" 2>/dev/null
     rm -f "$PIDFILE"
-    echo "AionUi stopped."
+    echo "Agent Factory stopped."
 }
 
 restart() {
@@ -113,10 +115,10 @@ restart() {
 
 status() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi is running (PID: $(cat $PIDFILE))"
+        echo "Agent Factory is running (PID: $(cat $PIDFILE))"
         ss -tlnp | grep 25808
     else
-        echo "AionUi is not running."
+        echo "Agent Factory is not running."
         rm -f "$PIDFILE" 2>/dev/null
     fi
 }
@@ -134,13 +136,13 @@ esac
 chmod +x /opt/AionUi/start-aionui.sh
 ```
 
-> **Tip**: `WORKDIR` determines the directory AionUi can access for file operations. Set it to your project workspace.
+> **Tip**: `WORKDIR` determines the directory Agent Factory can access for file operations. Set it to your project workspace.
 
 ---
 
 ## Remote Access
 
-AionUi WebUI listens on port **25808**. Choose a method based on your network setup:
+Agent Factory WebUI listens on port **25808**. Choose a method based on your network setup:
 
 ### Option A: Direct Access (Public IP)
 
@@ -187,7 +189,7 @@ ssh -R 7897:127.0.0.1:7897 user@YOUR_SERVER_IP
 
 > Replace `7897` with your actual proxy port. The tunnel is active as long as the SSH session is open.
 
-### Step 2: PAC File for AionUi (Electron / Chromium Layer)
+### Step 2: PAC File for Agent Factory (Electron / Chromium Layer)
 
 Using `--proxy-server` is fragile — when the proxy goes down, **all** requests fail including the WebUI itself. Instead, use a **PAC (Proxy Auto-Configuration) file** that provides automatic fallback.
 
@@ -253,27 +255,27 @@ PROMPT_COMMAND="_auto_proxy;${PROMPT_COMMAND}"
 - SSH tunnel disconnected → proxy env vars cleared, commands use direct connection
 - No manual intervention or terminal restart needed
 
-### Step 4: AionUi Internal Proxy (Gemini API)
+### Step 4: Agent Factory Internal Proxy (Gemini API)
 
-For Gemini API calls, configure the proxy inside AionUi WebUI:
+For Gemini API calls, configure the proxy inside Agent Factory WebUI:
 
 **Settings → Gemini Settings → Proxy** → `http://127.0.0.1:7897`
 
-> This proxy is handled by AionUi's Node.js layer (separate from the Chromium layer). When the SSH tunnel is down, Gemini API calls will fail, but the WebUI and other APIs remain functional.
+> This proxy is handled by Agent Factory's Node.js layer (separate from the Chromium layer). When the SSH tunnel is down, Gemini API calls will fail, but the WebUI and other APIs remain functional.
 
 ---
 
 ## Troubleshooting
 
-| Issue                                     | Solution                                                     |
-| ----------------------------------------- | ------------------------------------------------------------ |
-| `dpkg` dependency errors in containers    | `dpkg --force-all -i AionUi-linux-amd64.deb`                 |
-| AionUi can only access `/tmp`             | Set `WORKDIR` in the startup script to your workspace path   |
-| WebUI not accessible remotely             | Check firewall rules, or use ngrok / SSH tunnel              |
-| All requests fail when proxy is down      | Use PAC file (`--proxy-pac-url`) instead of `--proxy-server` |
-| `curl` fails after SSH tunnel disconnects | Add `PROMPT_COMMAND` auto-detect to `~/.bashrc` (see Step 3) |
-| Port 25808 already in use                 | `kill $(lsof -t -i:25808)` then restart                      |
-| Xvfb errors                               | `apt-get install -y xvfb libxkbcommon-x11-0`                 |
+| Issue                                          | Solution                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| `dpkg` dependency errors in containers         | `dpkg --force-all -i AionUi-linux-amd64.deb`                 |
+| Current `AionUi` binary can only access `/tmp` | Set `WORKDIR` in the startup script to your workspace path   |
+| WebUI not accessible remotely                  | Check firewall rules, or use ngrok / SSH tunnel              |
+| All requests fail when proxy is down           | Use PAC file (`--proxy-pac-url`) instead of `--proxy-server` |
+| `curl` fails after SSH tunnel disconnects      | Add `PROMPT_COMMAND` auto-detect to `~/.bashrc` (see Step 3) |
+| Port 25808 already in use                      | `kill $(lsof -t -i:25808)` then restart                      |
+| Xvfb errors                                    | `apt-get install -y xvfb libxkbcommon-x11-0`                 |
 
 ---
 
@@ -290,7 +292,7 @@ For Gemini API calls, configure the proxy inside AionUi WebUI:
 │       │                                          │
 │       ▼                                          │
 │  ┌────────────────────────────┐                  │
-│  │  AionUi (Electron)        │                   │
+│  │  Agent Factory (Electron) │                   │
 │  │  ├─ Chromium (port 25808) │                   │
 │  │  │  └─ proxy.pac          │──► PAC decides:   │
 │  │  │     per-request        │   PROXY or DIRECT │
@@ -316,15 +318,15 @@ For Gemini API calls, configure the proxy inside AionUi WebUI:
 
 # 中文版 / Chinese Version
 
-# AionUi 无头服务器部署指南
+# 智能体工厂 / Agent Factory 无头服务器部署指南
 
-在无图形界面的 Linux 服务器（云主机、K8s Pod、容器）上部署 AionUi WebUI，支持代理自动回退。
+在无图形界面的 Linux 服务器（云主机、K8s Pod、容器）上部署智能体工厂 / Agent Factory WebUI，支持代理自动回退。
 
 ## 前置条件
 
 - Linux x86_64（推荐 Ubuntu 20.04+ / Debian 11+）
 - 至少 2GB 内存
-- AionUi `.deb` 安装包（[下载地址](https://github.com/iOfficeAI/AionUi/releases)）
+- 当前 Linux 安装产物：`AionUi` `.deb` 安装包（[下载地址](https://github.com/iOfficeAI/AionUi/releases)）
 
 ## 安装
 
@@ -341,7 +343,7 @@ sudo apt-get install -f  # 修复依赖
 
 ## 虚拟显示 (Xvfb)
 
-AionUi 是 Electron 应用，需要显示服务。无头服务器需安装 Xvfb：
+智能体工厂 / Agent Factory 是 Electron 应用，需要显示服务。无头服务器需安装 Xvfb：
 
 ```bash
 sudo apt-get install -y xvfb
@@ -355,7 +357,7 @@ sudo apt-get install -y xvfb
 
 ```bash
 #!/bin/bash
-# AionUi WebUI 无头启动脚本
+# 智能体工厂 WebUI 无头启动脚本（当前二进制仍为 AionUi）
 # 用法: ./start-aionui.sh [start|stop|restart|status]
 
 PIDFILE="/var/run/aionui.pid"
@@ -364,10 +366,10 @@ WORKDIR="$HOME"  # 改为你的工作目录
 
 start() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi 已在运行 (PID: $(cat $PIDFILE))"
+        echo "智能体工厂已在运行 (PID: $(cat $PIDFILE))"
         return 1
     fi
-    echo "正在启动 AionUi WebUI..."
+    echo "正在启动智能体工厂 WebUI..."
     cd "$WORKDIR"
 
     nohup xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
@@ -376,10 +378,10 @@ start() {
     echo $! > "$PIDFILE"
     sleep 3
     if kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi 启动成功 (PID: $(cat $PIDFILE))"
+        echo "智能体工厂启动成功 (PID: $(cat $PIDFILE))"
         echo "WebUI: http://$(hostname -I | awk '{print $1}'):25808"
     else
-        echo "AionUi 启动失败，请查看日志: $LOGFILE"
+        echo "智能体工厂启动失败，请查看日志: $LOGFILE"
         rm -f "$PIDFILE"
         return 1
     fi
@@ -387,27 +389,27 @@ start() {
 
 stop() {
     if [ ! -f "$PIDFILE" ]; then
-        echo "AionUi 未在运行"
+        echo "智能体工厂未在运行"
         return 1
     fi
     PID=$(cat "$PIDFILE")
-    echo "正在停止 AionUi (PID: $PID)..."
+    echo "正在停止智能体工厂 (PID: $PID)..."
     kill "$PID" 2>/dev/null
     sleep 2
     kill -9 "$PID" 2>/dev/null
     pkill -f "AionUi --webui" 2>/dev/null
     rm -f "$PIDFILE"
-    echo "AionUi 已停止。"
+    echo "智能体工厂已停止。"
 }
 
 restart() { stop; sleep 1; start; }
 
 status() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-        echo "AionUi 运行中 (PID: $(cat $PIDFILE))"
+        echo "智能体工厂运行中 (PID: $(cat $PIDFILE))"
         ss -tlnp | grep 25808
     else
-        echo "AionUi 未在运行。"
+        echo "智能体工厂未在运行。"
         rm -f "$PIDFILE" 2>/dev/null
     fi
 }
@@ -420,7 +422,7 @@ esac
 
 ## 远程访问
 
-AionUi WebUI 监听端口 **25808**，根据网络环境选择访问方式：
+智能体工厂 WebUI 监听端口 **25808**，根据网络环境选择访问方式：
 
 | 方式       | 适用场景              | 命令                                       |
 | ---------- | --------------------- | ------------------------------------------ |
@@ -438,7 +440,7 @@ AionUi WebUI 监听端口 **25808**，根据网络环境选择访问方式：
 ssh -R 7897:127.0.0.1:7897 user@YOUR_SERVER
 ```
 
-### 第二步：PAC 代理文件（AionUi Electron 层）
+### 第二步：PAC 代理文件（智能体工厂 Electron 层）
 
 `--proxy-server` 的问题：代理一断，**所有请求**全挂。改用 PAC 文件实现自动回退。
 
@@ -486,7 +488,7 @@ PROMPT_COMMAND="_auto_proxy;${PROMPT_COMMAND}"
 
 **原理**：`PROMPT_COMMAND` 在每次命令提示符前执行，自动检测代理端口是否可达，实时切换。
 
-### 第四步：AionUi 内置代理（Gemini API）
+### 第四步：智能体工厂内置代理（Gemini API）
 
 在 WebUI 中设置：**Settings → Gemini Settings → Proxy** → `http://127.0.0.1:7897`
 
@@ -494,11 +496,11 @@ PROMPT_COMMAND="_auto_proxy;${PROMPT_COMMAND}"
 
 ## 常见问题
 
-| 问题                   | 解决方案                              |
-| ---------------------- | ------------------------------------- |
-| 容器内 dpkg 依赖报错   | `dpkg --force-all -i` 强制安装        |
-| AionUi 只能访问 /tmp   | 修改启动脚本中的 `WORKDIR`            |
-| 远程无法访问 WebUI     | 检查防火墙/安全组，或使用 ngrok       |
-| 代理断开后所有请求失败 | 用 PAC 文件替代 `--proxy-server`      |
-| SSH 断开后 curl 失败   | bashrc 添加 `PROMPT_COMMAND` 自动检测 |
-| 端口 25808 被占用      | `kill $(lsof -t -i:25808)` 后重启     |
+| 问题                              | 解决方案                              |
+| --------------------------------- | ------------------------------------- |
+| 容器内 dpkg 依赖报错              | `dpkg --force-all -i` 强制安装        |
+| 当前 `AionUi` 二进制只能访问 /tmp | 修改启动脚本中的 `WORKDIR`            |
+| 远程无法访问 WebUI                | 检查防火墙/安全组，或使用 ngrok       |
+| 代理断开后所有请求失败            | 用 PAC 文件替代 `--proxy-server`      |
+| SSH 断开后 curl 失败              | bashrc 添加 `PROMPT_COMMAND` 自动检测 |
+| 端口 25808 被占用                 | `kill $(lsof -t -i:25808)` 后重启     |

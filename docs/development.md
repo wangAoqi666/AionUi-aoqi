@@ -1,5 +1,16 @@
 # Development Guide
 
+## Product Positioning
+
+This repository powers `智能体工厂 / Agent Factory`, an agent workspace platform deeply customized around Factory Droid.
+
+- Primary agent path: `src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
+- Official references:
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
+
+> Brand note: the product brand is Agent Factory; repository names, package names, and executable identifiers may still use `AionUi` where the current toolchain requires it.
+
 ## Prerequisites
 
 - **Node.js** 22 or higher
@@ -140,7 +151,7 @@ prek run --from-ref origin/main --to-ref HEAD
 
 ## Build System
 
-AionUi uses **electron-vite** for fast bundling:
+Agent Factory uses **electron-vite** for fast bundling:
 
 - **Main process**: bundled with Vite (ESM)
 - **Renderer process**: bundled with Vite (React + TypeScript)
