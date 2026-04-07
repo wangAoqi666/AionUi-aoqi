@@ -1,4 +1,14 @@
-# AionUi - Project Guide
+# Agent Factory - Project Guide
+
+## Project Positioning
+
+- `智能体工厂 / Agent Factory` 是基于 Factory Droid 深度定制的智能体工作平台
+- 应用与主智能体的交互主链路：`src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
+- 其他 ACP / 多后端能力保留为兼容层与历史能力，不再作为项目第一定义
+- 官方参考直链：
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
+- 文档中出现 `AionUi` 作为仓库名、包名、二进制名或目录名时，默认表示当前技术标识，不代表对外品牌回退
 
 ## Agent Collaboration
 
@@ -6,10 +16,10 @@
 
 本仓库配备专属智能助手，通过以下文件实现持久化协作：
 
-| 文件 | 用途 |
-| --- | --- |
-| `.factory/RULES.md` | 长期有效的执行规则，所有任务必须遵守 |
-| `.factory/MEMORY.md` | 长期保留的偏好、背景和上下文信息 |
+| 文件                 | 用途                                 |
+| -------------------- | ------------------------------------ |
+| `.factory/RULES.md`  | 长期有效的执行规则，所有任务必须遵守 |
+| `.factory/MEMORY.md` | 长期保留的偏好、背景和上下文信息     |
 
 ### 工作流程
 

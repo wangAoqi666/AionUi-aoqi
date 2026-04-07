@@ -9,14 +9,16 @@
 
 ## 项目背景
 
-- AionUi — Electron + React 桌面应用，将命令行 AI Agent 转为现代 Chat 界面
+- 智能体工厂 / Agent Factory — 基于 Factory Droid 深度定制的智能体工作平台
+- 主智能体交互链路：`src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
 - 当前版本 v1.9.7，License: Apache-2.0
 - 三进程架构：main（`src/process/`）/ renderer（`src/renderer/`）/ worker（`src/process/worker/`）
 - 技术栈：Electron + Vite + React + TypeScript + UnoCSS + Arco Design + Vitest
 - 包管理器：bun
 - Lint：oxlint；格式化：oxfmt
-- 本仓库（`wangAoqi666/AionUi-aoqi`）是 `iOfficeAI/AionUi` 的 fork
+- 本仓库（`wangAoqi666/AionUi-aoqi`）是 `iOfficeAI/AionUi` 的 fork；当前品牌已切换为 Agent Factory，但部分技术标识仍保留 `AionUi`
 - 分支策略：`upstream-sync` = upstream 纯净镜像；`dev` = 全集开发分支
+- 其他 ACP / 多后端能力继续保留，但定位为兼容层
 
 ## 技术决策记录
 
@@ -26,12 +28,71 @@
 - 测试框架：Vitest 4，覆盖率目标 >= 80%
 - i18n 配置入口：`src/common/config/i18n-config.json`
 
+### 品牌重塑
+
+- 项目已从 AionUi 重命名为"智能体工厂"（Agent Factory）
+- 用户可见文本 → "智能体工厂"；版权头 → "Copyright 2025 Agent Factory"
+- 原作者 GitHub/Twitter 链接已全部移除或隐藏
+- SkillsMarketBanner 已注释掉，QuickActionButtons 只保留 WebUI 按钮
+
+### Factory Droid SDK 集成
+
+- Factory Droid 是项目当前的首要 Agent 后端
+- Droid 后端已从 ACP 协议切换为 `@factory/droid-sdk`（JSON-RPC 原生协议）
+- 代码位置：`src/process/agent/droid/`（DroidSdkAgent + messageMapper）
+- 其他后端（claude/codex/goose 等）仍走 ACP 协议不受影响
+- 模型切换使用 SDK `session.updateSettings({ modelId })` 运行时生效，不再需要重启进程
+- Factory 模型列表硬编码在 `src/common/config/factoryModels.ts`（18 个模型）
+- 默认模型：`claude-opus-4-6`，默认 agent：`droid`
+- Settings 默认路由：`/settings/agent`（已移除 Gemini CLI Tab）
+- 官方参考直链：
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
+
+### 任务参考文档索引
+
+- 核心上下文：
+  - [AGENTS.md](../AGENTS.md)
+  - [CLAUDE.md](../CLAUDE.md)
+  - [RULES.md](./RULES.md)
+  - [PROJECT_GUIDE.md](../PROJECT_GUIDE.md)
+- 架构与规范：
+  - [docs/tech/architecture.md](../docs/tech/architecture.md)
+  - [docs/conventions/file-structure.md](../docs/conventions/file-structure.md)
+  - [docs/development.md](../docs/development.md)
+- 运行与调试：
+  - [docs/cdp.md](../docs/cdp.md)
+  - [docs/WEBUI_GUIDE.md](../docs/WEBUI_GUIDE.md)
+  - [docs/SERVER_DEPLOY_GUIDE.md](../docs/SERVER_DEPLOY_GUIDE.md)
+- 外部官方资料：
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
+- 智能体在执行与 Factory Droid、SDK、架构、运行模式、调试、部署相关任务时，应优先查阅以上文档
+
 ## 常见陷阱与注意事项
 
 - macOS 环境已配置 Clash 代理（127.0.0.1:7890），git 全局 HTTPS 代理已设置
 - 禁止设置 `http.version=HTTP/1.1`，会导致代理下 git 协议握手卡死
 - 大仓库 clone 不稳定时优先用 `wget` 下载 ZIP
 - 含中文文件名的 ZIP 用 `python3 zipfile` 解压，不用 `unzip`
+
+## Paper 原型状态
+
+- Paper 原型用途：**双向同步**，设计即代码，作为前端开发工具直接指导 UI 实现
+- 当前 31 个画板，覆盖 Login / Guid / Conversation / Settings / Team / Cron 全部页面
+- Settings 侧栏 10 项顺序（与 BUILTIN_TAB_IDS 对应）：gemini → agent → model → assistants → skills-hub → tools → display → webui → system → about
+- Settings 子页面 clone 模式：从 Page-Settings-About (IQ-0) 复制，sidebar 高亮项通过 backgroundColor: "#E5E7F0" 控制
+- 高亮色: `#E5E7F0`（aou-2），非高亮: transparent
+- 缺失页面需补全后原型才算完整（参照 Router.tsx 路由表）
+
+## Paper 双向同步技能
+
+- 技能位置：`.factory/skills/paper-sync/SKILL.md`（项目级）
+- 映射数据：`docs/paper-sync-map.json`（记录 Paper 节点 ↔ 代码位置的对应关系）
+- 同步脚本：`scripts/sync-code-to-design.ts`（检测代码→设计差异）、`scripts/sync-design-to-code.ts`（检测设计→代码差异）
+- 支持 4 种模式：code→design / design→code / add-mapping / status
+- 用户在 Paper UI 上修改后，说"同步"即触发 design→code 流程
+- 同步节点通过 `@sync:` 前缀的 layer-name 标注
 
 ---
 
