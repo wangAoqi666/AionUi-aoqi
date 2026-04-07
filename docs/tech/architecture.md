@@ -1,14 +1,40 @@
 # Architecture
 
+## Product Positioning
+
+Agent Factory is an agent workspace platform deeply customized around Factory Droid.
+
+- Primary agent path: `src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
+- Compatibility path: ACP and other backends remain available, but they are compatibility surfaces rather than the primary product definition
+- Official references:
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
+
 ## Multi-Process Model
 
-AionUi is an Electron app with three types of processes:
+Agent Factory is an Electron app with three types of processes:
 
 - **Main Process** (`src/process/`, `src/index.ts`) — application logic, database, IPC handling. No DOM APIs available.
 - **Renderer Process** (`src/renderer/`) — React UI. No Node.js APIs available.
-- **Worker Processes** (`src/process/worker/`) — background AI tasks (gemini, codex, acp workers).
+- **Worker Processes** (`src/process/worker/`) — background AI tasks for compatibility backends (gemini, codex, acp workers).
 
 Cross-process communication must go through the IPC bridge.
+
+## Primary Droid Path
+
+For the primary `droid` backend, the app does not rely on the generic ACP worker path:
+
+1. Renderer sends a message through the IPC bridge
+2. Main process routes it to the conversation bridge and `AcpAgentManager`
+3. When `backend === 'droid'`, `AcpAgentManager` instantiates `DroidSdkAgent`
+4. `DroidSdkAgent` talks to Factory Droid through `@factory/droid-sdk`
+5. Streaming events are mapped back into the app message pipeline
+
+Important implications:
+
+- The Factory Droid path is **main-process-first**
+- Compatibility backends still rely on worker processes and protocol-specific adapters
+- Runtime model/autonomy changes for Droid happen through `session.updateSettings(...)`
 
 ## IPC Communication
 
@@ -26,7 +52,7 @@ Located in `src/process/webserver/`.
 
 ## Run Modes
 
-AionUi can run in four modes. The WebSocket channel is the browser-side equivalent of
+Agent Factory can run in four modes. The WebSocket channel is the browser-side equivalent of
 Electron IPC — both transports reach the same bridge handlers and services.
 
 ```

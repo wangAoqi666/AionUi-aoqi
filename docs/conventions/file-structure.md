@@ -20,7 +20,7 @@ Rules for organizing files and directories across the entire Electron project.
 
 ## Project Layout (`src/`)
 
-AionUi is a multi-process Electron app with three core layers: **renderer**, **main process**, and **preload/shared**.
+Agent Factory is a multi-process Electron app with three core layers: **renderer**, **main process**, and **preload/shared**. The primary agent integration lives in `src/process/agent/droid/` via `@factory/droid-sdk`; other agent platform directories remain as compatibility layers.
 
 ### Target Structure
 
@@ -32,7 +32,7 @@ src/
 │   ├── services/      #   Business logic
 │   ├── database/      #   SQLite
 │   ├── task/          #   Agent/task management
-│   ├── agent/         #   AI platform connections
+│   ├── agent/         #   AI platform connections (Factory Droid via @factory/droid-sdk is primary)
 │   ├── channels/      #   Multi-channel messaging
 │   ├── extensions/    #   Plugin system
 │   ├── webserver/     #   WebUI server

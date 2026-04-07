@@ -1,34 +1,43 @@
-# AionUi 项目结构说明文档（二次开发参考）
+# 智能体工厂 / Agent Factory 项目结构说明文档（二次开发参考）
 
 > 版本：v1.9.7 | 最后更新：2026-04-06
+> 品牌说明：对外品牌为 `智能体工厂 / Agent Factory`；命令、路径、安装包中的 `AionUi` 仍表示当前技术标识
 
 ---
 
 ## 1. 项目概览
 
-AionUi 是一个基于 Electron 的开源跨平台 AI 协作平台。它将命令行 AI Agent 封装成现代化的聊天界面，支持多 Agent 后端、多渠道消息接入、扩展系统、定时任务等能力。
+智能体工厂 / Agent Factory 是一个基于 Electron 的智能体工作平台，围绕 Factory Droid 做深度定制。应用层通过 `@factory/droid-sdk` 与 Droid 交互，Factory Droid + SDK 是当前主链路；多 Agent / ACP / 其他后端能力继续保留，但定位为兼容层。
+
+### 产品定位
+
+- 主智能体交互链路：`src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
+- 其他 ACP / 多后端能力：兼容层与历史能力，不再作为项目第一定义
+- 官方参考直链：
+  - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
+  - https://docs.factory.ai/llms.txt
 
 ### 技术栈
 
-| 层面 | 技术 |
-|------|------|
-| 桌面框架 | Electron 37.3.1 |
-| 前端 | React 19 + TypeScript |
-| 构建 | electron-vite + Vite 6.4.1 |
-| CSS | UnoCSS 66.3.3（原子化）+ CSS Modules |
-| UI 组件库 | @arco-design/web-react |
-| 图标 | @icon-park/react |
-| 数据库 | SQLite (better-sqlite3 12.4.1 / bun:sqlite) |
-| Web 服务器 | Express 5.1.0 + WebSocket |
-| 测试 | Vitest 4.0.18 + Playwright |
-| Lint/Format | oxlint + oxfmt |
-| 包管理 | bun |
-| 移动端 | React Native (Expo) |
-| 总依赖数 | 83 个 production 依赖 |
+| 层面        | 技术                                        |
+| ----------- | ------------------------------------------- |
+| 桌面框架    | Electron 37.3.1                             |
+| 前端        | React 19 + TypeScript                       |
+| 构建        | electron-vite + Vite 6.4.1                  |
+| CSS         | UnoCSS 66.3.3（原子化）+ CSS Modules        |
+| UI 组件库   | @arco-design/web-react                      |
+| 图标        | @icon-park/react                            |
+| 数据库      | SQLite (better-sqlite3 12.4.1 / bun:sqlite) |
+| Web 服务器  | Express 5.1.0 + WebSocket                   |
+| 测试        | Vitest 4.0.18 + Playwright                  |
+| Lint/Format | oxlint + oxfmt                              |
+| 包管理      | bun                                         |
+| 移动端      | React Native (Expo)                         |
+| 总依赖数    | 83 个 production 依赖                       |
 
 ### 运行模式
 
-AionUi 支持四种运行模式：
+智能体工厂（当前技术标识仍为 `AionUi`）支持四种运行模式：
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -68,7 +77,7 @@ AionUi 支持四种运行模式：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        AionUi 三进程架构                         │
+│                 Agent Factory 三进程架构                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────┐   contextBridge    ┌────────────────────┐  │
@@ -111,7 +120,10 @@ AionUi 支持四种运行模式：
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+> **补充说明**：Factory Droid 主链路不走通用 Worker 协议桥接，而是在 Main 进程中由 `AcpAgentManager` 直接托管 `DroidSdkAgent`，再通过 `@factory/droid-sdk` 与 Droid 通信。上图中的 Worker 层主要服务于兼容后端。
+
 **关键约束**：
+
 - Renderer 进程禁止使用 Node.js API（如 `fs`、`path`）
 - Main 进程禁止使用 DOM API（如 `document`、`window`）
 - Worker 进程禁止使用 Electron API（如 `app`、`BrowserWindow`）
@@ -123,43 +135,43 @@ AionUi 支持四种运行模式：
 
 ### 配置文件
 
-| 文件 | 用途 |
-|------|------|
-| `package.json` | 项目依赖、脚本命令、元数据 |
-| `bun.lock` | bun 包管理器锁文件 |
-| `tsconfig.json` | TypeScript 编译配置（路径别名 `@/*`、`@process/*`、`@renderer/*`） |
-| `electron.vite.config.ts` | electron-vite 构建配置（main/preload/renderer 三入口） |
-| `vite.renderer.config.ts` | Renderer 独立 Vite 配置（用于 WebUI 独立构建） |
-| `uno.config.ts` | UnoCSS 配置（主题色、语义 token、自定义规则） |
-| `vitest.config.ts` | Vitest 测试框架配置 |
-| `playwright.config.ts` | Playwright E2E 测试配置 |
-| `electron-builder.yml` | electron-builder 打包配置（多平台 dmg/exe/deb） |
-| `entitlements.plist` | macOS 签名权限声明 |
-| `Dockerfile` | Docker 容器化构建（server 模式） |
-| `justfile` | just 命令运行器（类 Makefile，包含构建/发布/版本管理任务） |
-| `codecov.yml` | Codecov 代码覆盖率配置 |
+| 文件                      | 用途                                                               |
+| ------------------------- | ------------------------------------------------------------------ |
+| `package.json`            | 项目依赖、脚本命令、元数据                                         |
+| `bun.lock`                | bun 包管理器锁文件                                                 |
+| `tsconfig.json`           | TypeScript 编译配置（路径别名 `@/*`、`@process/*`、`@renderer/*`） |
+| `electron.vite.config.ts` | electron-vite 构建配置（main/preload/renderer 三入口）             |
+| `vite.renderer.config.ts` | Renderer 独立 Vite 配置（用于 WebUI 独立构建）                     |
+| `uno.config.ts`           | UnoCSS 配置（主题色、语义 token、自定义规则）                      |
+| `vitest.config.ts`        | Vitest 测试框架配置                                                |
+| `playwright.config.ts`    | Playwright E2E 测试配置                                            |
+| `electron-builder.yml`    | electron-builder 打包配置（多平台 dmg/exe/deb）                    |
+| `entitlements.plist`      | macOS 签名权限声明                                                 |
+| `Dockerfile`              | Docker 容器化构建（server 模式）                                   |
+| `justfile`                | just 命令运行器（类 Makefile，包含构建/发布/版本管理任务）         |
+| `codecov.yml`             | Codecov 代码覆盖率配置                                             |
 
 ### 代码质量
 
-| 文件 | 用途 |
-|------|------|
-| `.oxlintrc.json` | oxlint 规则配置（替代 ESLint） |
-| `.oxfmtrc.json` | oxfmt 格式化配置（替代 Prettier） |
-| `.prettierrc.json` | Prettier 配置（兼容旧工具链） |
-| `.prettierignore` | Prettier 忽略文件 |
+| 文件                      | 用途                                    |
+| ------------------------- | --------------------------------------- |
+| `.oxlintrc.json`          | oxlint 规则配置（替代 ESLint）          |
+| `.oxfmtrc.json`           | oxfmt 格式化配置（替代 Prettier）       |
+| `.prettierrc.json`        | Prettier 配置（兼容旧工具链）           |
+| `.prettierignore`         | Prettier 忽略文件                       |
 | `.pre-commit-config.yaml` | pre-commit 钩子（lint/format/类型检查） |
-| `.gitignore` | Git 忽略规则 |
-| `.gitattributes` | Git 文件属性（LF 换行、二进制标记） |
-| `.npmrc` | npm/bun 注册表配置 |
+| `.gitignore`              | Git 忽略规则                            |
+| `.gitattributes`          | Git 文件属性（LF 换行、二进制标记）     |
+| `.npmrc`                  | npm/bun 注册表配置                      |
 
 ### 文档
 
-| 文件 | 用途 |
-|------|------|
-| `readme.md` | 项目 README（功能介绍、安装指南） |
-| `LICENSE` | Apache-2.0 开源协议 |
+| 文件        | 用途                                    |
+| ----------- | --------------------------------------- |
+| `readme.md` | 项目 README（功能介绍、安装指南）       |
+| `LICENSE`   | Apache-2.0 开源协议                     |
 | `AGENTS.md` | AI Agent 开发指南（代码规范、架构约束） |
-| `CLAUDE.md` | Claude Code 配置（指向 AGENTS.md） |
+| `CLAUDE.md` | Claude Code 配置（指向 AGENTS.md）      |
 
 ---
 
@@ -188,39 +200,39 @@ AionUi-aoqi/
 
 #### `scripts/` — 构建与运维脚本
 
-| 文件 | 用途 |
-|------|------|
-| `build-with-builder.js` | 核心打包脚本（调用 electron-builder） |
-| `afterPack.js` | 打包后处理（签名、资源复制） |
-| `afterSign.js` | 签名后处理 |
-| `build-server.mjs` | 纯 Node.js server 模式构建 |
-| `build-mcp-servers.js` | MCP Server 构建 |
-| `dev-bootstrap.mjs` | 开发环境启动引导 |
-| `postinstall.js` | `bun install` 后置脚本 |
-| `prepareBundledBun.js` | 打包内置 bun 运行时 |
-| `rebuildNativeModules.js` | 重编译原生模块（better-sqlite3 等） |
-| `check-i18n.js` | i18n 键值完整性校验 |
-| `generate-i18n-types.js` | 根据 JSON 生成 i18n TypeScript 类型 |
-| `packaged-launch.mjs` | 打包后启动脚本 |
-| `install-ubuntu.sh` | Ubuntu 安装脚本 |
-| `fix-sentry-daemon.sh` | Sentry 错误自动修复守护脚本 |
+| 文件                      | 用途                                  |
+| ------------------------- | ------------------------------------- |
+| `build-with-builder.js`   | 核心打包脚本（调用 electron-builder） |
+| `afterPack.js`            | 打包后处理（签名、资源复制）          |
+| `afterSign.js`            | 签名后处理                            |
+| `build-server.mjs`        | 纯 Node.js server 模式构建            |
+| `build-mcp-servers.js`    | MCP Server 构建                       |
+| `dev-bootstrap.mjs`       | 开发环境启动引导                      |
+| `postinstall.js`          | `bun install` 后置脚本                |
+| `prepareBundledBun.js`    | 打包内置 bun 运行时                   |
+| `rebuildNativeModules.js` | 重编译原生模块（better-sqlite3 等）   |
+| `check-i18n.js`           | i18n 键值完整性校验                   |
+| `generate-i18n-types.js`  | 根据 JSON 生成 i18n TypeScript 类型   |
+| `packaged-launch.mjs`     | 打包后启动脚本                        |
+| `install-ubuntu.sh`       | Ubuntu 安装脚本                       |
+| `fix-sentry-daemon.sh`    | Sentry 错误自动修复守护脚本           |
 
 #### `docs/` — 项目文档
 
-| 路径 | 内容 |
-|------|------|
-| `docs/tech/architecture.md` | 核心架构文档（四种运行模式图解） |
-| `docs/CODE_STYLE.md` | 代码风格指南 |
-| `docs/development.md` | 开发环境搭建 |
-| `docs/SERVER_DEPLOY_GUIDE.md` | Server 模式部署指南 |
-| `docs/WEBUI_GUIDE.md` | WebUI 使用指南 |
-| `docs/cdp.md` | Chrome DevTools Protocol 集成 |
-| `docs/conventions/` | 文件结构约定、PR 自动化约定 |
-| `docs/superpowers/` | 超级能力文档（PPT 生成、进程解耦设计等） |
-| `docs/feature/` | 功能设计文档（扩展市场等） |
-| `docs/research/` | 技术调研（Team 模式架构分析、实现对比等） |
-| `docs/HUB_TEST_GUIDE.md` | Agent Hub 测试指南 |
-| `docs/readme/` | 多语言 README（中/日/韩/土/繁/西/葡） |
+| 路径                          | 内容                                      |
+| ----------------------------- | ----------------------------------------- |
+| `docs/tech/architecture.md`   | 核心架构文档（四种运行模式图解）          |
+| `docs/CODE_STYLE.md`          | 代码风格指南                              |
+| `docs/development.md`         | 开发环境搭建                              |
+| `docs/SERVER_DEPLOY_GUIDE.md` | Server 模式部署指南                       |
+| `docs/WEBUI_GUIDE.md`         | WebUI 使用指南                            |
+| `docs/cdp.md`                 | Chrome DevTools Protocol 集成             |
+| `docs/conventions/`           | 文件结构约定、PR 自动化约定               |
+| `docs/superpowers/`           | 超级能力文档（PPT 生成、进程解耦设计等）  |
+| `docs/feature/`               | 功能设计文档（扩展市场等）                |
+| `docs/research/`              | 技术调研（Team 模式架构分析、实现对比等） |
+| `docs/HUB_TEST_GUIDE.md`      | Agent Hub 测试指南                        |
+| `docs/readme/`                | 多语言 README（中/日/韩/土/繁/西/葡）     |
 
 #### `mobile/` — React Native 移动端
 
@@ -240,14 +252,14 @@ mobile/
 
 #### `examples/` — 扩展开发示例
 
-| 目录 | 说明 |
-|------|------|
-| `hello-world-extension/` | 最基础的扩展示例 |
-| `e2e-full-extension/` | 完整功能扩展示例 |
+| 目录                     | 说明               |
+| ------------------------ | ------------------ |
+| `hello-world-extension/` | 最基础的扩展示例   |
+| `e2e-full-extension/`    | 完整功能扩展示例   |
 | `acp-adapter-extension/` | ACP 协议适配器扩展 |
-| `ext-feishu/` | 飞书集成扩展 |
-| `ext-wecom-bot/` | 企业微信机器人扩展 |
-| `star-office-extension/` | 星辰办公扩展 |
+| `ext-feishu/`            | 飞书集成扩展       |
+| `ext-wecom-bot/`         | 企业微信机器人扩展 |
+| `star-office-extension/` | 星辰办公扩展       |
 
 #### `.github/` — CI/CD
 
@@ -283,14 +295,14 @@ src/
 src/process/
 ├── index.ts            # 主进程初始化入口
 ├── bridge/             # IPC 桥接层 ★ 核心（42 个 bridge 文件）
-├── task/               # AI Agent 管理器
+├── task/               # AI Agent 管理器（Factory Droid 主链路 + 兼容后端）
 ├── services/           # 后端服务
 ├── channels/           # 消息渠道系统
 ├── extensions/         # 扩展系统
 ├── team/               # ★ Team 多 Agent 协作系统（v1.9.3+）
 ├── worker/             # 子进程 fork 入口
 ├── webserver/          # Express 5 + WebSocket 服务
-├── agent/              # Agent 协议适配器（ACP / AionRS / Gemini / OpenClaw）
+├── agent/              # Agent 协议 / SDK 适配器（Droid / ACP / AionRS / Gemini / OpenClaw）
 ├── resources/          # 主进程资源
 └── utils/              # 主进程工具函数
 ```
@@ -299,78 +311,78 @@ src/process/
 
 这是 Main 进程与 Renderer 进程之间通信的核心。每个 bridge 文件负责一个功能域：
 
-| Bridge 文件 | 功能域 | 说明 |
-|-------------|--------|------|
-| `conversationBridge.ts` | 会话管理 | 创建/删除/切换/搜索会话 |
-| `acpConversationBridge.ts` | ACP 会话 | ACP 协议下的会话管理 |
-| `modelBridge.ts` | 模型管理 | LLM 模型配置、切换、API Key |
-| `fsBridge.ts` | 文件系统 | 文件读写、目录操作（最大的 bridge，54KB） |
-| `channelBridge.ts` | 渠道管理 | 消息渠道的增删改查 |
-| `extensionsBridge.ts` | 扩展管理 | 扩展安装/卸载/配置 |
-| `mcpBridge.ts` | MCP 管理 | Model Context Protocol 服务器管理 |
-| `updateBridge.ts` | 自动更新 | 检查/下载/安装更新 |
-| `systemSettingsBridge.ts` | 系统设置 | 全局设置读写 |
-| `databaseBridge.ts` | 数据库 | 数据导入/导出/迁移 |
-| `authBridge.ts` | 认证 | WebUI 登录/JWT/密码管理 |
-| `webuiBridge.ts` | WebUI | WebUI 服务启停/配置 |
-| `applicationBridge.ts` | 应用控制 | 窗口管理、应用信息 |
-| `cronBridge.ts` | 定时任务 | Cron 任务的增删改查 |
-| `taskBridge.ts` | 后台任务 | Worker 任务状态管理 |
-| `pptPreviewBridge.ts` | PPT 预览 | PPT 生成和实时预览 |
-| `documentBridge.ts` | 文档操作 | 文档生成/转换 |
-| `remoteAgentBridge.ts` | 远程 Agent | OpenClaw 远程 Agent 管理 |
-| `starOfficeBridge.ts` | 星辰办公 | 办公套件集成 |
-| `shellBridge.ts` | Shell | 打开外部链接/文件 |
-| `dialogBridge.ts` | 对话框 | 系统文件选择对话框 |
-| `notificationBridge.ts` | 通知 | 系统通知推送 |
-| `windowControlsBridge.ts` | 窗口控件 | 最小化/最大化/关闭 |
-| `fileWatchBridge.ts` | 文件监听 | 工作区文件变更监听 |
-| `bedrockBridge.ts` | Bedrock | AWS Bedrock 集成 |
-| `geminiBridge.ts` | Gemini | Google Gemini 配置 |
-| `weixinLoginBridge.ts` | 微信登录 | 微信扫码登录 |
-| `teamBridge.ts` | Team 模式 | 多 Agent 团队创建/管理/会话（v1.9.3+） |
-| `hubBridge.ts` | Agent Hub | 扩展发现、安装、生命周期管理（v1.9.5+） |
-| `officeWatchBridge.ts` | 办公监听 | 办公文件变更实时监听 |
-| `workspaceSnapshotBridge.ts` | 工作区快照 | 工作区状态快照/恢复 |
-| `speechToTextBridge.ts` | 语音输入 | Speech-to-Text 语音转文字 |
-| `geminiConversationBridge.ts` | Gemini 会话 | Gemini 专属会话管理 |
-| `testCustomAgentConnection.ts` | 连接测试 | 自定义 Agent 连接验证 |
+| Bridge 文件                    | 功能域      | 说明                                      |
+| ------------------------------ | ----------- | ----------------------------------------- |
+| `conversationBridge.ts`        | 会话管理    | 创建/删除/切换/搜索会话                   |
+| `acpConversationBridge.ts`     | Agent 会话  | Factory Droid / ACP 兼容后端的会话管理    |
+| `modelBridge.ts`               | 模型管理    | LLM 模型配置、切换、API Key               |
+| `fsBridge.ts`                  | 文件系统    | 文件读写、目录操作（最大的 bridge，54KB） |
+| `channelBridge.ts`             | 渠道管理    | 消息渠道的增删改查                        |
+| `extensionsBridge.ts`          | 扩展管理    | 扩展安装/卸载/配置                        |
+| `mcpBridge.ts`                 | MCP 管理    | Model Context Protocol 服务器管理         |
+| `updateBridge.ts`              | 自动更新    | 检查/下载/安装更新                        |
+| `systemSettingsBridge.ts`      | 系统设置    | 全局设置读写                              |
+| `databaseBridge.ts`            | 数据库      | 数据导入/导出/迁移                        |
+| `authBridge.ts`                | 认证        | WebUI 登录/JWT/密码管理                   |
+| `webuiBridge.ts`               | WebUI       | WebUI 服务启停/配置                       |
+| `applicationBridge.ts`         | 应用控制    | 窗口管理、应用信息                        |
+| `cronBridge.ts`                | 定时任务    | Cron 任务的增删改查                       |
+| `taskBridge.ts`                | 后台任务    | Worker 任务状态管理                       |
+| `pptPreviewBridge.ts`          | PPT 预览    | PPT 生成和实时预览                        |
+| `documentBridge.ts`            | 文档操作    | 文档生成/转换                             |
+| `remoteAgentBridge.ts`         | 远程 Agent  | OpenClaw 远程 Agent 管理                  |
+| `starOfficeBridge.ts`          | 星辰办公    | 办公套件集成                              |
+| `shellBridge.ts`               | Shell       | 打开外部链接/文件                         |
+| `dialogBridge.ts`              | 对话框      | 系统文件选择对话框                        |
+| `notificationBridge.ts`        | 通知        | 系统通知推送                              |
+| `windowControlsBridge.ts`      | 窗口控件    | 最小化/最大化/关闭                        |
+| `fileWatchBridge.ts`           | 文件监听    | 工作区文件变更监听                        |
+| `bedrockBridge.ts`             | Bedrock     | AWS Bedrock 集成                          |
+| `geminiBridge.ts`              | Gemini      | Google Gemini 配置                        |
+| `weixinLoginBridge.ts`         | 微信登录    | 微信扫码登录                              |
+| `teamBridge.ts`                | Team 模式   | 多 Agent 团队创建/管理/会话（v1.9.3+）    |
+| `hubBridge.ts`                 | Agent Hub   | 扩展发现、安装、生命周期管理（v1.9.5+）   |
+| `officeWatchBridge.ts`         | 办公监听    | 办公文件变更实时监听                      |
+| `workspaceSnapshotBridge.ts`   | 工作区快照  | 工作区状态快照/恢复                       |
+| `speechToTextBridge.ts`        | 语音输入    | Speech-to-Text 语音转文字                 |
+| `geminiConversationBridge.ts`  | Gemini 会话 | Gemini 专属会话管理                       |
+| `testCustomAgentConnection.ts` | 连接测试    | 自定义 Agent 连接验证                     |
 
 #### `task/` — AI Agent 管理器
 
-每个 AI 后端对应一个 AgentManager，继承自 `BaseAgentManager`：
+每个 AI 后端对应一个 AgentManager，继承自 `BaseAgentManager`。其中 Factory Droid 主链路复用 `AcpAgentManager` 的编排层，但底层实际接入的是 `DroidSdkAgent`：
 
-| 文件 | Agent 后端 | 说明 |
-|------|-----------|------|
-| `AcpAgentManager.ts` | ACP | Agent Communication Protocol（Claude Code 等） |
-| `AionrsManager.ts` | AionRS | AionRS 协议 Agent（v1.9.5+，替代 Codex） |
-| `GeminiAgentManager.ts` | Gemini | Google Gemini 原生集成 |
-| `OpenClawAgentManager.ts` | OpenClaw | OpenClaw 协议 Agent |
-| `RemoteAgentManager.ts` | Remote | 远程 Agent 连接 |
-| `NanoBotAgentManager.ts` | NanoBot | 轻量级 Bot |
-| `AgentFactory.ts` | - | Agent 工厂（根据类型创建对应 Manager） |
-| `BaseAgentManager.ts` | - | 基类（定义公共生命周期） |
-| `AcpSkillManager.ts` | - | ACP Skill（技能）管理 |
-| `MessageMiddleware.ts` | - | 消息中间件链 |
-| `CronCommandDetector.ts` | - | 消息中定时任务命令检测 |
-| `ThinkTagDetector.ts` | - | 思维链标签检测 |
-| `WorkerTaskManager.ts` | - | Worker 子进程任务调度 |
+| 文件                      | Agent 后端  | 说明                                                     |
+| ------------------------- | ----------- | -------------------------------------------------------- |
+| `AcpAgentManager.ts`      | Droid / ACP | Factory Droid 主链路与 Claude Code 等 ACP 后端共用编排层 |
+| `AionrsManager.ts`        | AionRS      | AionRS 协议 Agent（v1.9.5+，替代 Codex）                 |
+| `GeminiAgentManager.ts`   | Gemini      | Google Gemini 原生集成                                   |
+| `OpenClawAgentManager.ts` | OpenClaw    | OpenClaw 协议 Agent                                      |
+| `RemoteAgentManager.ts`   | Remote      | 远程 Agent 连接                                          |
+| `NanoBotAgentManager.ts`  | NanoBot     | 轻量级 Bot                                               |
+| `AgentFactory.ts`         | -           | Agent 工厂（根据类型创建对应 Manager）                   |
+| `BaseAgentManager.ts`     | -           | 基类（定义公共生命周期）                                 |
+| `AcpSkillManager.ts`      | -           | ACP Skill（技能）管理                                    |
+| `MessageMiddleware.ts`    | -           | 消息中间件链                                             |
+| `CronCommandDetector.ts`  | -           | 消息中定时任务命令检测                                   |
+| `ThinkTagDetector.ts`     | -           | 思维链标签检测                                           |
+| `WorkerTaskManager.ts`    | -           | 兼容后端 Worker 子进程任务调度                           |
 
 #### `services/` — 后端服务
 
-| 目录/文件 | 服务 | 说明 |
-|-----------|------|------|
-| `database/` | 数据库 | SQLite 数据库（schema/migrations/Repository 模式） |
-| `database/drivers/` | DB 驱动 | better-sqlite3 + bun:sqlite 双驱动 |
-| `cron/` | 定时任务 | CronService + CronBusyGuard + SqliteRepository |
-| `conversionService.ts` | 格式转换 | 文档/数据格式转换 |
-| `ConversationServiceImpl.ts` | 会话服务 | 会话 CRUD 业务逻辑 |
-| `autoUpdaterService.ts` | 自动更新 | electron-updater 封装 |
-| `mcpServices/` | MCP | Model Context Protocol 服务管理 |
-| `previewHistoryService.ts` | 预览历史 | 文件预览历史记录 |
-| `geminiSubscription.ts` | Gemini 订阅 | Gemini 事件订阅管理 |
-| `openclawConflictDetector.ts` | 冲突检测 | OpenClaw 配置冲突检测 |
-| `i18n/` | 国际化 | 主进程 i18n 服务 |
+| 目录/文件                     | 服务        | 说明                                               |
+| ----------------------------- | ----------- | -------------------------------------------------- |
+| `database/`                   | 数据库      | SQLite 数据库（schema/migrations/Repository 模式） |
+| `database/drivers/`           | DB 驱动     | better-sqlite3 + bun:sqlite 双驱动                 |
+| `cron/`                       | 定时任务    | CronService + CronBusyGuard + SqliteRepository     |
+| `conversionService.ts`        | 格式转换    | 文档/数据格式转换                                  |
+| `ConversationServiceImpl.ts`  | 会话服务    | 会话 CRUD 业务逻辑                                 |
+| `autoUpdaterService.ts`       | 自动更新    | electron-updater 封装                              |
+| `mcpServices/`                | MCP         | Model Context Protocol 服务管理                    |
+| `previewHistoryService.ts`    | 预览历史    | 文件预览历史记录                                   |
+| `geminiSubscription.ts`       | Gemini 订阅 | Gemini 事件订阅管理                                |
+| `openclawConflictDetector.ts` | 冲突检测    | OpenClaw 配置冲突检测                              |
+| `i18n/`                       | 国际化      | 主进程 i18n 服务                                   |
 
 #### `channels/` — 消息渠道系统
 
@@ -413,14 +425,14 @@ extensions/
 
 通过 `child_process.fork()` 创建的后台进程：
 
-| 文件 | Worker 类型 | 说明 |
-|------|------------|------|
-| `acp.ts` | ACP Worker | Claude Code 等 ACP 协议后端 |
-| `aionrs.ts` | AionRS Worker | AionRS 协议后端（v1.9.5+，替代 Codex） |
-| `gemini.ts` | Gemini Worker | Gemini 原生后端 |
-| `nanobot.ts` | NanoBot Worker | 轻量级 Bot |
-| `openclaw-gateway.ts` | OpenClaw Gateway | OpenClaw 网关 |
-| `fork/` | fork 工具 | 子进程创建和通信工具 |
+| 文件                  | Worker 类型      | 说明                                   |
+| --------------------- | ---------------- | -------------------------------------- |
+| `acp.ts`              | ACP Worker       | Claude Code 等 ACP 协议后端            |
+| `aionrs.ts`           | AionRS Worker    | AionRS 协议后端（v1.9.5+，替代 Codex） |
+| `gemini.ts`           | Gemini Worker    | Gemini 原生后端                        |
+| `nanobot.ts`          | NanoBot Worker   | 轻量级 Bot                             |
+| `openclaw-gateway.ts` | OpenClaw Gateway | OpenClaw 网关                          |
+| `fork/`               | fork 工具        | 子进程创建和通信工具                   |
 
 #### `webserver/` — Web 服务器
 
@@ -479,14 +491,15 @@ team/
 
 每个 AI 后端的底层协议实现：
 
-| 目录 | Agent 后端 | 说明 |
-|------|-----------|------|
-| `acp/` | ACP | Agent Communication Protocol（66KB index.ts，最复杂的适配器） |
-| `aionrs/` | AionRS | AionRS 协议（v1.9.5+，含二进制解析、环境构建、协议定义） |
-| `gemini/` | Gemini | Google Gemini 原生协议 |
-| `nanobot/` | NanoBot | 轻量级 Bot 协议 |
-| `openclaw/` | OpenClaw | OpenClaw 网关协议 |
-| `remote/` | Remote | 远程 Agent 连接协议 |
+| 目录        | Agent 后端 | 说明                                                          |
+| ----------- | ---------- | ------------------------------------------------------------- |
+| `droid/`    | Droid      | Factory Droid SDK 集成（session、stream、AskUser、权限处理）  |
+| `acp/`      | ACP        | Agent Communication Protocol（66KB index.ts，最复杂的适配器） |
+| `aionrs/`   | AionRS     | AionRS 协议（v1.9.5+，含二进制解析、环境构建、协议定义）      |
+| `gemini/`   | Gemini     | Google Gemini 原生协议                                        |
+| `nanobot/`  | NanoBot    | 轻量级 Bot 协议                                               |
+| `openclaw/` | OpenClaw   | OpenClaw 网关协议                                             |
+| `remote/`   | Remote     | 远程 Agent 连接协议                                           |
 
 > **注意**：Codex 协议适配器已在 v1.9.5 中移除，由 AionRS 替代。
 
@@ -512,14 +525,14 @@ src/renderer/
 
 #### `pages/` — 页面模块
 
-| 目录 | 页面 | 说明 |
-|------|------|------|
-| `guid/` | 引导页 | 首页/新对话引导、Agent 选择 |
-| `conversation/` | 对话页 | 聊天主界面（消息列表、输入框、历史、预览） |
-| `settings/` | 设置页 | Agent/模型/显示/工具/Skills/WebUI/扩展/AionRS 等设置 |
-| `cron/` | 定时任务页 | Cron 任务管理界面 |
-| `team/` | Team 页 | ★ 多 Agent 团队协作界面（v1.9.3+） |
-| `login/` | 登录页 | WebUI 登录界面 |
+| 目录            | 页面       | 说明                                                 |
+| --------------- | ---------- | ---------------------------------------------------- |
+| `guid/`         | 引导页     | 首页/新对话引导、Agent 选择                          |
+| `conversation/` | 对话页     | 聊天主界面（消息列表、输入框、历史、预览）           |
+| `settings/`     | 设置页     | Agent/模型/显示/工具/Skills/WebUI/扩展/AionRS 等设置 |
+| `cron/`         | 定时任务页 | Cron 任务管理界面                                    |
+| `team/`         | Team 页    | ★ 多 Agent 团队协作界面（v1.9.3+）                   |
+| `login/`        | 登录页     | WebUI 登录界面                                       |
 
 **对话页子模块**（最复杂的页面）：
 
@@ -556,37 +569,37 @@ settings/
 
 #### `components/` — 共享组件
 
-| 目录 | 组件类型 | 说明 |
-|------|---------|------|
-| `Markdown/` | Markdown | Markdown 渲染器 |
-| `chat/` | 聊天 | 消息气泡、输入框、工具调用展示 |
-| `layout/` | 布局 | 侧边栏、头部、面板布局 |
-| `media/` | 媒体 | 图片/视频/文件预览 |
-| `agent/` | Agent | Agent 选择器、状态指示器 |
-| `settings/` | 设置 | 设置项通用组件 |
-| `base/` | 基础 | 按钮、输入框等基础组件封装 |
+| 目录        | 组件类型 | 说明                           |
+| ----------- | -------- | ------------------------------ |
+| `Markdown/` | Markdown | Markdown 渲染器                |
+| `chat/`     | 聊天     | 消息气泡、输入框、工具调用展示 |
+| `layout/`   | 布局     | 侧边栏、头部、面板布局         |
+| `media/`    | 媒体     | 图片/视频/文件预览             |
+| `agent/`    | Agent    | Agent 选择器、状态指示器       |
+| `settings/` | 设置     | 设置项通用组件                 |
+| `base/`     | 基础     | 按钮、输入框等基础组件封装     |
 
 #### `hooks/` — 自定义 Hooks
 
-| 目录 | 领域 | 示例 |
-|------|------|------|
-| `agent/` | Agent | useAgent、useAgentStatus |
-| `chat/` | 聊天 | useChat、useAutoScroll、useMessages |
-| `file/` | 文件 | useFileUpload、useFilePreview |
-| `mcp/` | MCP | useMcpServers、useMcpTools |
-| `system/` | 系统 | useSystemSettings、useUpdate |
-| `ui/` | UI | useTheme、useLayout、useMinimap |
-| `context/` | 上下文 | useConversation、useWorkspace |
-| `assistant/` | 助手 | useAssistant、usePresetAssistant |
+| 目录         | 领域   | 示例                                |
+| ------------ | ------ | ----------------------------------- |
+| `agent/`     | Agent  | useAgent、useAgentStatus            |
+| `chat/`      | 聊天   | useChat、useAutoScroll、useMessages |
+| `file/`      | 文件   | useFileUpload、useFilePreview       |
+| `mcp/`       | MCP    | useMcpServers、useMcpTools          |
+| `system/`    | 系统   | useSystemSettings、useUpdate        |
+| `ui/`        | UI     | useTheme、useLayout、useMinimap     |
+| `context/`   | 上下文 | useConversation、useWorkspace       |
+| `assistant/` | 助手   | useAssistant、usePresetAssistant    |
 
 #### `services/` — 前端服务
 
-| 文件 | 服务 | 说明 |
-|------|------|------|
-| `FileService.ts` | 文件服务 | 文件上传、下载、预览 |
-| `PasteService.ts` | 粘贴服务 | 剪贴板内容处理 |
-| `i18n/` | 国际化 | 前端 i18n 初始化和管理 |
-| `registerPwa.ts` | PWA | Service Worker 注册 |
+| 文件              | 服务     | 说明                   |
+| ----------------- | -------- | ---------------------- |
+| `FileService.ts`  | 文件服务 | 文件上传、下载、预览   |
+| `PasteService.ts` | 粘贴服务 | 剪贴板内容处理         |
+| `i18n/`           | 国际化   | 前端 i18n 初始化和管理 |
+| `registerPwa.ts`  | PWA      | Service Worker 注册    |
 
 ---
 
@@ -612,50 +625,50 @@ src/common/
 
 这是实现多运行模式的关键：
 
-| 文件 | 适配器 | 说明 |
-|------|--------|------|
-| `ipcBridge.ts` | 核心 | Bridge 注册表 + 消息路由（46KB，最大的文件之一） |
-| `main.ts` | Electron | Electron IPC 适配（ipcMain.handle） |
-| `browser.ts` | 浏览器 | WebSocket 适配（WebUI 模式） |
-| `standalone.ts` | Node.js | 纯 Node.js 适配（server 模式） |
-| `registry.ts` | 注册表 | Bridge 处理器注册 |
-| `constant.ts` | 常量 | Bridge 事件键名 |
+| 文件            | 适配器   | 说明                                             |
+| --------------- | -------- | ------------------------------------------------ |
+| `ipcBridge.ts`  | 核心     | Bridge 注册表 + 消息路由（46KB，最大的文件之一） |
+| `main.ts`       | Electron | Electron IPC 适配（ipcMain.handle）              |
+| `browser.ts`    | 浏览器   | WebSocket 适配（WebUI 模式）                     |
+| `standalone.ts` | Node.js  | 纯 Node.js 适配（server 模式）                   |
+| `registry.ts`   | 注册表   | Bridge 处理器注册                                |
+| `constant.ts`   | 常量     | Bridge 事件键名                                  |
 
 #### `api/` — LLM API 客户端
 
-| 文件 | 说明 |
-|------|------|
-| `ClientFactory.ts` | API 客户端工厂 |
-| `RotatingApiClient.ts` | 多 Key 轮询基类 |
-| `OpenAIRotatingClient.ts` | OpenAI 轮询客户端 |
-| `AnthropicRotatingClient.ts` | Anthropic 轮询客户端 |
-| `GeminiRotatingClient.ts` | Gemini 轮询客户端 |
+| 文件                           | 说明                        |
+| ------------------------------ | --------------------------- |
+| `ClientFactory.ts`             | API 客户端工厂              |
+| `RotatingApiClient.ts`         | 多 Key 轮询基类             |
+| `OpenAIRotatingClient.ts`      | OpenAI 轮询客户端           |
+| `AnthropicRotatingClient.ts`   | Anthropic 轮询客户端        |
+| `GeminiRotatingClient.ts`      | Gemini 轮询客户端           |
 | `OpenAI2AnthropicConverter.ts` | OpenAI → Anthropic 协议转换 |
-| `OpenAI2GeminiConverter.ts` | OpenAI → Gemini 协议转换 |
-| `ProtocolConverter.ts` | 协议转换基类 |
-| `ApiKeyManager.ts` | API Key 管理（多 Key 轮询） |
+| `OpenAI2GeminiConverter.ts`    | OpenAI → Gemini 协议转换    |
+| `ProtocolConverter.ts`         | 协议转换基类                |
+| `ApiKeyManager.ts`             | API Key 管理（多 Key 轮询） |
 
 #### `config/` — 应用配置
 
-| 文件 | 说明 |
-|------|------|
-| `storage.ts` | 持久化存储封装（19KB） |
-| `storageKeys.ts` | 存储键名常量 |
-| `constants.ts` | 全局常量 |
-| `appEnv.ts` | 应用环境变量 |
-| `i18n.ts` | i18n 配置 |
-| `i18n-config.json` | 语言和模块定义 |
-| `presets/` | 预设配置（Agent/助手预设） |
+| 文件               | 说明                       |
+| ------------------ | -------------------------- |
+| `storage.ts`       | 持久化存储封装（19KB）     |
+| `storageKeys.ts`   | 存储键名常量               |
+| `constants.ts`     | 全局常量                   |
+| `appEnv.ts`        | 应用环境变量               |
+| `i18n.ts`          | i18n 配置                  |
+| `i18n-config.json` | 语言和模块定义             |
+| `presets/`         | 预设配置（Agent/助手预设） |
 
 #### `platform/` — 平台抽象层
 
-| 文件 | 说明 |
-|------|------|
-| `IPlatformServices.ts` | 平台服务接口 |
-| `ElectronPlatformServices.ts` | Electron 实现 |
-| `NodePlatformServices.ts` | Node.js 实现 |
-| `register-electron.ts` | Electron 平台注册 |
-| `register-node.ts` | Node.js 平台注册 |
+| 文件                          | 说明              |
+| ----------------------------- | ----------------- |
+| `IPlatformServices.ts`        | 平台服务接口      |
+| `ElectronPlatformServices.ts` | Electron 实现     |
+| `NodePlatformServices.ts`     | Node.js 实现      |
+| `register-electron.ts`        | Electron 平台注册 |
+| `register-node.ts`            | Node.js 平台注册  |
 
 ---
 
@@ -689,25 +702,25 @@ tests/
 
 ### 测试命名约定
 
-| 后缀 | 环境 | 说明 |
-|------|------|------|
-| `*.test.ts` | Node | 纯逻辑/服务层测试 |
-| `*.dom.test.ts` | jsdom | 需要 DOM 但不含 JSX |
-| `*.dom.test.tsx` | jsdom | React 组件渲染测试 |
-| `*.bun.test.ts` | bun | 需要 bun 运行时的测试 |
+| 后缀             | 环境  | 说明                  |
+| ---------------- | ----- | --------------------- |
+| `*.test.ts`      | Node  | 纯逻辑/服务层测试     |
+| `*.dom.test.ts`  | jsdom | 需要 DOM 但不含 JSX   |
+| `*.dom.test.tsx` | jsdom | React 组件渲染测试    |
+| `*.bun.test.ts`  | bun   | 需要 bun 运行时的测试 |
 
 ### 测试与源码对照
 
-| 测试文件 | 对应源码 |
-|---------|---------|
-| `conversationBridge.test.ts` | `src/process/bridge/conversationBridge.ts` |
-| `AcpAgentManager*.test.ts` | `src/process/task/AcpAgentManager.ts` |
-| `cronService.test.ts` | `src/process/services/cron/CronService.ts` |
-| `fsBridge.skills.test.ts` | `src/process/bridge/fsBridge.ts` |
-| `RemoteAgentCore.test.ts` | `src/process/task/RemoteAgentManager.ts` |
-| `extensionsBridge.test.ts` | `src/process/bridge/extensionsBridge.ts` |
-| `chatLayoutHooks.dom.test.ts` | `src/renderer/hooks/chat/` |
-| `guidAgentHooks.dom.test.ts` | `src/renderer/pages/guid/hooks/` |
+| 测试文件                         | 对应源码                                            |
+| -------------------------------- | --------------------------------------------------- |
+| `conversationBridge.test.ts`     | `src/process/bridge/conversationBridge.ts`          |
+| `AcpAgentManager*.test.ts`       | `src/process/task/AcpAgentManager.ts`               |
+| `cronService.test.ts`            | `src/process/services/cron/CronService.ts`          |
+| `fsBridge.skills.test.ts`        | `src/process/bridge/fsBridge.ts`                    |
+| `RemoteAgentCore.test.ts`        | `src/process/task/RemoteAgentManager.ts`            |
+| `extensionsBridge.test.ts`       | `src/process/bridge/extensionsBridge.ts`            |
+| `chatLayoutHooks.dom.test.ts`    | `src/renderer/hooks/chat/`                          |
+| `guidAgentHooks.dom.test.ts`     | `src/renderer/pages/guid/hooks/`                    |
 | `SkillsHubSettings.dom.test.tsx` | `src/renderer/pages/settings/SkillsHubSettings.tsx` |
 
 ---
@@ -716,33 +729,33 @@ tests/
 
 ### 场景 → 修改位置
 
-| 想做什么 | 需要改哪里 | 备注 |
-|---------|-----------|------|
-| **添加新 AI Agent 后端** | `src/process/task/` 新增 XxxAgentManager | 继承 BaseAgentManager，注册到 AgentFactory |
-| **添加新 Worker** | `src/process/worker/` 新增入口文件 | 同时修改 WorkerTaskManager |
-| **修改聊天界面** | `src/renderer/pages/conversation/` | Messages/组件/Hooks |
-| **添加新设置页** | `src/renderer/pages/settings/` | 同时在 SettingsPage 注册路由 |
-| **添加新页面** | `src/renderer/pages/` 新增目录 | 在 main.tsx 注册路由 |
-| **添加新 IPC 能力** | 1. `src/process/bridge/` 新增 bridge | 2. `src/preload.ts` 暴露 API |
-| | 3. `src/common/adapter/ipcBridge.ts` 注册 | 三步缺一不可 |
-| **添加新消息渠道** | `src/process/channels/plugins/` | 继承 BasePlugin |
-| **添加新扩展** | 参考 `examples/hello-world-extension/` | 通过 ExtensionRegistry 注册 |
-| **修改数据库** | `src/process/services/database/` | 修改 schema.ts + 新增 migration |
-| **添加新 REST API** | `src/process/webserver/routes/` | WebUI/Server 模式可用 |
-| **添加新 LLM 协议** | `src/common/api/` | 参考现有 Converter/Client |
-| **修改主题/样式** | `uno.config.ts` + `src/renderer/styles/` | 语义 token 在 uno.config.ts 定义 |
-| **添加国际化文本** | `src/common/config/i18n-config.json` | 运行 `bun run i18n:types` 生成类型 |
-| **修改应用图标** | `resources/app.icns` / `app.ico` / `app.png` | 同时更新 electron-builder.yml |
-| **修改自动更新** | `src/process/services/autoUpdaterService.ts` | + updateBridge.ts |
-| **修改 PPT 生成** | `src/process/bridge/pptPreviewBridge.ts` | + 对应 Renderer 预览组件 |
-| **添加 Team 功能** | 后端 `src/process/team/` + 前端 `src/renderer/pages/team/` | Bridge: `teamBridge.ts`；DB: teams/mailbox/team_tasks 表 |
-| **添加新 Agent 后端（AionRS 模式）** | `src/process/agent/aionrs/` + `src/process/worker/aionrs.ts` | 前端: `platforms/aionrs/`；设置: `AionrsSettings.tsx` |
-| **管理 Agent Hub** | `src/process/bridge/hubBridge.ts` | 类型: `src/common/types/hub.ts` |
-| **语音输入** | `src/process/bridge/speechToTextBridge.ts` | 前端 Hook: `useSpeechInput.ts` |
+| 想做什么                             | 需要改哪里                                                   | 备注                                                     |
+| ------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------------- |
+| **添加新 AI Agent 后端**             | `src/process/task/` 新增 XxxAgentManager                     | 继承 BaseAgentManager，注册到 AgentFactory               |
+| **添加新 Worker**                    | `src/process/worker/` 新增入口文件                           | 同时修改 WorkerTaskManager                               |
+| **修改聊天界面**                     | `src/renderer/pages/conversation/`                           | Messages/组件/Hooks                                      |
+| **添加新设置页**                     | `src/renderer/pages/settings/`                               | 同时在 SettingsPage 注册路由                             |
+| **添加新页面**                       | `src/renderer/pages/` 新增目录                               | 在 main.tsx 注册路由                                     |
+| **添加新 IPC 能力**                  | 1. `src/process/bridge/` 新增 bridge                         | 2. `src/preload.ts` 暴露 API                             |
+|                                      | 3. `src/common/adapter/ipcBridge.ts` 注册                    | 三步缺一不可                                             |
+| **添加新消息渠道**                   | `src/process/channels/plugins/`                              | 继承 BasePlugin                                          |
+| **添加新扩展**                       | 参考 `examples/hello-world-extension/`                       | 通过 ExtensionRegistry 注册                              |
+| **修改数据库**                       | `src/process/services/database/`                             | 修改 schema.ts + 新增 migration                          |
+| **添加新 REST API**                  | `src/process/webserver/routes/`                              | WebUI/Server 模式可用                                    |
+| **添加新 LLM 协议**                  | `src/common/api/`                                            | 参考现有 Converter/Client                                |
+| **修改主题/样式**                    | `uno.config.ts` + `src/renderer/styles/`                     | 语义 token 在 uno.config.ts 定义                         |
+| **添加国际化文本**                   | `src/common/config/i18n-config.json`                         | 运行 `bun run i18n:types` 生成类型                       |
+| **修改应用图标**                     | `resources/app.icns` / `app.ico` / `app.png`                 | 同时更新 electron-builder.yml                            |
+| **修改自动更新**                     | `src/process/services/autoUpdaterService.ts`                 | + updateBridge.ts                                        |
+| **修改 PPT 生成**                    | `src/process/bridge/pptPreviewBridge.ts`                     | + 对应 Renderer 预览组件                                 |
+| **添加 Team 功能**                   | 后端 `src/process/team/` + 前端 `src/renderer/pages/team/`   | Bridge: `teamBridge.ts`；DB: teams/mailbox/team_tasks 表 |
+| **添加新 Agent 后端（AionRS 模式）** | `src/process/agent/aionrs/` + `src/process/worker/aionrs.ts` | 前端: `platforms/aionrs/`；设置: `AionrsSettings.tsx`    |
+| **管理 Agent Hub**                   | `src/process/bridge/hubBridge.ts`                            | 类型: `src/common/types/hub.ts`                          |
+| **语音输入**                         | `src/process/bridge/speechToTextBridge.ts`                   | 前端 Hook: `useSpeechInput.ts`                           |
 
 ### 数据流路径示例
 
-**用户发送消息到 AI** 的完整链路：
+**用户发送消息到 Factory Droid** 的主链路：
 
 ```
 Renderer (SendBox)
@@ -751,9 +764,24 @@ Renderer (SendBox)
           └─▶ Preload (ipcRenderer.invoke)
               └─▶ Main (ipcBridge 路由)
                   └─▶ conversationBridge / acpConversationBridge
-                      └─▶ AgentManager (ACP/Codex/Gemini)
+                      └─▶ AcpAgentManager (backend='droid')
+                          └─▶ DroidSdkAgent
+                              └─▶ @factory/droid-sdk Session
+                                  └─▶ Factory Droid
+```
+
+**兼容后端链路**（ACP / Gemini / AionRS / OpenClaw 等）：
+
+```
+Renderer (SendBox)
+  └─▶ Hook (useChat / useGuidSend)
+      └─▶ Bridge 调用 (electronAPI.emit)
+          └─▶ Preload (ipcRenderer.invoke)
+              └─▶ Main (ipcBridge 路由)
+                  └─▶ conversationBridge / acpConversationBridge
+                      └─▶ AgentManager
                           └─▶ Worker (fork 子进程)
-                              └─▶ AI 后端 API
+                              └─▶ AI 后端 API / 协议适配器
 ```
 
 **WebUI 模式下**（替换前三步）：
@@ -827,29 +855,29 @@ bun run server:start:prod    # 生产模式
 
 在 `tsconfig.json` 中配置了以下路径别名，代码中直接使用：
 
-| 别名 | 实际路径 | 说明 |
-|------|---------|------|
-| `@/*` | `src/*` | 项目根 src |
-| `@process/*` | `src/process/*` | Main 进程 |
-| `@renderer/*` | `src/renderer/*` | Renderer 进程 |
-| `@worker/*` | `src/process/worker/*` | Worker 进程 |
+| 别名          | 实际路径               | 说明          |
+| ------------- | ---------------------- | ------------- |
+| `@/*`         | `src/*`                | 项目根 src    |
+| `@process/*`  | `src/process/*`        | Main 进程     |
+| `@renderer/*` | `src/renderer/*`       | Renderer 进程 |
+| `@worker/*`   | `src/process/worker/*` | Worker 进程   |
 
 ---
 
 ## 10. 关键设计模式
 
-| 模式 | 应用位置 | 说明 |
-|------|---------|------|
-| **Bridge 模式** | `src/process/bridge/` | 所有跨进程通信都通过 Bridge 抽象 |
-| **工厂模式** | `AgentFactory.ts`, `ClientFactory.ts` | 根据类型创建对应实例 |
-| **插件模式** | `channels/plugins/`, `extensions/` | 可插拔的渠道和扩展系统 |
-| **Repository 模式** | `services/database/` | 数据访问层抽象（Interface + Sqlite 实现） |
-| **单例模式** | `*Singleton.ts` 文件 | 服务实例的全局单例管理 |
-| **适配器模式** | `common/adapter/` | 屏蔽 Electron/Browser/Node 环境差异 |
-| **中间件模式** | `MessageMiddleware.ts`, `webserver/middleware/` | 消息处理链和 HTTP 中间件 |
-| **平台抽象** | `common/platform/` | IPlatformServices 接口 + 多平台实现 |
-| **事件总线** | `teamEventBus.ts` | Team 模式中 Agent 间的事件解耦通信 |
-| **MCP 协议** | `TeamMcpServer.ts`, `mcpBridge.ts` | Model Context Protocol 工具共享 |
+| 模式                | 应用位置                                        | 说明                                      |
+| ------------------- | ----------------------------------------------- | ----------------------------------------- |
+| **Bridge 模式**     | `src/process/bridge/`                           | 所有跨进程通信都通过 Bridge 抽象          |
+| **工厂模式**        | `AgentFactory.ts`, `ClientFactory.ts`           | 根据类型创建对应实例                      |
+| **插件模式**        | `channels/plugins/`, `extensions/`              | 可插拔的渠道和扩展系统                    |
+| **Repository 模式** | `services/database/`                            | 数据访问层抽象（Interface + Sqlite 实现） |
+| **单例模式**        | `*Singleton.ts` 文件                            | 服务实例的全局单例管理                    |
+| **适配器模式**      | `common/adapter/`                               | 屏蔽 Electron/Browser/Node 环境差异       |
+| **中间件模式**      | `MessageMiddleware.ts`, `webserver/middleware/` | 消息处理链和 HTTP 中间件                  |
+| **平台抽象**        | `common/platform/`                              | IPlatformServices 接口 + 多平台实现       |
+| **事件总线**        | `teamEventBus.ts`                               | Team 模式中 Agent 间的事件解耦通信        |
+| **MCP 协议**        | `TeamMcpServer.ts`, `mcpBridge.ts`              | Model Context Protocol 工具共享           |
 
 ---
 
@@ -859,19 +887,19 @@ SQLite 数据库，当前 schema 版本：**22**（`CURRENT_DB_VERSION`）。
 
 ### 核心表
 
-| 表名 | 用途 | 主要字段 |
-|------|------|---------|
-| `users` | 用户账户 | id, username, email, password_hash, jwt_secret, avatar_path |
-| `conversations` | 会话记录 | id, user_id, name, type, extra, model, status(pending/running/finished) |
-| `messages` | 消息记录 | id, conversation_id, msg_id, type, content, position(left/right/center/pop), status(finish/pending/error/work) |
+| 表名            | 用途     | 主要字段                                                                                                       |
+| --------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `users`         | 用户账户 | id, username, email, password_hash, jwt_secret, avatar_path                                                    |
+| `conversations` | 会话记录 | id, user_id, name, type, extra, model, status(pending/running/finished)                                        |
+| `messages`      | 消息记录 | id, conversation_id, msg_id, type, content, position(left/right/center/pop), status(finish/pending/error/work) |
 
 ### Team 模式表（v1.9.3+）
 
-| 表名 | 用途 | 主要字段 |
-|------|------|---------|
-| `teams` | 团队定义 | id, user_id, name, workspace, workspace_mode, lead_agent_id, agents(JSON) |
-| `mailbox` | Agent 邮箱 | id, team_id, to_agent_id, from_agent_id, type, content, summary, read |
-| `team_tasks` | 团队任务 | id, team_id, subject, description, status, owner, blocked_by(JSON), blocks(JSON) |
+| 表名         | 用途       | 主要字段                                                                         |
+| ------------ | ---------- | -------------------------------------------------------------------------------- |
+| `teams`      | 团队定义   | id, user_id, name, workspace, workspace_mode, lead_agent_id, agents(JSON)        |
+| `mailbox`    | Agent 邮箱 | id, team_id, to_agent_id, from_agent_id, type, content, summary, read            |
+| `team_tasks` | 团队任务   | id, team_id, subject, description, status, owner, blocked_by(JSON), blocks(JSON) |
 
 ### 迁移机制
 
@@ -885,38 +913,38 @@ SQLite 数据库，当前 schema 版本：**22**（`CURRENT_DB_VERSION`）。
 
 ### 支持语言
 
-| 代码 | 语言 |
-|------|------|
-| `en-US` | English |
+| 代码    | 语言     |
+| ------- | -------- |
+| `en-US` | English  |
 | `zh-CN` | 简体中文 |
 | `zh-TW` | 繁體中文 |
-| `ja-JP` | 日本語 |
-| `ko-KR` | 한국어 |
-| `tr-TR` | Türkçe |
+| `ja-JP` | 日本語   |
+| `ko-KR` | 한국어   |
+| `tr-TR` | Türkçe   |
 
 ### 模块清单（20 个 JSON 文件）
 
-| 模块 | 覆盖范围 |
-|------|---------|
-| `common.json` | 通用文本（按钮、状态、确认等） |
-| `conversation.json` | 对话页面 |
-| `messages.json` | 消息相关 |
-| `settings.json` | 设置页面 |
-| `guid.json` | 引导页 |
-| `agent.json` | Agent 管理 |
-| `agentMode.json` | Agent 模式切换 |
-| `acp.json` | ACP 协议相关 |
-| `codex.json` | Codex 相关（兼容保留） |
-| `gemini.json` | Gemini 相关 |
-| `mcp.json` | MCP 工具 |
-| `tools.json` | 工具配置 |
-| `cron.json` | 定时任务 |
-| `team.json` | Team 多 Agent 协作（v1.9.3+） |
-| `preview.json` | 文件预览 |
-| `update.json` | 自动更新 |
-| `login.json` | 登录页 |
-| `fileSelection.json` | 文件选择 |
-| `starOffice.json` | 星辰办公 |
+| 模块                 | 覆盖范围                       |
+| -------------------- | ------------------------------ |
+| `common.json`        | 通用文本（按钮、状态、确认等） |
+| `conversation.json`  | 对话页面                       |
+| `messages.json`      | 消息相关                       |
+| `settings.json`      | 设置页面                       |
+| `guid.json`          | 引导页                         |
+| `agent.json`         | Agent 管理                     |
+| `agentMode.json`     | Agent 模式切换                 |
+| `acp.json`           | ACP 协议相关                   |
+| `codex.json`         | Codex 相关（兼容保留）         |
+| `gemini.json`        | Gemini 相关                    |
+| `mcp.json`           | MCP 工具                       |
+| `tools.json`         | 工具配置                       |
+| `cron.json`          | 定时任务                       |
+| `team.json`          | Team 多 Agent 协作（v1.9.3+）  |
+| `preview.json`       | 文件预览                       |
+| `update.json`        | 自动更新                       |
+| `login.json`         | 登录页                         |
+| `fileSelection.json` | 文件选择                       |
+| `starOffice.json`    | 星辰办公                       |
 
 ---
 
@@ -924,10 +952,10 @@ SQLite 数据库，当前 schema 版本：**22**（`CURRENT_DB_VERSION`）。
 
 本仓库（`wangAoqi666/AionUi-aoqi`）是 `iOfficeAI/AionUi` 的 fork，采用双分支策略：
 
-| 分支 | 职责 | 规则 |
-|------|------|------|
+| 分支            | 职责              | 规则                                                         |
+| --------------- | ----------------- | ------------------------------------------------------------ |
 | `upstream-sync` | upstream 纯净镜像 | 始终 = `upstream/main`，禁止自定义修改，仅用于同步和代码对比 |
-| `dev` | 全集开发分支 | upstream + 所有自定义开发（智能体协作文件、二次开发等） |
+| `dev`           | 全集开发分支      | upstream + 所有自定义开发（智能体协作文件、二次开发等）      |
 
 ### 同步流程
 
@@ -948,9 +976,9 @@ git push origin dev
 
 ## 14. v1.9.2 → v1.9.7 主要变更摘要
 
-| 版本 | 重要变更 |
-|------|---------|
-| v1.9.3 | Team 多 Agent 协作模式上线（teams/mailbox/team_tasks 表） |
-| v1.9.5 | AionRS Agent 替代 Codex；Agent Hub 扩展发现系统；Codex 模块移除 |
+| 版本   | 重要变更                                                           |
+| ------ | ------------------------------------------------------------------ |
+| v1.9.3 | Team 多 Agent 协作模式上线（teams/mailbox/team_tasks 表）          |
+| v1.9.5 | AionRS Agent 替代 Codex；Agent Hub 扩展发现系统；Codex 模块移除    |
 | v1.9.6 | 存储层性能优化（FileBuilder → 内存缓存）；Agent 固定宽度 Pill 按钮 |
-| v1.9.7 | ACP Agent 排序修复；Hub E2E 测试覆盖 |
+| v1.9.7 | ACP Agent 排序修复；Hub E2E 测试覆盖                               |
