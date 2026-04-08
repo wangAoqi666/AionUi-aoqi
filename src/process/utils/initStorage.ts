@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -1035,6 +1035,19 @@ const initStorage = async () => {
   } catch (error) {
     console.error('[AionUi] Failed to initialize builtin assistants:', error);
   }
+
+  // 5.3 Pre-seed Factory Droid model list so it's available on first launch
+  try {
+    const { getFactoryDroidModelInfo } = await import('@/common/config/factoryModels');
+    const cachedModels = (await configFile.get('acp.cachedModels').catch((): undefined => undefined)) || {};
+    if (!cachedModels['droid']) {
+      cachedModels['droid'] = getFactoryDroidModelInfo();
+      await configFile.set('acp.cachedModels', cachedModels);
+    }
+  } catch (error) {
+    console.error('[AionUi] Failed to pre-seed Factory Droid models:', error);
+  }
+  mark('5.3 factoryDroidModels');
 
   // 6. 初始化数据库（better-sqlite3）
   try {

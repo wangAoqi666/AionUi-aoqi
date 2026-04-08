@@ -35,12 +35,35 @@ Important implications:
 - The Factory Droid path is **main-process-first**
 - Compatibility backends still rely on worker processes and protocol-specific adapters
 - Runtime model/autonomy changes for Droid happen through `session.updateSettings(...)`
+- AskUser questionnaires and permission confirmations for Droid are raised from `AcpAgentManager`, then answered back through the same manager/session pipeline
+- `agent_status` badges are suppressed for Droid-specific internal working states; front-end status badges remain focused on compatibility backends
 
 ## IPC Communication
 
 - Preload script: `src/preload.ts` — exposes a secure `contextBridge` API to the renderer
 - Message type definitions: `src/renderer/messages/`
 - All IPC channels are typed; add new channels in both the preload and the messages directory
+
+## Confirmation and AskUser Flow
+
+The shared confirmation pipeline now supports two interaction shapes:
+
+1. **Standard approval** — approve / deny / allow always for permission-style actions
+2. **AskUser questionnaire** — one or more structured questions with topics and multiple-choice options
+
+Current wiring:
+
+- Main process stores and routes confirmation state through the shared approval flow
+- Conversation UI renders this in `ConversationChatConfirm`
+- Team mode renders the same interaction contract in `TeamConfirmOverlay`
+- For the primary Droid path, answers are sent back through `AcpAgentManager` to `DroidSdkAgent.answerAskUser(...)`
+
+## Conversation Shell Behavior
+
+- The conversation left panel supports two persisted modes: `history` and `workspace`
+- The workspace panel becomes available only for conversations bound to a workspace
+- Sidebar settings entry and `/settings` root both default to `/settings/agent`
+- Guid agent selection prioritizes Factory Droid so it appears first and becomes the default choice when available
 
 ## WebUI Server
 

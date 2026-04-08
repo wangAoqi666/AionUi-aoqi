@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -121,14 +121,14 @@ export const handlePairingShow: ActionHandler = async (context) => {
       text: [
         '🔗 <b>Device Pairing</b>',
         '',
-        'Please approve this pairing request in the AionUi app:',
+        'Please approve this pairing request in the 智能体工厂 app:',
         '',
         `<code>${code}</code>`,
         '',
         `⏱ Valid for: ${expiresInMinutes} minutes`,
         '',
         '<b>Steps:</b>',
-        '1. Open AionUi app',
+        '1. Open 智能体工厂 app',
         '2. Go to WebUI → Channels',
         '3. Click "Approve" in pending pairing requests',
       ].join('\n'),
@@ -172,7 +172,7 @@ export const handlePairingRefresh: ActionHandler = async (context) => {
         '',
         `⏱ Valid for: ${expiresInMinutes} minutes`,
         '',
-        'Please approve this pairing request in AionUi settings.',
+        'Please approve this pairing request in 智能体工厂 settings.',
       ].join('\n'),
       parseMode: 'HTML',
       replyMarkup: getPairingCodeMarkup(platform, code),
@@ -219,7 +219,7 @@ export const handlePairingCheck: ActionHandler = async (context) => {
         `Pairing code: <code>${pendingRequest.code}</code>`,
         `Time remaining: ${expiresInMinutes} minutes`,
         '',
-        'Please approve the pairing request in AionUi settings.',
+        'Please approve the pairing request in 智能体工厂 settings.',
       ].join('\n'),
       parseMode: 'HTML',
       replyMarkup: getPairingStatusMarkup(platform, pendingRequest.code),
@@ -243,18 +243,18 @@ export const handlePairingHelp: ActionHandler = async (context) => {
       '❓ <b>Pairing Help</b>',
       '',
       '<b>What is pairing?</b>',
-      `Pairing links your ${platformName} account with the local AionUi application.`,
+      `Pairing links your ${platformName} account with the local 智能体工厂 application.`,
       'You need to pair before using the AI assistant.',
       '',
       '<b>Pairing steps:</b>',
       '1. Get pairing code (send any message)',
-      '2. Open AionUi app',
+      '2. Open 智能体工厂 app',
       '3. Go to WebUI → Channels',
       '4. Click "Approve" in pending requests',
       '',
       '<b>FAQ:</b>',
       '• Pairing code valid for 10 minutes, refresh if expired',
-      '• AionUi app must be running',
+      '• 智能体工厂 app must be running',
       '• Ensure network connection is stable',
     ].join('\n'),
     parseMode: 'HTML',

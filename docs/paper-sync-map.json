@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "description": "Paper 原型 ↔ 代码双向同步映射表。每条映射关联一个 Paper 节点和一段代码。",
+  "mappings": [
+    {
+      "id": "titlebar-app-title",
+      "description": "Titlebar 中间的应用名称文字",
+      "paper": {
+        "artboardId": "4U-0",
+        "artboardName": "首页-默认状态",
+        "nodeId": "1O8-0",
+        "property": "textContent",
+        "layerName": "@sync:titlebar-app-title"
+      },
+      "code": {
+        "file": "src/renderer/components/layout/Titlebar/index.tsx",
+        "pattern": "const appTitle = useMemo\\(\\(\\) => '(.+?)'",
+        "captureGroup": 1
+      },
+      "designValue": "智能体工厂"
+    }
+  ]
+}

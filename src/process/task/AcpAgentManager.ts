@@ -1,8 +1,9 @@
 import { AcpAgent } from '@process/agent/acp';
+import { DroidSdkAgent } from '@process/agent/droid';
 import { channelEventBus } from '@process/channels/agent/ChannelEventBus';
 import { teamEventBus } from '@process/team/teamEventBus';
 import { ipcBridge } from '@/common';
-import type { CronMessageMeta, TMessage } from '@/common/chat/chatLib';
+import type { AskUserConfirmationQuestion, CronMessageMeta, TMessage } from '@/common/chat/chatLib';
 import { isCodexAutoApproveMode } from '@/common/types/codex/codexModes';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { transformMessage } from '@/common/chat/chatLib';
@@ -65,6 +66,8 @@ interface AcpAgentManagerData {
   /** Persisted model ID for resume support / 持久化的模型 ID，用于恢复 */
   currentModelId?: string;
   sandboxMode?: CodexSandboxMode;
+  /** Cached config options for immediate restore on tab switch / 页面切换时用于立即恢复的配置选项 */
+  cachedConfigOptions?: AcpSessionConfigOption[];
   /** Pending config option selections from Guid page (applied after session creation) */
   pendingConfigOptions?: Record<string, string>;
 }
@@ -76,10 +79,19 @@ type BufferedStreamTextMessage = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissionOption> {
+type DroidAskUserAnswer = {
+  cancelled?: boolean;
+  answers: Array<{
+    index: number;
+    question: string;
+    answer: string;
+  }>;
+};
+
+class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissionOption | DroidAskUserAnswer> {
   workspace: string;
-  agent: AcpAgent;
-  private bootstrap: Promise<AcpAgent> | undefined;
+  agent: AcpAgent | DroidSdkAgent;
+  private bootstrap: Promise<AcpAgent | DroidSdkAgent> | undefined;
   private bootstrapping: boolean = false;
   private isFirstMessage: boolean = true;
   options: AcpAgentManagerData;
@@ -253,7 +265,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         // Get acpArgs from backend config (for goose, auggie, opencode, etc.)
         const backendConfig = ACP_BACKENDS_ALL[data.backend];
         if (backendConfig?.acpArgs) {
-          customArgs = backendConfig.acpArgs;
+          customArgs = [...backendConfig.acpArgs];
         }
 
         // 如果没有配置 cliPath，使用 ACP_BACKENDS_ALL 中的默认 cliCommand
@@ -276,349 +288,176 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         mainWarn('[AcpAgentManager]', 'Custom backend specified but customAgentId is missing');
       }
 
-      this.agent = new AcpAgent({
-        id: data.conversation_id,
-        backend: data.backend,
-        cliPath: cliPath,
-        workingDir: data.workspace,
-        customArgs: customArgs,
-        customEnv: customEnv,
-        extra: {
-          workspace: data.workspace,
+      // For droid backend, use the native SDK agent instead of generic ACP protocol.
+      // This enables runtime model switching, typed streaming, and MCP management.
+      if (data.backend === 'droid') {
+        this.agent = new DroidSdkAgent({
+          id: data.conversation_id,
+          workingDir: data.workspace || '.',
+          cliPath: cliPath || 'droid',
+          modelId: this.persistedModelId ?? undefined,
+          yoloMode: yoloMode,
+          sessionMode: this.currentMode,
+          acpSessionId: data.acpSessionId,
+          cachedConfigOptions: data.cachedConfigOptions,
+          pendingConfigOptions: data.pendingConfigOptions,
+          onStreamEvent: (message) => this.handleStreamEvent(message, data),
+          onSessionIdUpdate: (sessionId: string) => {
+            this.saveAcpSessionId(sessionId);
+          },
+          onAskUserRequest: ({ callId, questions }) => {
+            this.handleAskUserRequest(
+              callId,
+              questions.map((question) => ({
+                index: question.index ?? 0,
+                topic: question.topic ?? '',
+                question: question.question ?? '',
+                options: question.options ?? [],
+              }))
+            );
+          },
+        });
+      } else {
+        this.agent = new AcpAgent({
+          id: data.conversation_id,
           backend: data.backend,
           cliPath: cliPath,
-          customWorkspace: data.customWorkspace,
+          workingDir: data.workspace,
           customArgs: customArgs,
           customEnv: customEnv,
-          yoloMode: yoloMode,
-          agentName: data.agentName,
-          acpSessionId: data.acpSessionId,
-          acpSessionUpdatedAt: data.acpSessionUpdatedAt,
-          currentModelId: this.persistedModelId ?? undefined,
-          sessionMode: this.currentMode,
-          pendingConfigOptions: data.pendingConfigOptions,
-          // Forward team MCP stdio config so AcpAgent.loadBuiltinSessionMcpServers() can inject it
-          teamMcpStdioConfig: (data as unknown as Record<string, unknown>).teamMcpStdioConfig as
-            | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }
-            | undefined,
-        },
-        onSessionIdUpdate: (sessionId: string) => {
-          // Save ACP session ID to database for resume support
-          // 保存 ACP session ID 到数据库以支持会话恢复
-          this.saveAcpSessionId(sessionId);
-        },
-        onAvailableCommandsUpdate: (commands) => {
-          const nextCommands: SlashCommandItem[] = [];
-          const seen = new Set<string>();
-          for (const command of commands) {
-            const name = command.name.trim();
-            if (!name || seen.has(name)) continue;
-            seen.add(name);
-            nextCommands.push({
-              name,
-              description: command.description || name,
-              hint: command.hint,
-              kind: 'template',
-              source: 'acp',
-            });
-          }
-          this.acpAvailableSlashCommands = nextCommands;
-          const waiters = this.acpAvailableSlashWaiters.splice(0, this.acpAvailableSlashWaiters.length);
-          for (const resolve of waiters) {
-            resolve(this.getAcpSlashCommands());
-          }
-
-          // Notify frontend that slash commands are now available.
-          // During bootstrap, agent_status events are suppressed, so the
-          // frontend acpStatus never updates and useSlashCommands never
-          // re-fetches. This dedicated event bypasses the bootstrap filter.
-          ipcBridge.acpConversation.responseStream.emit({
-            type: 'slash_commands_updated',
-            conversation_id: this.conversation_id,
-            msg_id: '',
-            data: null,
-          });
-        },
-        onStreamEvent: (message) => {
-          // During bootstrap (warmup), suppress UI stream events to avoid
-          // triggering sidebar loading spinner before user sends a message.
-          if (this.bootstrapping) {
-            return;
-          }
-
-          const pipelineStart = Date.now();
-
-          // Reduce status noise: show full lifecycle only for the first turn.
-          // After first turn, only keep failure statuses to avoid reconnect chatter.
-          if (message.type === 'agent_status') {
-            const status = (message.data as { status?: string } | null)?.status;
-            const shouldDisplayStatus = this.isFirstMessage || status === 'error' || status === 'disconnected';
-            if (!shouldDisplayStatus) {
-              return;
+          extra: {
+            workspace: data.workspace,
+            backend: data.backend,
+            cliPath: cliPath,
+            customWorkspace: data.customWorkspace,
+            customArgs: customArgs,
+            customEnv: customEnv,
+            yoloMode: yoloMode,
+            agentName: data.agentName,
+            acpSessionId: data.acpSessionId,
+            acpSessionUpdatedAt: data.acpSessionUpdatedAt,
+            currentModelId: this.persistedModelId ?? undefined,
+            sessionMode: this.currentMode,
+            pendingConfigOptions: data.pendingConfigOptions,
+            // Forward team MCP stdio config so AcpAgent.loadBuiltinSessionMcpServers() can inject it
+            teamMcpStdioConfig: (data as unknown as Record<string, unknown>).teamMcpStdioConfig as
+              | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }
+              | undefined,
+          },
+          onSessionIdUpdate: (sessionId: string) => {
+            // Save ACP session ID to database for resume support
+            // 保存 ACP session ID 到数据库以支持会话恢复
+            this.saveAcpSessionId(sessionId);
+          },
+          onAvailableCommandsUpdate: (commands) => {
+            const nextCommands: SlashCommandItem[] = [];
+            const seen = new Set<string>();
+            for (const command of commands) {
+              const name = command.name.trim();
+              if (!name || seen.has(name)) continue;
+              seen.add(name);
+              nextCommands.push({
+                name,
+                description: command.description || name,
+                hint: command.hint,
+                kind: 'template',
+                source: 'acp',
+              });
             }
-          }
+            this.acpAvailableSlashCommands = nextCommands;
+            const waiters = this.acpAvailableSlashWaiters.splice(0, this.acpAvailableSlashWaiters.length);
+            for (const resolve of waiters) {
+              resolve(this.getAcpSlashCommands());
+            }
 
-          // Handle preview_open event (chrome-devtools navigation interception)
-          // 处理 preview_open 事件（chrome-devtools 导航拦截）
-          if (handlePreviewOpenEvent(message)) {
-            return; // Don't process further / 不需要继续处理
-          }
-
-          // Mark as finished when content is output (visible to user)
-          // ACP uses: content, agent_status, acp_tool_call, plan
-          const contentTypes = ['content', 'agent_status', 'acp_tool_call', 'plan'];
-          if (contentTypes.includes(message.type)) {
-            this.status = 'finished';
-          }
-
-          // Emit request trace on each model generation start
-          if (message.type === 'start') {
-            const modelInfo = this.agent?.getModelInfo();
-            const traceData = {
-              agentType: 'acp' as const,
-              backend: data.backend,
-              modelId: modelInfo?.currentModelId || this.persistedModelId || 'unknown',
-              cliPath: this.options?.cliPath,
-              sessionMode: this.currentMode,
-              timestamp: Date.now(),
-            };
+            // Notify frontend that slash commands are now available.
+            // During bootstrap, agent_status events are suppressed, so the
+            // frontend acpStatus never updates and useSlashCommands never
+            // re-fetches. This dedicated event bypasses the bootstrap filter.
             ipcBridge.acpConversation.responseStream.emit({
-              type: 'request_trace',
+              type: 'slash_commands_updated',
               conversation_id: this.conversation_id,
-              msg_id: uuid(),
-              data: traceData,
+              msg_id: '',
+              data: null,
             });
-          }
+          },
+          onStreamEvent: (message) => this.handleStreamEvent(message, data),
+          onSignalEvent: async (v) => {
+            // Flush buffered text chunks before handling turn-level signals
+            this.flushBufferedStreamTextMessages();
 
-          // Persist config options to DB so AcpConfigSelector can render from cache
-          if (message.type === 'acp_model_info') {
-            const configOptions = this.getConfigOptions();
-            if (configOptions.length > 0) {
-              void this.saveConfigOptions(configOptions);
-            }
-          }
-
-          // Persist context usage to conversation extra for restore on page switch
-          if (message.type === 'acp_context_usage') {
-            const usageData = message.data as { used: number; size: number };
-            this.saveContextUsage(usageData);
-          }
-
-          // Convert thought events to thinking messages in conversation flow
-          if (message.type === 'thought') {
-            const thoughtData = message.data as { subject?: string; description?: string };
-            const content = thoughtData?.description || thoughtData?.subject || '';
-            if (content) {
-              this.emitThinkingMessage(content, 'thinking');
-            }
-          } else if (this.thinkingMsgId) {
-            // Any non-thought message means thinking phase is over
-            this.emitThinkingMessage('', 'done');
-            this.thinkingMsgId = null;
-            this.thinkingStartTime = null;
-            this.thinkingContent = '';
-          }
-
-          // Strip inline <think> tags from content messages BEFORE transform/DB/emit
-          // so thinking appears before main content and DB stores clean text
-          // (e.g. MiniMax models embed think tags in content)
-          if (message.type === 'content' && typeof message.data === 'string') {
-            const { thinking, content: stripped } = extractAndStripThinkTags(message.data);
-            if (thinking) {
-              this.emitThinkingMessage(thinking, 'thinking');
-            }
-            if (stripped !== message.data) {
-              message = { ...message, data: stripped };
-            }
-          }
-
-          if (
-            message.type !== 'thought' &&
-            message.type !== 'thinking' &&
-            message.type !== 'acp_model_info' &&
-            message.type !== 'acp_context_usage'
-          ) {
-            const transformStart = Date.now();
-            const tMessage = transformMessage(message as IResponseMessage);
-            const transformDuration = Date.now() - transformStart;
-
-            if (tMessage) {
-              const dbStart = Date.now();
-              const isStreamTextChunk = tMessage.type === 'text' && message.type === 'content';
-              if (isStreamTextChunk) {
-                this.queueBufferedStreamTextMessage(tMessage, data.backend);
-              } else {
-                this.flushBufferedStreamTextMessages();
-                addOrUpdateMessage(message.conversation_id, tMessage, data.backend);
-              }
-              const dbDuration = Date.now() - dbStart;
-
-              if (transformDuration > 5 || dbDuration > 5) {
-                if (ACP_PERF_LOG)
-                  console.log(
-                    `[ACP-PERF] stream: transform ${transformDuration}ms, db ${dbDuration}ms type=${message.type}`
-                  );
-              }
-
-              // Track streaming content for cron detection when turn ends
-              // ACP sends content in chunks, we accumulate here for later detection
-              if (isStreamTextChunk) {
-                const textContent = extractTextFromMessage(tMessage);
-                if (tMessage.msg_id !== this.currentMsgId) {
-                  // New message, reset accumulator
-                  this.currentMsgId = tMessage.msg_id || null;
-                  this.currentMsgContent = textContent;
-                } else {
-                  // Same message, accumulate content
-                  this.currentMsgContent += textContent;
-                }
-              }
-            }
-          }
-
-          const emitStart = Date.now();
-          ipcBridge.acpConversation.responseStream.emit(message as IResponseMessage);
-          // Also emit to main-process-local bus so TeammateManager (same process)
-          // can receive events — ipcBridge.emit only delivers to renderer via webContents.send()
-          teamEventBus.emit('responseStream', {
-            ...(message as IResponseMessage),
-            conversation_id: this.conversation_id,
-          });
-          const emitDuration = Date.now() - emitStart;
-
-          // Also emit to Channel global event bus (Telegram/Lark streaming)
-          // 同时发送到 Channel 全局事件总线（用于 Telegram/Lark 等外部平台）
-          channelEventBus.emitAgentMessage(this.conversation_id, {
-            ...(message as IResponseMessage),
-            conversation_id: this.conversation_id,
-          });
-
-          const totalDuration = Date.now() - pipelineStart;
-          if (totalDuration > 10) {
-            if (ACP_PERF_LOG)
-              console.log(
-                `[ACP-PERF] stream: onStreamEvent pipeline ${totalDuration}ms (emit=${emitDuration}ms) type=${message.type}`
-              );
-          }
-        },
-        onSignalEvent: async (v) => {
-          // Flush buffered text chunks before handling turn-level signals
-          this.flushBufferedStreamTextMessages();
-
-          // 仅发送信号到前端，不更新消息列表
-          if (v.type === 'acp_permission') {
-            const { toolCall, options } = v.data as AcpPermissionRequest;
-
-            // Auto-approve ALL tools when in yolo/bypassPermissions mode.
-            // Fallback for cases where this.yoloMode wasn't set correctly
-            // (e.g., setMode IPC failed silently for spawned agents).
-            if (this.isYoloMode(this.currentMode) && options.length > 0) {
-              const autoOption = options[0];
-              setTimeout(() => {
-                void this.confirm(v.msg_id, toolCall.toolCallId || v.msg_id, autoOption);
-              }, 50);
+            // 仅发送信号到前端，不更新消息列表
+            if (v.type === 'acp_permission') {
+              this.handlePermissionRequest(v);
               return;
             }
 
-            // Auto-approve team MCP tools — they are internal tools provided by AionUi,
-            // not external MCP servers, so they should never require user confirmation.
-            const toolTitle = toolCall.title || '';
-            if (toolTitle.includes('aionui-team') && options.length > 0) {
-              const autoOption = options[0];
-              setTimeout(() => {
-                void this.confirm(v.msg_id, toolCall.toolCallId || v.msg_id, autoOption);
-              }, 50);
-              return;
+            // Clear busy guard and finalize thinking message when turn ends
+            if (v.type === 'finish') {
+              cronBusyGuard.setProcessing(this.conversation_id, false);
+              this.status = 'finished';
+              // Finalize thinking message with done status
+              if (this.thinkingMsgId) {
+                this.emitThinkingMessage('', 'done');
+                this.thinkingMsgId = null;
+                this.thinkingStartTime = null;
+                this.thinkingContent = '';
+              }
+              // Check for SKILL_SUGGEST.md updates (registered by cron executor)
+              skillSuggestWatcher.onFinish(this.conversation_id);
             }
 
-            this.addConfirmation({
-              title: toolCall.title || 'messages.permissionRequest',
-              action: 'messages.command',
-              id: v.msg_id,
-              description: toolCall.rawInput?.description || 'messages.agentRequestingPermission',
-              callId: toolCall.toolCallId || v.msg_id,
-              options: options.map((option) => ({
-                label: option.name,
-                value: option,
-              })),
-            });
-
-            // Channels (Telegram/Lark) currently don't have interactive permission UX.
-            // Emit a readable error to avoid "silent hang" in external platforms.
-            channelEventBus.emitAgentMessage(this.conversation_id, {
-              type: 'error',
-              conversation_id: this.conversation_id,
-              msg_id: v.msg_id,
-              data: 'Permission required. Please open AionUi and confirm the pending request in the conversation panel.',
-            });
-            return;
-          }
-
-          // Clear busy guard and finalize thinking message when turn ends
-          if (v.type === 'finish') {
-            cronBusyGuard.setProcessing(this.conversation_id, false);
-            this.status = 'finished';
-            // Finalize thinking message with done status
-            if (this.thinkingMsgId) {
-              this.emitThinkingMessage('', 'done');
-              this.thinkingMsgId = null;
-              this.thinkingStartTime = null;
-              this.thinkingContent = '';
-            }
-            // Check for SKILL_SUGGEST.md updates (registered by cron executor)
-            skillSuggestWatcher.onFinish(this.conversation_id);
-          }
-
-          // Process cron commands when turn ends (finish signal)
-          // ACP streams content in chunks, so we check the accumulated content here
-          if (v.type === 'finish' && this.currentMsgContent && hasCronCommands(this.currentMsgContent)) {
-            const message: TMessage = {
-              id: this.currentMsgId || uuid(),
-              msg_id: this.currentMsgId || uuid(),
-              type: 'text',
-              position: 'left',
-              conversation_id: this.conversation_id,
-              content: { content: this.currentMsgContent },
-              status: 'finish',
-              createdAt: Date.now(),
-            };
-            // Process cron commands and send results back to AI
-            const collectedResponses: string[] = [];
-            await processCronInMessage(this.conversation_id, data.backend as any, message, (sysMsg) => {
-              collectedResponses.push(sysMsg);
-              // Also emit to frontend for display
-              const systemMessage: IResponseMessage = {
-                type: 'system',
+            // Process cron commands when turn ends (finish signal)
+            // ACP streams content in chunks, so we check the accumulated content here
+            if (v.type === 'finish' && this.currentMsgContent && hasCronCommands(this.currentMsgContent)) {
+              const message: TMessage = {
+                id: this.currentMsgId || uuid(),
+                msg_id: this.currentMsgId || uuid(),
+                type: 'text',
+                position: 'left',
                 conversation_id: this.conversation_id,
-                msg_id: uuid(),
-                data: sysMsg,
+                content: { content: this.currentMsgContent },
+                status: 'finish',
+                createdAt: Date.now(),
               };
-              ipcBridge.acpConversation.responseStream.emit(systemMessage);
-            });
-            // Send collected responses back to AI agent so it can continue
-            if (collectedResponses.length > 0 && this.agent) {
-              const feedbackMessage = `[System Response]\n${collectedResponses.join('\n')}`;
-              await this.agent.sendMessage({ content: feedbackMessage });
+              // Process cron commands and send results back to AI
+              const collectedResponses: string[] = [];
+              await processCronInMessage(this.conversation_id, data.backend as any, message, (sysMsg) => {
+                collectedResponses.push(sysMsg);
+                // Also emit to frontend for display
+                const systemMessage: IResponseMessage = {
+                  type: 'system',
+                  conversation_id: this.conversation_id,
+                  msg_id: uuid(),
+                  data: sysMsg,
+                };
+                ipcBridge.acpConversation.responseStream.emit(systemMessage);
+              });
+              // Send collected responses back to AI agent so it can continue
+              if (collectedResponses.length > 0 && this.agent) {
+                const feedbackMessage = `[System Response]\n${collectedResponses.join('\n')}`;
+                await this.agent.sendMessage({ content: feedbackMessage });
+              }
+              // Reset after processing
+              this.currentMsgId = null;
+              this.currentMsgContent = '';
             }
-            // Reset after processing
-            this.currentMsgId = null;
-            this.currentMsgContent = '';
-          }
 
-          ipcBridge.acpConversation.responseStream.emit(v);
-          // Also emit to main-process-local bus (same reason as onStreamEvent above)
-          teamEventBus.emit('responseStream', {
-            ...(v as IResponseMessage),
-            conversation_id: this.conversation_id,
-          });
+            ipcBridge.acpConversation.responseStream.emit(v);
+            // Also emit to main-process-local bus (same reason as onStreamEvent above)
+            teamEventBus.emit('responseStream', {
+              ...(v as IResponseMessage),
+              conversation_id: this.conversation_id,
+            });
 
-          // Forward signals (finish/error/etc.) to Channel global event bus
-          channelEventBus.emitAgentMessage(this.conversation_id, {
-            ...(v as any),
-            conversation_id: this.conversation_id,
-          });
-        },
-      });
+            // Forward signals (finish/error/etc.) to Channel global event bus
+            channelEventBus.emitAgentMessage(this.conversation_id, {
+              ...(v as any),
+              conversation_id: this.conversation_id,
+            });
+          },
+        });
+      } // end else (non-droid backends)
       return this.agent.start().then(async () => {
         // Re-apply persisted mode after session start/resume
         // 在会话启动/恢复后重新应用持久化的模式
@@ -876,13 +715,78 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     });
   }
 
-  async confirm(id: string, callId: string, data: AcpPermissionOption) {
+  async confirm(id: string, callId: string, data: AcpPermissionOption | DroidAskUserAnswer) {
     super.confirm(id, callId, data);
     await this.bootstrap;
-    void this.agent.confirmMessage({
-      confirmKey: data.optionId,
-      // msg_id: dat;
-      callId: callId,
+    if ('optionId' in data) {
+      void this.agent.confirmMessage({
+        confirmKey: data.optionId,
+        callId: callId,
+      });
+      return;
+    }
+    if (this.agent instanceof DroidSdkAgent) {
+      void this.agent.answerAskUser({
+        callId,
+        result: data,
+      });
+    }
+  }
+
+  private handlePermissionRequest(message: IResponseMessage): void {
+    this.flushBufferedStreamTextMessages();
+
+    const { toolCall, options } = message.data as AcpPermissionRequest;
+
+    if (this.isYoloMode(this.currentMode) && options.length > 0) {
+      const autoOption = options[0];
+      setTimeout(() => {
+        void this.confirm(message.msg_id, toolCall.toolCallId || message.msg_id, autoOption);
+      }, 50);
+      return;
+    }
+
+    const toolTitle = toolCall.title || '';
+    if (toolTitle.includes('aionui-team') && options.length > 0) {
+      const autoOption = options[0];
+      setTimeout(() => {
+        void this.confirm(message.msg_id, toolCall.toolCallId || message.msg_id, autoOption);
+      }, 50);
+      return;
+    }
+
+    this.addConfirmation({
+      title: toolCall.title || 'messages.permissionRequest',
+      action: 'messages.command',
+      id: message.msg_id,
+      description: toolCall.rawInput?.description || 'messages.agentRequestingPermission',
+      callId: toolCall.toolCallId || message.msg_id,
+      options: options.map((option) => ({
+        label: option.name,
+        value: option,
+      })),
+    });
+
+    channelEventBus.emitAgentMessage(this.conversation_id, {
+      type: 'error',
+      conversation_id: this.conversation_id,
+      msg_id: message.msg_id,
+      data: 'Permission required. Please open 智能体工厂 and confirm the pending request in the conversation panel.',
+    });
+  }
+
+  private handleAskUserRequest(callId: string, questions: AskUserConfirmationQuestion[]): void {
+    const description = questions.map((question) => question.question).join('\n');
+    this.addConfirmation({
+      title: 'Please answer the following questions',
+      description,
+      id: callId,
+      callId,
+      interaction: {
+        type: 'ask_user',
+        questions,
+      },
+      options: [],
     });
   }
 
@@ -890,6 +794,197 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * Emit a thinking message to the UI stream.
    * Creates a new thinking msg_id on first call per turn, reuses it for subsequent calls.
    */
+  /**
+   * Shared stream event handler used by both AcpAgent and DroidSdkAgent.
+   * Handles bootstrap suppression, DB persistence, thinking tags, cron detection,
+   * and forwarding to IPC/Channel/Team buses.
+   */
+  private handleStreamEvent(message: IResponseMessage, data: AcpAgentManagerData): void {
+    if (this.bootstrapping) return;
+
+    const pipelineStart = Date.now();
+
+    // Reduce status noise: show full lifecycle only for the first turn.
+    // Droid backend uses SDK natively — never show agent_status badges.
+    if (message.type === 'agent_status') {
+      if (data.backend === 'droid') return;
+      const status = (message.data as { status?: string } | null)?.status;
+      const shouldDisplayStatus = this.isFirstMessage || status === 'error' || status === 'disconnected';
+      if (!shouldDisplayStatus) return;
+    }
+
+    if (handlePreviewOpenEvent(message)) return;
+
+    if (message.type === 'acp_permission') {
+      this.handlePermissionRequest(message);
+      return;
+    }
+
+    const contentTypes = ['content', 'agent_status', 'acp_tool_call', 'plan', 'message'];
+    if (contentTypes.includes(message.type)) {
+      this.status = 'finished';
+    }
+
+    // Emit request trace on each model generation start
+    if (message.type === 'start') {
+      const modelInfo = this.agent?.getModelInfo();
+      ipcBridge.acpConversation.responseStream.emit({
+        type: 'request_trace',
+        conversation_id: this.conversation_id,
+        msg_id: uuid(),
+        data: {
+          agentType: 'acp' as const,
+          backend: data.backend,
+          modelId: modelInfo?.currentModelId || this.persistedModelId || 'unknown',
+          cliPath: this.options?.cliPath,
+          sessionMode: this.currentMode,
+          timestamp: Date.now(),
+        },
+      });
+    }
+
+    // Persist config options
+    if (message.type === 'acp_model_info') {
+      const configOptions = this.getConfigOptions();
+      if (configOptions.length > 0) {
+        void this.saveConfigOptions(configOptions);
+      }
+    }
+
+    // Persist context usage
+    if (message.type === 'acp_context_usage') {
+      const usageData = message.data as { used: number; size: number };
+      this.saveContextUsage(usageData);
+    }
+
+    // Convert thought events to thinking messages
+    if (message.type === 'thought') {
+      const thoughtData = message.data as { subject?: string; description?: string };
+      const content = thoughtData?.description || thoughtData?.subject || '';
+      if (content) this.emitThinkingMessage(content, 'thinking');
+    } else if (message.type === 'thinking') {
+      // DroidSdkAgent emits 'thinking' type directly
+      const msgs = message.data as Array<{ content?: string }>;
+      const content = msgs?.[0]?.content || '';
+      if (content) this.emitThinkingMessage(content, 'thinking');
+    } else if (this.thinkingMsgId) {
+      this.emitThinkingMessage('', 'done');
+      this.thinkingMsgId = null;
+      this.thinkingStartTime = null;
+      this.thinkingContent = '';
+    }
+
+    // Strip inline <think> tags
+    if (message.type === 'content' && typeof message.data === 'string') {
+      const { thinking, content: stripped } = extractAndStripThinkTags(message.data);
+      if (thinking) this.emitThinkingMessage(thinking, 'thinking');
+      if (stripped !== message.data) {
+        message = { ...message, data: stripped };
+      }
+    }
+
+    // Handle 'end' type from DroidSdkAgent as 'finish' signal
+    if (message.type === 'end') {
+      cronBusyGuard.setProcessing(this.conversation_id, false);
+      this.status = 'finished';
+      if (this.thinkingMsgId) {
+        this.emitThinkingMessage('', 'done');
+        this.thinkingMsgId = null;
+        this.thinkingStartTime = null;
+        this.thinkingContent = '';
+      }
+      this.flushBufferedStreamTextMessages();
+      skillSuggestWatcher.onFinish(this.conversation_id);
+
+      // Cron detection on accumulated content
+      if (this.currentMsgContent && hasCronCommands(this.currentMsgContent)) {
+        const cronMessage: TMessage = {
+          id: this.currentMsgId || uuid(),
+          msg_id: this.currentMsgId || uuid(),
+          type: 'text',
+          position: 'left',
+          conversation_id: this.conversation_id,
+          content: { content: this.currentMsgContent },
+          status: 'finish',
+          createdAt: Date.now(),
+        };
+        void (async () => {
+          const collectedResponses: string[] = [];
+          await processCronInMessage(this.conversation_id, data.backend, cronMessage, (sysMsg) => {
+            collectedResponses.push(sysMsg);
+            ipcBridge.acpConversation.responseStream.emit({
+              type: 'system',
+              conversation_id: this.conversation_id,
+              msg_id: uuid(),
+              data: sysMsg,
+            });
+          });
+          if (collectedResponses.length > 0 && this.agent) {
+            const feedbackMessage = `[System Response]\n${collectedResponses.join('\n')}`;
+            await this.agent.sendMessage({ content: feedbackMessage });
+          }
+          this.currentMsgId = null;
+          this.currentMsgContent = '';
+        })();
+      }
+
+      ipcBridge.acpConversation.responseStream.emit({
+        type: 'finish',
+        conversation_id: this.conversation_id,
+        msg_id: uuid(),
+        data: null,
+      });
+      teamEventBus.emit('responseStream', {
+        type: 'finish' as const,
+        conversation_id: this.conversation_id,
+        msg_id: uuid(),
+        data: null,
+      });
+      channelEventBus.emitAgentMessage(this.conversation_id, {
+        type: 'finish',
+        conversation_id: this.conversation_id,
+        msg_id: uuid(),
+        data: null,
+      });
+      return;
+    }
+
+    // DB persistence and transform for non-special message types
+    if (
+      message.type !== 'thought' &&
+      message.type !== 'thinking' &&
+      message.type !== 'agent_status' &&
+      message.type !== 'acp_model_info' &&
+      message.type !== 'acp_context_usage'
+    ) {
+      const tMessage = transformMessage(message);
+      if (tMessage) {
+        const isStreamTextChunk =
+          tMessage.type === 'text' && (message.type === 'content' || message.type === 'message');
+        if (isStreamTextChunk) {
+          this.queueBufferedStreamTextMessage(tMessage, data.backend);
+        } else {
+          this.flushBufferedStreamTextMessages();
+          addOrUpdateMessage(message.conversation_id, tMessage, data.backend);
+        }
+
+        if (isStreamTextChunk) {
+          const textContent = extractTextFromMessage(tMessage);
+          if (tMessage.msg_id !== this.currentMsgId) {
+            this.currentMsgId = tMessage.msg_id || null;
+            this.currentMsgContent = textContent;
+          } else {
+            this.currentMsgContent += textContent;
+          }
+        }
+      }
+    }
+
+    ipcBridge.acpConversation.responseStream.emit(message);
+    teamEventBus.emit('responseStream', { ...message, conversation_id: this.conversation_id });
+    channelEventBus.emitAgentMessage(this.conversation_id, { ...message, conversation_id: this.conversation_id });
+  }
+
   private emitThinkingMessage(content: string, status: 'thinking' | 'done' = 'thinking'): void {
     if (!this.thinkingMsgId) {
       this.thinkingMsgId = uuid();
@@ -957,7 +1052,9 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       return true;
     }
     this.options.yoloMode = true;
-    if (this.agent?.isConnected && this.agent?.hasActiveSession) {
+    const agentConnected =
+      this.agent?.isConnected && ('hasActiveSession' in this.agent ? this.agent.hasActiveSession : true);
+    if (agentConnected) {
       try {
         await this.agent.enableYoloMode();
         return true;
@@ -996,6 +1093,20 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    */
   getModelInfo(): AcpModelInfo | null {
     if (!this.agent) {
+      // For droid backend, return Factory model list even when agent is not initialized
+      if (this.options.backend === 'droid') {
+        const { getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
+        const factoryInfo = getFactoryDroidModelInfo() as AcpModelInfo;
+        if (this.persistedModelId) {
+          const match = factoryInfo.availableModels.find((m) => m.id === this.persistedModelId);
+          return {
+            ...factoryInfo,
+            currentModelId: this.persistedModelId,
+            currentModelLabel: match?.label || this.persistedModelId,
+          };
+        }
+        return factoryInfo;
+      }
       // Return persisted model info when agent is not yet initialized
       if (this.persistedModelId) {
         return {
@@ -1007,6 +1118,25 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         };
       }
       return null;
+    }
+    // For droid backend, merge agent info with Factory model list for completeness
+    if (this.options.backend === 'droid') {
+      const agentInfo = this.agent.getModelInfo();
+      if (!agentInfo || agentInfo.availableModels.length === 0) {
+        const { getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
+        const factoryInfo = getFactoryDroidModelInfo() as AcpModelInfo;
+        const currentId = agentInfo?.currentModelId || this.persistedModelId;
+        if (currentId) {
+          const match = factoryInfo.availableModels.find((m) => m.id === currentId);
+          return {
+            ...factoryInfo,
+            currentModelId: currentId,
+            currentModelLabel: match?.label || currentId,
+          };
+        }
+        return factoryInfo;
+      }
+      return agentInfo;
     }
     return this.agent.getModelInfo();
   }
@@ -1032,6 +1162,9 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       if (result.availableModels?.length > 0) {
         void this.cacheModelList(result);
       }
+      if (this.options.backend === 'droid') {
+        this.emitModelInfoUpdate(result);
+      }
     }
     return result;
   }
@@ -1043,6 +1176,18 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
   getConfigOptions(): AcpSessionConfigOption[] {
     if (!this.agent) return [];
     return this.agent.getConfigOptions();
+  }
+
+  private emitModelInfoUpdate(modelInfo: AcpModelInfo): void {
+    this.handleStreamEvent(
+      {
+        type: 'acp_model_info',
+        conversation_id: this.conversation_id,
+        msg_id: uuid(),
+        data: modelInfo,
+      },
+      this.options
+    );
   }
 
   /**

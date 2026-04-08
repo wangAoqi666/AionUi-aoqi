@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -705,15 +705,14 @@ export class AcpAgent {
         }
       }
 
-      // Inject model switch notice for Claude backend.
-      // In terminal, "/model X" output appears in conversation so the AI knows about
-      // the switch. In ACP mode set_model is silent, so we prepend an equivalent notice.
-      if (this.pendingModelSwitchNotice && this.extra.backend === 'claude') {
+      // Inject model switch notice so the AI knows the active model changed.
+      // In terminal, "/model X" output appears in conversation; in ACP mode set_model
+      // is silent, so we prepend an equivalent notice into the next user message.
+      if (this.pendingModelSwitchNotice) {
         const modelNotice =
           `<system-reminder>\n` +
           `Model switch: The active model has been changed to ${this.pendingModelSwitchNotice} via the /model command. ` +
           `You are now running as ${this.pendingModelSwitchNotice}. ` +
-          `The ANTHROPIC_MODEL environment variable and the earlier "You are powered by" text in the system prompt are stale (cached from session start) and no longer reflect the actual model. ` +
           `When asked which model you are, answer ${this.pendingModelSwitchNotice}.\n` +
           `</system-reminder>\n\n`;
         processedContent = modelNotice + processedContent;

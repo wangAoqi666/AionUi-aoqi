@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -369,6 +369,18 @@ export type TMessage =
   | IMessageSkillSuggest
   | IMessageCronTrigger;
 
+export type AskUserConfirmationQuestion = {
+  index: number;
+  topic: string;
+  question: string;
+  options: string[];
+};
+
+export type AskUserConfirmationInteraction = {
+  type: 'ask_user';
+  questions: AskUserConfirmationQuestion[];
+};
+
 // 统一所有需要用户交互的用户类型
 export interface IConfirmation<Option extends any = any> {
   title?: string;
@@ -376,6 +388,7 @@ export interface IConfirmation<Option extends any = any> {
   action?: string;
   description: string;
   callId: string;
+  interaction?: AskUserConfirmationInteraction;
   options: Array<{
     label: string;
     value: Option;

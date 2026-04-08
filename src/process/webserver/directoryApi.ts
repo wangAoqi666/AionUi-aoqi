@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -388,7 +388,7 @@ router.get('/shortcuts', fileOperationLimiter, (_req, res) => {
   try {
     const shortcuts = [
       {
-        name: 'AionUi Directory',
+        name: '智能体工厂 Directory',
         path: process.cwd(),
         icon: '🤖',
       },

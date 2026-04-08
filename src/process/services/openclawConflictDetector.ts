@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -184,10 +184,10 @@ export function getConflictResolutionSteps(platform: 'lark' | 'telegram'): strin
   const platformName = platform === 'lark' ? 'Feishu' : 'Telegram';
 
   return [
-    `Detected conflict: OpenClaw ${platformName} channel is using the same credentials as AionUi.`,
+    `Detected conflict: OpenClaw ${platformName} channel is using the same credentials as 智能体工厂.`,
     ``,
-    `This means messages are being handled by OpenClaw, not AionUi Channels.`,
-    `Switching agents in AionUi will have no effect.`,
+    `This means messages are being handled by OpenClaw, not 智能体工厂 Channels.`,
+    `Switching agents in 智能体工厂 will have no effect.`,
     ``,
     `To fix this, choose one:`,
     ``,
@@ -198,11 +198,11 @@ export function getConflictResolutionSteps(platform: 'lark' | 'telegram'): strin
     ``,
     `Option 2: Use different credentials`,
     `  - Create a new ${platformName} bot`,
-    `  - Configure it in AionUi Channels`,
+    `  - Configure it in 智能体工厂 Channels`,
     `  - Keep OpenClaw ${platformName} channel for other use`,
     ``,
     `Option 3: Use OpenClaw for ${platformName}`,
-    `  - Disable ${platformName} in AionUi Channels`,
+    `  - Disable ${platformName} in 智能体工厂 Channels`,
     `  - Use OpenClaw's native ${platformName} integration`,
   ];
 }
