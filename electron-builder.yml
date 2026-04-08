@@ -1,10 +1,10 @@
 appId: com.aionui.app
-productName: AionUi
-executableName: AionUi
-copyright: Copyright © 2024 AionUi
+productName: 智能体工厂
+executableName: 智能体工厂
+copyright: Copyright © 2024 Agent Factory
 
 protocols:
-  - name: AionUi Protocol
+  - name: 智能体工厂 Protocol
     schemes:
       - aionui
 
@@ -180,7 +180,7 @@ linux:
   description: ${description}
   desktop:
     entry:
-      Name: AionUi
+      Name: 智能体工厂
       Comment: ${description}
       Icon: aionui
       Categories: Office;Utility;

@@ -2,7 +2,7 @@
 
 Agent Factory supports WebUI mode, allowing you to access the application through a web browser. This guide covers how to start WebUI mode on all supported platforms.
 
-> Brand note: the product brand is `智能体工厂 / Agent Factory`; commands, paths, and executable names in this guide may still use `AionUi` where the current technical identifier has not been renamed.
+> Brand note: the product brand is `智能体工厂 / Agent Factory`. Current desktop packaging config uses `智能体工厂` as the product / executable name; if you are running an older build that still installs `AionUi`, replace the local app name in the commands below accordingly.
 
 ## Table of Contents
 
@@ -35,11 +35,11 @@ Default access URL: `http://localhost:3000` (port may vary, check the applicatio
 Open **Command Prompt** or **PowerShell** and run:
 
 ```cmd
-# Using full path
-"C:\Program Files\AionUi\AionUi.exe" --webui
+# Current packaged app name
+"C:\Program Files\智能体工厂\智能体工厂.exe" --webui
 
-# Or if the current AionUi binary is in your PATH
-AionUi.exe --webui
+# Older technical-identifier build
+"C:\Program Files\AionUi\AionUi.exe" --webui
 ```
 
 ### Method 2: Create a Desktop Shortcut
@@ -47,7 +47,7 @@ AionUi.exe --webui
 1. Right-click on desktop → **New** → **Shortcut**
 2. Enter target location:
    ```
-   "C:\Program Files\AionUi\AionUi.exe" --webui
+   "C:\Program Files\智能体工厂\智能体工厂.exe" --webui
    ```
 3. Name it **Agent Factory WebUI**
 4. Click **Finish**
@@ -59,7 +59,7 @@ Create `start-aionui-webui.bat`:
 
 ```batch
 @echo off
-"C:\Program Files\AionUi\AionUi.exe" --webui
+"C:\Program Files\智能体工厂\智能体工厂.exe" --webui
 pause
 ```
 
@@ -74,11 +74,11 @@ Double-click the batch file to start WebUI mode.
 Open **Terminal** and run:
 
 ```bash
-# Using full path
-/Applications/AionUi.app/Contents/MacOS/AionUi --webui
+# Current packaged app name
+/Applications/智能体工厂.app/Contents/MacOS/智能体工厂 --webui
 
-# Or using open command
-open -a AionUi --args --webui
+# Older technical-identifier build
+/Applications/AionUi.app/Contents/MacOS/AionUi --webui
 ```
 
 ### Method 2: Create Shell Script
@@ -104,7 +104,7 @@ chmod +x start-aionui-webui.sh
 3. Add **Run Shell Script** action
 4. Enter:
    ```bash
-   /Applications/AionUi.app/Contents/MacOS/AionUi --webui
+   /Applications/智能体工厂.app/Contents/MacOS/智能体工厂 --webui
    ```
 5. Save as **Agent Factory WebUI.app**
 6. Double-click to launch

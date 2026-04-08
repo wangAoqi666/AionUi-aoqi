@@ -7,6 +7,7 @@
 - 对外定位统一写为：`智能体工厂 / Agent Factory` 是基于 Factory Droid 深度定制的智能体工作平台
 - 主智能体交互主链路统一写为：`src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
 - 其他 ACP / 多后端能力默认表述为兼容层或历史能力，除非任务明确讨论这些后端
+- UI 中左上角主品牌图标是本软件 Logo；会话、消息、历史列表里表示调用 Agent Factory 的图标是 Factory Logo；两者不是同一个图标，禁止混用
 - 涉及 Factory CLI、Droid SDK、skills、MCP、hooks、settings、BYOK 等能力时，优先查以下直链：
   - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
   - https://docs.factory.ai/llms.txt

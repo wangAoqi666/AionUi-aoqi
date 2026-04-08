@@ -6,6 +6,8 @@
 
 - 用户主要用中文沟通，代码注释和 commit message 用英文
 - 回复保持简洁，不做多余分析
+- 用户特别强调：左上角主品牌图标是软件 Logo；会话、消息、历史列表里表示调用 Agent Factory 的小图标是 Factory Logo；两者不是同一个图标，后续设计和实现必须严格区分
+- 用户已明确纠正过一次：左上角品牌位只能使用软件 Logo，不能再误用 Factory Droid / Agent Factory 的 agent logo；后续凡是改品牌位，先判断这是“软件 Logo”还是“Factory/agent Logo”
 
 ## 项目背景
 

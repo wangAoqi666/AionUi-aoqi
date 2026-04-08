@@ -9,7 +9,7 @@ This repository powers `智能体工厂 / Agent Factory`, an agent workspace pla
   - https://github.com/Factory-AI/droid-sdk-typescript/blob/main/README.md
   - https://docs.factory.ai/llms.txt
 
-> Brand note: the product brand is Agent Factory; repository names, package names, and executable identifiers may still use `AionUi` where the current toolchain requires it.
+> Brand note: the product brand is Agent Factory. The packaged desktop app name has been switched to `智能体工厂`, while repository names, package names, and some technical identifiers may still use `AionUi`.
 
 ## Prerequisites
 
@@ -46,6 +46,8 @@ bun start
 | `bun run webui:prod`        | Start WebUI in production mode                                                                                 |
 | `bun run webui:prod:remote` | Start WebUI in production mode with remote access                                                              |
 | `bun run resetpass`         | Reset user password via CLI                                                                                    |
+| `bun run sync:design`       | Run Paper sync check for design → code                                                                         |
+| `bun run sync:paper`        | Run Paper sync check for code → design                                                                         |
 
 ### Build & Distribution
 

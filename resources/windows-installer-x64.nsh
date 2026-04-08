@@ -11,7 +11,7 @@ Function .onVerifyInstDir
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP \
       "Installation package architecture mismatch$\n$\n\
-      This AionUi installer is designed for x64 architecture.$\n$\n\
+      This 智能体工厂 installer is designed for x64 architecture.$\n$\n\
       Your system is 32-bit architecture. Please download the appropriate version for your architecture.$\n$\n\
       Download: https://github.com/iOfficeAI/AionUi/releases"
     Quit
@@ -21,7 +21,7 @@ Function .onVerifyInstDir
   ${If} ${IsNativeARM64}
     MessageBox MB_OK|MB_ICONSTOP \
       "Installation package architecture mismatch$\n$\n\
-      This AionUi installer is designed for x64 architecture.$\n$\n\
+      This 智能体工厂 installer is designed for x64 architecture.$\n$\n\
       Your system is ARM64 architecture. Please download the ARM64 version.$\n$\n\
       Download: https://github.com/iOfficeAI/AionUi/releases"
     Quit

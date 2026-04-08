@@ -1,7 +1,7 @@
 # 智能体工厂 / Agent Factory 项目结构说明文档（二次开发参考）
 
-> 版本：v1.9.7 | 最后更新：2026-04-06
-> 品牌说明：对外品牌为 `智能体工厂 / Agent Factory`；命令、路径、安装包中的 `AionUi` 仍表示当前技术标识
+> 版本：v1.9.7 | 最后更新：2026-04-08
+> 品牌说明：对外品牌为 `智能体工厂 / Agent Factory`；桌面端打包产物的 `productName` / `executableName` 已切到 `智能体工厂`，仓库名、包名、路径中的 `AionUi` 仍表示当前技术标识
 
 ---
 
@@ -33,7 +33,7 @@
 | Lint/Format | oxlint + oxfmt                              |
 | 包管理      | bun                                         |
 | 移动端      | React Native (Expo)                         |
-| 总依赖数    | 83 个 production 依赖                       |
+| 总依赖数    | 84 个 production 依赖                       |
 
 ### 运行模式
 
@@ -135,21 +135,21 @@
 
 ### 配置文件
 
-| 文件                      | 用途                                                               |
-| ------------------------- | ------------------------------------------------------------------ |
-| `package.json`            | 项目依赖、脚本命令、元数据                                         |
-| `bun.lock`                | bun 包管理器锁文件                                                 |
-| `tsconfig.json`           | TypeScript 编译配置（路径别名 `@/*`、`@process/*`、`@renderer/*`） |
-| `electron.vite.config.ts` | electron-vite 构建配置（main/preload/renderer 三入口）             |
-| `vite.renderer.config.ts` | Renderer 独立 Vite 配置（用于 WebUI 独立构建）                     |
-| `uno.config.ts`           | UnoCSS 配置（主题色、语义 token、自定义规则）                      |
-| `vitest.config.ts`        | Vitest 测试框架配置                                                |
-| `playwright.config.ts`    | Playwright E2E 测试配置                                            |
-| `electron-builder.yml`    | electron-builder 打包配置（多平台 dmg/exe/deb）                    |
-| `entitlements.plist`      | macOS 签名权限声明                                                 |
-| `Dockerfile`              | Docker 容器化构建（server 模式）                                   |
-| `justfile`                | just 命令运行器（类 Makefile，包含构建/发布/版本管理任务）         |
-| `codecov.yml`             | Codecov 代码覆盖率配置                                             |
+| 文件                      | 用途                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `package.json`            | 项目依赖、脚本命令、元数据                                                       |
+| `bun.lock`                | bun 包管理器锁文件                                                               |
+| `tsconfig.json`           | TypeScript 编译配置（路径别名 `@/*`、`@process/*`、`@renderer/*`）               |
+| `electron.vite.config.ts` | electron-vite 构建配置（main/preload/renderer 三入口）                           |
+| `vite.renderer.config.ts` | Renderer 独立 Vite 配置（用于 WebUI 独立构建）                                   |
+| `uno.config.ts`           | UnoCSS 配置（主题色、语义 token、自定义规则）                                    |
+| `vitest.config.ts`        | Vitest 测试框架配置                                                              |
+| `playwright.config.ts`    | Playwright E2E 测试配置                                                          |
+| `electron-builder.yml`    | electron-builder 打包配置（多平台 dmg/exe/deb，桌面端产品名已切到 `智能体工厂`） |
+| `entitlements.plist`      | macOS 签名权限声明                                                               |
+| `Dockerfile`              | Docker 容器化构建（server 模式）                                                 |
+| `justfile`                | just 命令运行器（类 Makefile，包含构建/发布/版本管理任务）                       |
+| `codecov.yml`             | Codecov 代码覆盖率配置                                                           |
 
 ### 代码质量
 
@@ -213,6 +213,8 @@ AionUi-aoqi/
 | `rebuildNativeModules.js` | 重编译原生模块（better-sqlite3 等）   |
 | `check-i18n.js`           | i18n 键值完整性校验                   |
 | `generate-i18n-types.js`  | 根据 JSON 生成 i18n TypeScript 类型   |
+| `sync-code-to-design.ts`  | Paper 原型同步检查（code → design）   |
+| `sync-design-to-code.ts`  | Paper 原型同步检查（design → code）   |
 | `packaged-launch.mjs`     | 打包后启动脚本                        |
 | `install-ubuntu.sh`       | Ubuntu 安装脚本                       |
 | `fix-sentry-daemon.sh`    | Sentry 错误自动修复守护脚本           |
@@ -352,21 +354,21 @@ src/process/
 
 每个 AI 后端对应一个 AgentManager，继承自 `BaseAgentManager`。其中 Factory Droid 主链路复用 `AcpAgentManager` 的编排层，但底层实际接入的是 `DroidSdkAgent`：
 
-| 文件                      | Agent 后端  | 说明                                                     |
-| ------------------------- | ----------- | -------------------------------------------------------- |
-| `AcpAgentManager.ts`      | Droid / ACP | Factory Droid 主链路与 Claude Code 等 ACP 后端共用编排层 |
-| `AionrsManager.ts`        | AionRS      | AionRS 协议 Agent（v1.9.5+，替代 Codex）                 |
-| `GeminiAgentManager.ts`   | Gemini      | Google Gemini 原生集成                                   |
-| `OpenClawAgentManager.ts` | OpenClaw    | OpenClaw 协议 Agent                                      |
-| `RemoteAgentManager.ts`   | Remote      | 远程 Agent 连接                                          |
-| `NanoBotAgentManager.ts`  | NanoBot     | 轻量级 Bot                                               |
-| `AgentFactory.ts`         | -           | Agent 工厂（根据类型创建对应 Manager）                   |
-| `BaseAgentManager.ts`     | -           | 基类（定义公共生命周期）                                 |
-| `AcpSkillManager.ts`      | -           | ACP Skill（技能）管理                                    |
-| `MessageMiddleware.ts`    | -           | 消息中间件链                                             |
-| `CronCommandDetector.ts`  | -           | 消息中定时任务命令检测                                   |
-| `ThinkTagDetector.ts`     | -           | 思维链标签检测                                           |
-| `WorkerTaskManager.ts`    | -           | 兼容后端 Worker 子进程任务调度                           |
+| 文件                      | Agent 后端  | 说明                                                                                          |
+| ------------------------- | ----------- | --------------------------------------------------------------------------------------------- |
+| `AcpAgentManager.ts`      | Droid / ACP | Factory Droid 主链路与 Claude Code 等 ACP 后端共用编排层，负责权限确认、AskUser、流式事件编排 |
+| `AionrsManager.ts`        | AionRS      | AionRS 协议 Agent（v1.9.5+，替代 Codex）                                                      |
+| `GeminiAgentManager.ts`   | Gemini      | Google Gemini 原生集成                                                                        |
+| `OpenClawAgentManager.ts` | OpenClaw    | OpenClaw 协议 Agent                                                                           |
+| `RemoteAgentManager.ts`   | Remote      | 远程 Agent 连接                                                                               |
+| `NanoBotAgentManager.ts`  | NanoBot     | 轻量级 Bot                                                                                    |
+| `AgentFactory.ts`         | -           | Agent 工厂（根据类型创建对应 Manager）                                                        |
+| `BaseAgentManager.ts`     | -           | 基类（定义公共生命周期）                                                                      |
+| `AcpSkillManager.ts`      | -           | ACP Skill（技能）管理                                                                         |
+| `MessageMiddleware.ts`    | -           | 消息中间件链                                                                                  |
+| `CronCommandDetector.ts`  | -           | 消息中定时任务命令检测                                                                        |
+| `ThinkTagDetector.ts`     | -           | 思维链标签检测                                                                                |
+| `WorkerTaskManager.ts`    | -           | 兼容后端 Worker 子进程任务调度                                                                |
 
 #### `services/` — 后端服务
 
@@ -503,6 +505,12 @@ team/
 
 > **注意**：Codex 协议适配器已在 v1.9.5 中移除，由 AionRS 替代。
 
+**当前 Droid 主链路补充**：
+
+- `AcpAgentManager` 在 `backend === 'droid'` 时直接实例化 `DroidSdkAgent`，不经过通用 ACP Worker 协议桥
+- Droid 会话的 AskUser 问题、权限确认和流式消息都在 Main 进程编排后再回传到前端
+- Droid 运行时模型切换继续通过 `session.updateSettings(...)` 生效
+
 ---
 
 ### 5.2 Renderer 进程 (`src/renderer/`)
@@ -525,14 +533,14 @@ src/renderer/
 
 #### `pages/` — 页面模块
 
-| 目录            | 页面       | 说明                                                 |
-| --------------- | ---------- | ---------------------------------------------------- |
-| `guid/`         | 引导页     | 首页/新对话引导、Agent 选择                          |
-| `conversation/` | 对话页     | 聊天主界面（消息列表、输入框、历史、预览）           |
-| `settings/`     | 设置页     | Agent/模型/显示/工具/Skills/WebUI/扩展/AionRS 等设置 |
-| `cron/`         | 定时任务页 | Cron 任务管理界面                                    |
-| `team/`         | Team 页    | ★ 多 Agent 团队协作界面（v1.9.3+）                   |
-| `login/`        | 登录页     | WebUI 登录界面                                       |
+| 目录            | 页面       | 说明                                                                             |
+| --------------- | ---------- | -------------------------------------------------------------------------------- |
+| `guid/`         | 引导页     | 首页/新对话引导、Agent 选择；当前会优先展示并默认选择 Factory Droid              |
+| `conversation/` | 对话页     | 聊天主界面（消息列表、输入框、历史、预览/工作区）                                |
+| `settings/`     | 设置页     | Agent/模型/显示/工具/Skills/WebUI/扩展/AionRS 等设置；默认落到 `/settings/agent` |
+| `cron/`         | 定时任务页 | Cron 任务管理界面                                                                |
+| `team/`         | Team 页    | ★ 多 Agent 团队协作界面（v1.9.3+）                                               |
+| `login/`        | 登录页     | WebUI 登录界面                                                                   |
 
 **对话页子模块**（最复杂的页面）：
 
@@ -548,6 +556,12 @@ conversation/
 ├── platforms/          # Agent 平台适配（acp/aionrs/gemini/nanobot/openclaw/remote）
 └── utils/              # 对话工具函数
 ```
+
+**近期交互补充**：
+
+- 左侧会话栏在存在工作区时支持 `history / workspace` 双模式切换，并将选择持久化到本地存储
+- 会话确认卡片与 Team 确认浮层现在同时支持普通 approve/deny 和 AskUser 结构化问答
+- Guid 页快速入口当前聚焦 WebUI，Skills Market Banner 默认隐藏
 
 **设置页子模块**：
 
@@ -566,6 +580,11 @@ settings/
 ├── ModeSettings.tsx    # 模式设置
 └── components/         # 设置页共享组件
 ```
+
+**设置页补充**：
+
+- `/settings` 默认重定向到 `/settings/agent`
+- Model 设置新增 **Factory Droid Built-in Models** 分区，用于展示内置 Factory 模型与默认 reasoning
 
 #### `components/` — 共享组件
 
@@ -832,6 +851,13 @@ bun run lint:fix       # 自动修复 lint
 bun run format         # 自动格式化
 bun run format:check   # 检查格式（不修改）
 bunx tsc --noEmit      # TypeScript 类型检查
+```
+
+### Paper 双向同步
+
+```bash
+bun run sync:design    # 检查 design → code 同步
+bun run sync:paper     # 检查 code → design 同步
 ```
 
 ### 国际化
