@@ -5,11 +5,14 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ipcBridge } from '@/common';
+import AppBrandLogo from '@renderer/assets/logos/brand/app.png';
 import WindowControls from '../WindowControls';
 import { WORKSPACE_STATE_EVENT, dispatchWorkspaceToggleEvent } from '@renderer/utils/workspace/workspaceEvents';
 import type { WorkspaceStateDetail } from '@renderer/utils/workspace/workspaceEvents';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { isElectronDesktop, isMacOS } from '@/renderer/utils/platform';
+import { DESKTOP_NAVIGATION_WIDTH, PRIMARY_RAIL_WIDTH } from '../layoutSections';
 import './titlebar.css';
 
 interface TitlebarProps {
@@ -17,29 +20,23 @@ interface TitlebarProps {
 }
 
 const AionLogoMark: React.FC = () => (
-  <svg className='app-titlebar__brand-logo' viewBox='0 0 80 80' fill='none' aria-hidden='true' focusable='false'>
-    <path
-      d='M40 20 Q38 22 25 40 Q23 42 26 42 L30 42 Q32 40 40 30 Q48 40 50 42 L54 42 Q57 42 55 40 Q42 22 40 20'
-      fill='currentColor'
-    ></path>
-    <circle cx='40' cy='46' r='3' fill='currentColor'></circle>
-    <path d='M18 50 Q40 70 62 50' stroke='currentColor' strokeWidth='3.5' fill='none' strokeLinecap='round'></path>
-  </svg>
+  <img src={AppBrandLogo} alt='智能体工厂' className='app-titlebar__brand-logo' aria-hidden='true' />
 );
 
 const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   const { t } = useTranslation();
-  const appTitle = useMemo(() => 'AionUi', []);
+  const appTitle = useMemo(() => '智能体工厂', []);
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
+  const [workspaceButtonAvailable, setWorkspaceButtonAvailable] = useState(workspaceAvailable);
   const [mobileCenterTitle, setMobileCenterTitle] = useState(appTitle);
   const [mobileCenterOffset, setMobileCenterOffset] = useState(0);
   const layout = useLayoutContext();
+  const { isOpen: isPreviewOpen, tabs: previewTabs, showPreviewPanel, hidePreviewPanel } = usePreviewContext();
   const location = useLocation();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const lastNonSettingsPathRef = useRef('/guid');
 
   // 监听工作空间折叠状态，保持按钮图标一致 / Sync workspace collapsed state for toggle button
   useEffect(() => {
@@ -51,6 +48,9 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
       if (typeof customEvent.detail?.collapsed === 'boolean') {
         setWorkspaceCollapsed(customEvent.detail.collapsed);
       }
+      if (typeof customEvent.detail?.available === 'boolean') {
+        setWorkspaceButtonAvailable(customEvent.detail.available);
+      }
     };
     window.addEventListener(WORKSPACE_STATE_EVENT, handler as EventListener);
     return () => {
@@ -58,24 +58,33 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
     };
   }, []);
 
+  useEffect(() => {
+    setWorkspaceButtonAvailable(workspaceAvailable);
+  }, [workspaceAvailable, location.pathname]);
+
   const isDesktopRuntime = isElectronDesktop();
   const isMacRuntime = isDesktopRuntime && isMacOS();
   // Windows/Linux 显示自定义窗口按钮；macOS 在标题栏给工作区一个切换入口
   const showWindowControls = isDesktopRuntime && !isMacRuntime;
-  // WebUI 和 macOS 桌面都需要在标题栏放工作区开关
-  const showWorkspaceButton = workspaceAvailable && (!isDesktopRuntime || isMacRuntime);
+  const showPreviewButton = previewTabs.length > 0 && workspaceAvailable && (!isDesktopRuntime || isMacRuntime);
+  // WebUI 和 macOS 桌面都需要在标题栏放工作区开关；有预览时改为预览开关
+  const showWorkspaceButton = !showPreviewButton && workspaceButtonAvailable && (!isDesktopRuntime || isMacRuntime);
 
   const workspaceTooltip = workspaceCollapsed
     ? t('common.expandMore', { defaultValue: 'Expand workspace' })
     : t('common.collapse', { defaultValue: 'Collapse workspace' });
+  const previewTooltip = isPreviewOpen
+    ? t('preview.collapsePanel', { defaultValue: 'Collapse panel' })
+    : t('preview.openInPanelTooltip', { defaultValue: 'View in preview panel' });
   const newConversationTooltip = t('conversation.workspace.createNewConversation');
   const backToChatTooltip = t('common.back', { defaultValue: 'Back to Chat' });
-  const isSettingsRoute = location.pathname.startsWith('/settings');
+  const isSettingsRoute = layout?.activeSection === 'settings' || location.pathname.startsWith('/settings');
   const iconSize = layout?.isMobile ? 24 : 18;
   // 统一在标题栏左侧展示主侧栏开关 / Always expose sidebar toggle on titlebar left side
   const showSiderToggle = Boolean(layout?.setSiderCollapsed) && !(layout?.isMobile && isSettingsRoute);
   const showBackToChatButton = Boolean(layout?.isMobile && isSettingsRoute);
   const showNewConversationButton = Boolean(layout?.isMobile && workspaceAvailable);
+  const hasMobileConversationChrome = showNewConversationButton || showWorkspaceButton || showPreviewButton;
   const siderTooltip = layout?.siderCollapsed
     ? t('common.expandMore', { defaultValue: 'Expand sidebar' })
     : t('common.collapse', { defaultValue: 'Collapse sidebar' });
@@ -86,10 +95,24 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   };
 
   const handleWorkspaceToggle = () => {
-    if (!workspaceAvailable) {
+    if (!workspaceButtonAvailable) {
       return;
     }
-    dispatchWorkspaceToggleEvent();
+    if (location.pathname.startsWith('/conversation/') && layout?.siderCollapsed && layout?.setSiderCollapsed) {
+      layout.setSiderCollapsed(false);
+    }
+    dispatchWorkspaceToggleEvent(workspaceCollapsed ? 'expand' : 'collapse');
+  };
+
+  const handlePreviewToggle = () => {
+    if (previewTabs.length === 0) {
+      return;
+    }
+    if (isPreviewOpen) {
+      hidePreviewPanel();
+      return;
+    }
+    showPreviewPanel();
   };
 
   const handleCreateConversation = () => {
@@ -97,34 +120,13 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   };
 
   const handleBackToChat = () => {
-    const target = lastNonSettingsPathRef.current;
+    const target = layout?.getSectionRoute?.(layout.lastNonSettingsSection);
     if (target && !target.startsWith('/settings')) {
       void navigate(target);
       return;
     }
     void navigate(-1);
   };
-
-  useEffect(() => {
-    if (!isSettingsRoute) {
-      const path = `${location.pathname}${location.search}${location.hash}`;
-      lastNonSettingsPathRef.current = path;
-      try {
-        sessionStorage.setItem('aion:last-non-settings-path', path);
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    try {
-      const stored = sessionStorage.getItem('aion:last-non-settings-path');
-      if (stored) {
-        lastNonSettingsPathRef.current = stored;
-      }
-    } catch {
-      // ignore
-    }
-  }, [isSettingsRoute, location.pathname, location.search, location.hash]);
 
   useEffect(() => {
     if (!layout?.isMobile) {
@@ -202,18 +204,29 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
     if (toolbarRef.current) observer.observe(toolbarRef.current);
 
     return () => observer.disconnect();
-  }, [layout?.isMobile, showBackToChatButton, showNewConversationButton, showWorkspaceButton, mobileCenterTitle]);
+  }, [
+    layout?.isMobile,
+    showBackToChatButton,
+    showNewConversationButton,
+    showWorkspaceButton,
+    showPreviewButton,
+    mobileCenterTitle,
+  ]);
 
   const mobileCenterStyle = layout?.isMobile
     ? ({
-        '--app-titlebar-mobile-center-offset': `${workspaceAvailable ? mobileCenterOffset : 0}px`,
+        '--app-titlebar-mobile-center-offset': `${hasMobileConversationChrome ? mobileCenterOffset : 0}px`,
       } as React.CSSProperties)
     : undefined;
 
   const menuStyle: React.CSSProperties = useMemo(() => {
     if (!isMacRuntime || !showSiderToggle) return {};
 
-    const marginLeft = layout?.isMobile ? '0px' : layout?.siderCollapsed ? '60px' : '210px';
+    const marginLeft = layout?.isMobile
+      ? '0px'
+      : layout?.siderCollapsed
+        ? `${PRIMARY_RAIL_WIDTH - 4}px`
+        : `${DESKTOP_NAVIGATION_WIDTH - 40}px`;
     return {
       marginLeft,
       transition: 'margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -226,7 +239,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
       style={mobileCenterStyle}
       className={classNames('flex items-center gap-8px app-titlebar bg-2 border-b border-[var(--border-base)]', {
         'app-titlebar--mobile': layout?.isMobile,
-        'app-titlebar--mobile-conversation': layout?.isMobile && workspaceAvailable,
+        'app-titlebar--mobile-conversation': layout?.isMobile && hasMobileConversationChrome,
         'app-titlebar--desktop': isDesktopRuntime,
         'app-titlebar--mac': isMacRuntime,
       })}
@@ -280,6 +293,20 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             aria-label={newConversationTooltip}
           >
             <Plus theme='outline' size={iconSize} fill='currentColor' />
+          </button>
+        )}
+        {showPreviewButton && (
+          <button
+            type='button'
+            className={classNames('app-titlebar__button', layout?.isMobile && 'app-titlebar__button--mobile')}
+            onClick={handlePreviewToggle}
+            aria-label={previewTooltip}
+          >
+            {isPreviewOpen ? (
+              <ExpandLeft theme='outline' size={iconSize} fill='currentColor' />
+            ) : (
+              <ExpandRight theme='outline' size={iconSize} fill='currentColor' />
+            )}
           </button>
         )}
         {showWorkspaceButton && (

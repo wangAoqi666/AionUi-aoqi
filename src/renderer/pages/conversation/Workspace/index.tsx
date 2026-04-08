@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,7 +9,6 @@ import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { emitter } from '@/renderer/utils/emitter';
 import {
   isTemporaryWorkspace as checkIsTemporaryWorkspace,
   getWorkspaceDisplayName as getDisplayName,
@@ -23,6 +22,7 @@ import PasteConfirmModal from './components/PasteConfirmModal';
 import WorkspaceContextMenu from './components/WorkspaceContextMenu';
 import WorkspaceDialogs from './components/WorkspaceDialogs';
 import WorkspaceTabBar from './components/WorkspaceTabBar';
+import WorkspaceTreeNode from './components/WorkspaceTreeNode';
 import WorkspaceToolbar from './components/WorkspaceToolbar';
 import { useFileChanges } from './hooks/useFileChanges';
 import { useWorkspaceCollapse } from './hooks/useWorkspaceCollapse';
@@ -39,7 +39,6 @@ import {
   computeContextMenuPosition,
   extractNodeData,
   extractNodeKey,
-  findNodeByKey,
   flattenSingleRoot,
   getTargetFolderPath,
 } from './utils/treeHelpers';
@@ -121,7 +120,6 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
     conversation_id,
     eventPrefix,
     refreshWorkspace: treeHook.refreshWorkspace,
-    clearSelection: treeHook.clearSelection,
     setFiles: treeHook.setFiles,
     setSelected: treeHook.setSelected,
     setExpandedKeys: treeHook.setExpandedKeys,
@@ -340,7 +338,6 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
               style={contextMenuStyle}
               node={modalsHook.contextMenu.node}
               t={t}
-              handleAddToChat={fileOpsHook.handleAddToChat}
               handleOpenNode={fileOpsHook.handleOpenNode}
               handleRevealNode={fileOpsHook.handleRevealNode}
               handlePreviewFile={fileOpsHook.handlePreviewFile}
@@ -370,8 +367,9 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
               </div>
             ) : (
               <Tree
-                className={`${isMobile ? '!pl-20px !pr-10px chat-workspace-tree--mobile' : '!pl-32px !pr-16px'} workspace-tree`}
-                showLine
+                className={`workspace-tree${isMobile ? ' workspace-tree--mobile' : ''}`}
+                blockNode
+                actionOnClick={['select', 'expand']}
                 key={treeHook.treeKey}
                 selectedKeys={treeHook.selected}
                 expandedKeys={treeHook.expandedKeys}
@@ -382,110 +380,40 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                   key: 'relativePath',
                   isLeaf: 'isFile',
                 }}
-                multiple
                 renderTitle={(node) => {
                   const relativePath = node.dataRef.relativePath;
-                  const isFile = node.dataRef.isFile;
-                  const isPasteTarget = !isFile && pasteHook.pasteTargetFolder === relativePath;
                   const nodeData = node.dataRef as IDirOrFile;
+                  const isSelected = relativePath ? treeHook.selected.includes(relativePath) : false;
+                  const isExpanded = relativePath ? treeHook.expandedKeys.includes(relativePath) : false;
 
                   return (
-                    <div
-                      className='flex items-center justify-between gap-6px min-w-0'
-                      style={{ color: 'inherit' }}
-                      onDoubleClick={() => {
-                        if (isFile) {
-                          fileOpsHook.handleAddToChat(nodeData);
-                        }
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openNodeContextMenu(nodeData, event.clientX, event.clientY);
-                      }}
-                    >
-                      <span className='flex items-center gap-4px min-w-0'>
-                        <span className='overflow-hidden text-ellipsis whitespace-nowrap'>{node.title}</span>
-                        {isPasteTarget && (
-                          <span className='ml-1 text-xs text-blue-700 font-bold bg-blue-500 text-white px-1.5 py-0.5 rounded'>
-                            PASTE
-                          </span>
-                        )}
-                      </span>
-                      {isMobile && (
-                        <button
-                          type='button'
-                          className='workspace-header__toggle workspace-node-more-btn h-28px w-28px rd-8px flex items-center justify-center text-t-secondary hover:text-t-primary active:text-t-primary flex-shrink-0'
-                          aria-label={t('common.more')}
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                            const menuWidth = 220;
-                            const menuHeight = 220;
-                            const maxX =
-                              typeof window !== 'undefined'
-                                ? Math.max(8, window.innerWidth - menuWidth - 8)
-                                : rect.left;
-                            const maxY =
-                              typeof window !== 'undefined'
-                                ? Math.max(8, window.innerHeight - menuHeight - 8)
-                                : rect.bottom;
-                            const menuX = Math.min(Math.max(8, rect.left - menuWidth + rect.width), maxX);
-                            const menuY = Math.min(Math.max(8, rect.bottom + 4), maxY);
-                            openNodeContextMenu(nodeData, menuX, menuY);
-                          }}
-                        >
-                          <div
-                            className='flex flex-col gap-2px items-center justify-center'
-                            style={{ width: '12px', height: '12px' }}
-                          >
-                            <div className='w-2px h-2px rounded-full bg-current'></div>
-                            <div className='w-2px h-2px rounded-full bg-current'></div>
-                            <div className='w-2px h-2px rounded-full bg-current'></div>
-                          </div>
-                        </button>
-                      )}
-                    </div>
+                    <WorkspaceTreeNode
+                      t={t}
+                      node={nodeData}
+                      isExpanded={isExpanded}
+                      isSelected={isSelected}
+                      isMobile={isMobile}
+                      onOpenContextMenu={openNodeContextMenu}
+                    />
                   );
                 }}
-                onSelect={(keys, extra) => {
+                onSelect={(_keys, extra) => {
                   const clickedKey = extractNodeKey(extra?.node);
                   const nodeData = extra && extra.node ? extractNodeData(extra.node) : null;
-                  const isFileNode = Boolean(nodeData?.isFile);
-                  const wasSelected = clickedKey ? treeHook.selectedKeysRef.current.includes(clickedKey) : false;
-
-                  if (isFileNode) {
-                    // Single-click file only opens preview without changing selection state
-                    if (clickedKey) {
-                      const filteredKeys = treeHook.selectedKeysRef.current.filter((key) => key !== clickedKey);
-                      treeHook.selectedKeysRef.current = filteredKeys;
-                      treeHook.setSelected(filteredKeys);
-                    }
-                    treeHook.selectedNodeRef.current = null;
-                    if (nodeData && clickedKey && !wasSelected) {
-                      void fileOpsHook.handlePreviewFile(nodeData);
-                    }
+                  if (!clickedKey || !nodeData) {
                     return;
                   }
 
-                  // Keep existing selection logic for folders
-                  let newKeys: string[];
+                  treeHook.setSelected([clickedKey]);
+                  treeHook.selectedKeysRef.current = [clickedKey];
 
-                  if (clickedKey && wasSelected) {
-                    newKeys = treeHook.selectedKeysRef.current.filter((key) => key !== clickedKey);
-                  } else if (clickedKey) {
-                    newKeys = [...treeHook.selectedKeysRef.current, clickedKey];
-                  } else {
-                    newKeys = keys.filter((key) => key !== workspace);
+                  if (nodeData.isFile) {
+                    treeHook.selectedNodeRef.current = null;
+                    void fileOpsHook.handlePreviewFile(nodeData);
+                    return;
                   }
 
-                  treeHook.setSelected(newKeys);
-                  treeHook.selectedKeysRef.current = newKeys;
-
-                  if (extra && extra.node && nodeData && nodeData.fullPath && nodeData.relativePath != null) {
+                  if (nodeData.fullPath && nodeData.relativePath != null) {
                     treeHook.selectedNodeRef.current = {
                       relativePath: nodeData.relativePath,
                       fullPath: nodeData.fullPath,
@@ -493,19 +421,6 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                   } else {
                     treeHook.selectedNodeRef.current = null;
                   }
-
-                  const items: Array<{ path: string; name: string; isFile: boolean }> = [];
-                  for (const k of newKeys) {
-                    const node = findNodeByKey(treeHook.files, k);
-                    if (node && node.fullPath) {
-                      items.push({
-                        path: node.fullPath,
-                        name: node.name,
-                        isFile: node.isFile,
-                      });
-                    }
-                  }
-                  emitter.emit(`${eventPrefix}.selected.file`, items);
                 }}
                 onExpand={(keys) => {
                   treeHook.setExpandedKeys(keys);

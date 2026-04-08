@@ -1,10 +1,10 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { CodexToolCallUpdate, IMessageAcpToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import type { TMessage } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
@@ -17,12 +17,10 @@ import React, { createContext, useEffect, useMemo, useRef, useState } from 'reac
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { uuid } from '@renderer/utils/common';
 import './messages.css';
 import HOC from '@renderer/utils/ui/HOC';
 import MessageCodexToolCall from './codex/MessageCodexToolCall';
-import type { FileChangeInfo } from './codex/MessageFileChanges';
-import MessageFileChanges, { parseDiff } from './codex/MessageFileChanges';
+import MessageFileChanges from './codex/MessageFileChanges';
 import { useMessageList } from './hooks';
 import MessageAgentStatus from './components/MessageAgentStatus';
 import MessagePlan from './components/MessagePlan';
@@ -34,48 +32,21 @@ import MessageCronTrigger from './components/MessageCronTrigger';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessagetText';
 import MessageThinking from './components/MessageThinking';
-import type { WriteFileResult } from './types';
 import { useAutoScroll } from './useAutoScroll';
 import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewOfficeFiles';
 import SelectionReplyButton from './components/SelectionReplyButton';
-
-type TurnDiffContent = Extract<CodexToolCallUpdate, { subtype: 'turn_diff' }>;
-
-type IMessageVO =
-  | TMessage
-  | { type: 'file_summary'; id: string; diffs: FileChangeInfo[]; sourceMessageIds: string[] }
-  | {
-      type: 'tool_summary';
-      id: string;
-      messages: Array<IMessageToolGroup | IMessageAcpToolCall>;
-      sourceMessageIds: string[];
-    };
+import {
+  buildProcessedMessageList,
+  getProcessedItemAnchorId,
+  matchesTargetMsgId,
+  matchesTargetMessage,
+  type AssistantActivityItem,
+  type ProcessedMessageItem,
+} from './listProcessing';
 
 type ConversationLocationState = {
   targetMessageId?: string;
   fromConversationSearch?: boolean;
-};
-
-const getProcessedItemSourceMessageIds = (item: IMessageVO): string[] => {
-  if ('type' in item && item.type === 'tool_summary') {
-    return item.sourceMessageIds;
-  }
-  if ('type' in item && item.type === 'file_summary') {
-    return item.sourceMessageIds;
-  }
-  return 'id' in item ? [item.id] : [];
-};
-
-const matchesTargetMessage = (item: IMessageVO, targetMessageId?: string): boolean => {
-  if (!targetMessageId) {
-    return false;
-  }
-  return getProcessedItemSourceMessageIds(item).includes(targetMessageId);
-};
-
-const getProcessedItemAnchorId = (item: IMessageVO): string => {
-  const sourceIds = getProcessedItemSourceMessageIds(item);
-  return sourceIds[0] || ('id' in item ? item.id : uuid());
 };
 
 const highlightStyle: React.CSSProperties = {
@@ -85,6 +56,13 @@ const highlightStyle: React.CSSProperties = {
 };
 
 const getUnhandledMessageType = (_message: never): string => 'unknown';
+
+const renderAssistantActivity = (activity: AssistantActivityItem): React.ReactNode => {
+  if (activity.type === 'thinking') {
+    return <MessageThinking key={activity.id} message={activity} />;
+  }
+  return <MessageToolGroupSummary key={activity.id} messages={activity.messages} />;
+};
 
 // Image preview context
 export const ImagePreviewContext = createContext<{ inPreviewGroup: boolean }>({ inPreviewGroup: false });
@@ -96,12 +74,15 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
       <div
         id={`message-${message.id}`}
         className={classNames(
-          'min-w-0 flex items-start message-item [&>div]:max-w-full px-8px m-t-10px max-w-full md:max-w-780px mx-auto',
+          'min-w-0 flex items-start message-item [&>div]:max-w-full px-8px m-t-10px max-w-full md:max-w-860px mx-auto',
           message.type,
           {
             'justify-center': message.position === 'center',
             'justify-end': message.position === 'right',
             'justify-start': message.position === 'left',
+            'message-item--center': message.position === 'center',
+            'message-item--user': message.position === 'right',
+            'message-item--assistant': message.position === 'left',
           }
         )}
         style={highlighted ? highlightStyle : undefined}
@@ -165,84 +146,7 @@ const MessageList: React.FC<{ className?: string }> = () => {
   const handledTargetKeyRef = useRef<string>('');
 
   // Pre-process message list to group Codex turn_diff messages
-  const processedList = useMemo(() => {
-    const result: Array<IMessageVO> = [];
-    let diffsChanges: FileChangeInfo[] = [];
-    let diffsSourceMessageIds: string[] = [];
-    let toolList: Array<IMessageToolGroup | IMessageAcpToolCall> = [];
-    let toolSourceMessageIds: string[] = [];
-
-    const pushFileDffChanges = (changes: FileChangeInfo, sourceMessageId: string) => {
-      if (!diffsChanges.length) {
-        diffsSourceMessageIds = [];
-        result.push({
-          type: 'file_summary',
-          id: `summary-${sourceMessageId}`,
-          diffs: diffsChanges,
-          sourceMessageIds: diffsSourceMessageIds,
-        });
-      }
-      diffsChanges.push(changes);
-      diffsSourceMessageIds.push(sourceMessageId);
-      toolList = [];
-      toolSourceMessageIds = [];
-    };
-    const pushToolList = (message: IMessageToolGroup | IMessageAcpToolCall) => {
-      if (!toolList.length) {
-        toolSourceMessageIds = [];
-        result.push({
-          type: 'tool_summary',
-          id: `tool-summary-${message.id}`,
-          messages: toolList,
-          sourceMessageIds: toolSourceMessageIds,
-        });
-      }
-      toolList.push(message);
-      toolSourceMessageIds.push(message.id);
-      diffsChanges = [];
-      diffsSourceMessageIds = [];
-    };
-
-    for (let i = 0, len = list.length; i < len; i++) {
-      const message = list[i];
-      // Skip hidden and available_commands messages
-      if (message.hidden) continue;
-      if (message.type === 'available_commands') continue;
-      if (message.type === 'codex_tool_call' && message.content.subtype === 'turn_diff') {
-        pushFileDffChanges(parseDiff((message.content as TurnDiffContent).data.unified_diff), message.id);
-        continue;
-      }
-      if (message.type === 'tool_group') {
-        if (message.content.length === 1) {
-          const writeFileResults = message.content
-            .filter(
-              (item) =>
-                item.name === 'WriteFile' &&
-                item.resultDisplay &&
-                typeof item.resultDisplay === 'object' &&
-                'fileDiff' in item.resultDisplay
-            )
-            .map((item) => item.resultDisplay as WriteFileResult);
-          if (writeFileResults.length && writeFileResults[0].fileDiff) {
-            pushFileDffChanges(parseDiff(writeFileResults[0].fileDiff, writeFileResults[0].fileName), message.id);
-            continue;
-          }
-        }
-        pushToolList(message);
-        continue;
-      }
-      if (message.type === 'acp_tool_call') {
-        pushToolList(message);
-        continue;
-      }
-      toolList = [];
-      toolSourceMessageIds = [];
-      diffsChanges = [];
-      diffsSourceMessageIds = [];
-      result.push(message);
-    }
-    return result;
-  }, [list]);
+  const processedList = useMemo(() => buildProcessedMessageList(list), [list]);
 
   // Use auto-scroll hook
   const {
@@ -299,18 +203,9 @@ const MessageList: React.FC<{ className?: string }> = () => {
       if (!detail || !detail.conversationId) return;
       if (!conversationContext?.conversationId || detail.conversationId !== conversationContext.conversationId) return;
 
-      const targetIndex = processedList.findIndex((item) => {
-        if (
-          (item as { type?: string }).type === 'file_summary' ||
-          (item as { type?: string }).type === 'tool_summary'
-        ) {
-          return false;
-        }
-        const message = item as TMessage;
-        if (detail.messageId && message.id === detail.messageId) return true;
-        if (detail.msgId && message.msg_id === detail.msgId) return true;
-        return false;
-      });
+      const targetIndex = processedList.findIndex(
+        (item) => matchesTargetMessage(item, detail.messageId) || matchesTargetMsgId(item, detail.msgId)
+      );
       if (targetIndex < 0) return;
 
       hideScrollButton();
@@ -335,14 +230,29 @@ const MessageList: React.FC<{ className?: string }> = () => {
     scrollToBottom('smooth');
   };
 
-  const renderItem = (_index: number, item: (typeof processedList)[0]) => {
+  const renderItem = (_index: number, item: ProcessedMessageItem) => {
     const highlighted = matchesTargetMessage(item, highlightedMessageId);
-    if ('type' in item && ['file_summary', 'tool_summary'].includes(item.type)) {
+    if (item.type === 'assistant_turn' || item.type === 'activity_group') {
       return (
         <div
           key={item.id}
           id={`message-${getProcessedItemAnchorId(item)}`}
-          className={'min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-780px mx-auto ' + item.type}
+          className='min-w-0 flex items-start message-item message-item--assistant px-8px m-t-10px max-w-full md:max-w-860px mx-auto justify-start'
+          style={highlighted ? highlightStyle : undefined}
+        >
+          <div className='message-turn-stack'>
+            <div className='message-turn-activities'>{item.activities.map(renderAssistantActivity)}</div>
+            {item.type === 'assistant_turn' && <MessageText message={item.message} />}
+          </div>
+        </div>
+      );
+    }
+    if (item.type === 'file_summary' || item.type === 'tool_summary') {
+      return (
+        <div
+          key={item.id}
+          id={`message-${getProcessedItemAnchorId(item)}`}
+          className={'min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-860px mx-auto ' + item.type}
           style={highlighted ? highlightStyle : undefined}
         >
           {item.type === 'file_summary' && <MessageFileChanges diffsChanges={item.diffs} />}
@@ -350,7 +260,7 @@ const MessageList: React.FC<{ className?: string }> = () => {
         </div>
       );
     }
-    return <MessageItem message={item as TMessage} key={(item as TMessage).id} highlighted={highlighted}></MessageItem>;
+    return <MessageItem message={item} key={item.id} highlighted={highlighted}></MessageItem>;
   };
 
   return (
@@ -361,7 +271,7 @@ const MessageList: React.FC<{ className?: string }> = () => {
           <Virtuoso
             ref={virtuosoRef}
             scrollerRef={handleScrollerRef}
-            className='flex-1 h-full pb-10px box-border'
+            className='conversation-message-stream flex-1 h-full pb-16px box-border'
             data={processedList}
             initialTopMostItemIndex={processedList.length - 1}
             defaultItemHeight={40}

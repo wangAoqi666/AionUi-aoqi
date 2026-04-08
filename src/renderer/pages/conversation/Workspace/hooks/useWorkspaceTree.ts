@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,13 +9,13 @@ import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import { emitter } from '@/renderer/utils/emitter';
 import { dispatchWorkspaceHasFilesEvent } from '@/renderer/utils/workspace/workspaceEvents';
 import { useCallback, useRef, useState } from 'react';
-import type { SelectedNodeRef } from '../types';
+import type { SelectedNodeRef, WorkspaceEventPrefix } from '../types';
 import { getFirstLevelKeys } from '../utils/treeHelpers';
 
 interface UseWorkspaceTreeOptions {
   workspace: string;
   conversation_id: string;
-  eventPrefix: 'gemini' | 'acp' | 'codex' | 'aionrs';
+  eventPrefix: WorkspaceEventPrefix;
 }
 
 /**

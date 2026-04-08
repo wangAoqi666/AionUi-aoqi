@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@ import type { NodeInstance } from '@arco-design/web-react/es/Tree/interface';
 import type { Message } from '@arco-design/web-react';
 
 export type MessageApi = ReturnType<typeof Message.useMessage>[0];
+export type WorkspaceEventPrefix = 'gemini' | 'acp' | 'codex' | 'aionrs' | 'remote' | 'nanobot' | 'openclaw-gateway';
 
 /**
  * Workspace 组件的 Props 定义
@@ -17,7 +18,7 @@ export type MessageApi = ReturnType<typeof Message.useMessage>[0];
 export interface WorkspaceProps {
   workspace: string;
   conversation_id: string;
-  eventPrefix?: 'gemini' | 'acp' | 'codex' | 'aionrs';
+  eventPrefix?: WorkspaceEventPrefix;
   messageApi?: MessageApi;
 }
 

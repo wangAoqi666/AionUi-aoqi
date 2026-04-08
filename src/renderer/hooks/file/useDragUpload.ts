@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,15 +9,33 @@ import { useTranslation } from 'react-i18next';
 import { Message } from '@arco-design/web-react';
 import type { FileMetadata } from '@renderer/services/FileService';
 import { isSupportedFile, FileService, MAX_UPLOAD_SIZE_MB } from '@renderer/services/FileService';
+import type { FileSelectionItem } from '@renderer/utils/file/fileSelection';
+import { parseWorkspaceDragItem, WORKSPACE_DRAG_MIME } from '@renderer/utils/file/fileSelection';
 
 export interface UseDragUploadOptions {
   supportedExts?: string[];
   onFilesAdded?: (files: FileMetadata[]) => void;
+  onWorkspaceItemsDropped?: (items: FileSelectionItem[]) => void;
   /** Conversation ID for WebUI file uploads */
   conversationId?: string;
 }
 
-export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId }: UseDragUploadOptions) => {
+const getTransferTypes = (event: React.DragEvent): string[] => {
+  const { dataTransfer } = event.nativeEvent;
+  return dataTransfer?.types ? Array.from(dataTransfer.types) : [];
+};
+
+const hasSupportedDropPayload = (event: React.DragEvent): boolean => {
+  const transferTypes = getTransferTypes(event);
+  return transferTypes.includes('Files') || transferTypes.includes(WORKSPACE_DRAG_MIME);
+};
+
+export const useDragUpload = ({
+  supportedExts = [],
+  onFilesAdded,
+  onWorkspaceItemsDropped,
+  conversationId,
+}: UseDragUploadOptions) => {
   const { t } = useTranslation();
   const [isFileDragging, setIsFileDragging] = useState(false);
 
@@ -26,6 +44,10 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId
 
   const handleDragOver = useCallback(
     (e: React.DragEvent) => {
+      if (!hasSupportedDropPayload(e)) {
+        return;
+      }
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -38,6 +60,10 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId
   );
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!hasSupportedDropPayload(e)) {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -59,6 +85,10 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
+      if (!hasSupportedDropPayload(e)) {
+        return;
+      }
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -66,10 +96,20 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId
       dragCounter.current = 0;
       setIsFileDragging(false);
 
+      const dataTransfer = e.nativeEvent.dataTransfer;
+      const workspaceItem = parseWorkspaceDragItem(dataTransfer?.getData(WORKSPACE_DRAG_MIME) ?? '');
+      if (workspaceItem) {
+        onWorkspaceItemsDropped?.([workspaceItem]);
+        return;
+      }
+
       if (!onFilesAdded) return;
 
       try {
-        const droppedFiles = e.nativeEvent.dataTransfer!.files;
+        const droppedFiles = dataTransfer?.files;
+        if (!droppedFiles) {
+          return;
+        }
 
         // 第一步：先校验文件类型，筛选出支持的文件
         const validFiles: File[] = [];
@@ -104,7 +144,7 @@ export const useDragUpload = ({ supportedExts = [], onFilesAdded, conversationId
         }
       }
     },
-    [conversationId, onFilesAdded, supportedExts, t]
+    [conversationId, onFilesAdded, onWorkspaceItemsDropped, supportedExts, t]
   );
 
   const dragHandlers = {

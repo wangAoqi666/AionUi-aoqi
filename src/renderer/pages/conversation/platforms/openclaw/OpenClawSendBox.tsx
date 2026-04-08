@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -411,6 +411,15 @@ const OpenClawSendBox: React.FC<{ conversation_id: string }> = ({ conversation_i
     }, 10);
   });
 
+  const appendDroppedWorkspaceItems = useCallback((items: Array<string | FileOrFolderItem>) => {
+    setTimeout(() => {
+      const merged = mergeFileSelectionItems(atPathRef.current, items);
+      if (merged !== atPathRef.current) {
+        setAtPath(merged as Array<string | FileOrFolderItem>);
+      }
+    }, 10);
+  }, []);
+
   const executeCommand = useCallback(
     async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
       const runtimeOk = await validateRuntimeMismatch(conversation_id);
@@ -608,7 +617,7 @@ const OpenClawSendBox: React.FC<{ conversation_id: string }> = ({ conversation_i
         onChange={setContent}
         loading={aiProcessing}
         disabled={false}
-        className='z-10'
+        className='z-10 conversation-sendbox-dock'
         placeholder={
           aiProcessing
             ? t('conversation.chat.processing')
@@ -619,6 +628,7 @@ const OpenClawSendBox: React.FC<{ conversation_id: string }> = ({ conversation_i
         }
         onStop={handleStop}
         onFilesAdded={handleFilesAdded}
+        onWorkspaceItemsDropped={appendDroppedWorkspaceItems}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
         supportedExts={allSupportedExts}
         defaultMultiLine={true}

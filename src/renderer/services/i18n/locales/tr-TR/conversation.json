@@ -14,10 +14,10 @@
     "clearWorkspace": "Klasörü kaldır",
     "openFolder": "Klasör Aç",
     "none": "Hiçbiri",
-    "quickActionsTitle": "AionUi neler yapabilir?",
+    "quickActionsTitle": "智能体工厂 neler yapabilir?",
     "quickActionFeedback": "Geri bildirim veya öneriniz mi var?",
     "quickActionStar": "Bizi beğendiniz mi? Yıldız verin!",
-    "skillsMarket": "AionUi Skills Market",
+    "skillsMarket": "智能体工厂 Skills Market",
     "skillsMarketDesc": "Topluluk Skills'lerini ihtiyaç duyduğunuzda arayın ve etkinleştirin. Bir kez yapılandırın, tüm Agent'larda kullanılabilir.",
     "skillsMarketDetails": "Ayrıntılar >>"
   },
@@ -79,6 +79,10 @@
     "empty": "Eşleşen mesaj bulunamadı",
     "loadingMore": "Daha fazla yükleniyor...",
     "untitled": "Adsız sohbet"
+  },
+  "thinking": {
+    "completed": "Düşünme tamamlandı",
+    "processing": "Düşünüyor..."
   },
   "tabs": {
     "closeAll": "Tümünü Kapat",

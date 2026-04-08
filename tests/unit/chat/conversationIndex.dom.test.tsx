@@ -8,6 +8,7 @@ const openTabMock = vi.fn();
 const closePreviewMock = vi.fn();
 const conversationGetMock = vi.fn();
 const syncTitleFromHistoryMock = vi.fn();
+let routeConversationId = 'conv-1';
 let listChangedHandler:
   | ((event: { conversationId: string; action: 'created' | 'updated' | 'deleted' }) => void)
   | undefined;
@@ -38,7 +39,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ id: 'conv-1' }),
+    useParams: () => ({ id: routeConversationId }),
   };
 });
 
@@ -71,6 +72,7 @@ describe('ChatConversationIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listChangedHandler = undefined;
+    routeConversationId = 'conv-1';
   });
 
   const renderPage = () =>
@@ -115,5 +117,26 @@ describe('ChatConversationIndex', () => {
     await waitFor(() => {
       expect(conversationGetMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('keeps the preview open when switching conversations', async () => {
+    conversationGetMock
+      .mockResolvedValueOnce({ id: 'conv-1', name: 'First conversation' })
+      .mockResolvedValueOnce({ id: 'conv-2', name: 'Second conversation' });
+
+    const view = renderPage();
+
+    expect(await screen.findByText('First conversation')).toBeInTheDocument();
+    expect(closePreviewMock).not.toHaveBeenCalled();
+
+    routeConversationId = 'conv-2';
+    view.rerender(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <ChatConversationIndex />
+      </SWRConfig>
+    );
+
+    expect(await screen.findByText('Second conversation')).toBeInTheDocument();
+    expect(closePreviewMock).not.toHaveBeenCalled();
   });
 });

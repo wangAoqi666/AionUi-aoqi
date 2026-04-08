@@ -1,8 +1,9 @@
 import type { BadgeProps } from '@arco-design/web-react';
 import { Badge } from '@arco-design/web-react';
 import { IconDown, IconRight } from '@arco-design/web-react/icon';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { IMessageAcpToolCall, IMessageToolGroup } from '@/common/chat/chatLib';
+import { useTranslation } from 'react-i18next';
 import './MessageToolGroupSummary.css';
 
 type ToolItem = {
@@ -139,13 +140,14 @@ const ToolAcpMapper = (message: IMessageAcpToolCall): ToolItem | undefined => {
         ? 'success'
         : update.status === 'failed'
           ? 'error'
-          : ('default' as BadgeProps['status']),
+          : ('processing' as BadgeProps['status']),
     input,
     output,
   };
 };
 
 const ToolItemDetail: React.FC<{ item: ToolItem }> = ({ item }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const hasDetail = item.input || item.output;
 
@@ -177,13 +179,13 @@ const ToolItemDetail: React.FC<{ item: ToolItem }> = ({ item }) => {
         <div className='tool-detail-panel m-l-20px m-t-4px'>
           {item.input && (
             <div className='tool-detail-section'>
-              <div className='tool-detail-label'>Input</div>
+              <div className='tool-detail-label'>{t('tools.labels.arguments')}</div>
               <pre className='tool-detail-content'>{item.input}</pre>
             </div>
           )}
           {item.output && (
             <div className='tool-detail-section'>
-              <div className='tool-detail-label'>Output</div>
+              <div className='tool-detail-label'>{t('tools.labels.result')}</div>
               <pre className='tool-detail-content'>{item.output}</pre>
             </div>
           )}
@@ -200,14 +202,15 @@ const MessageToolGroupSummary: React.FC<{ messages: Array<IMessageToolGroup | IM
     (m) =>
       (m.type === 'tool_group' &&
         m.content.some((t) => t.status !== 'Success' && t.status !== 'Error' && t.status !== 'Canceled')) ||
-      (m.type === 'acp_tool_call' && m.content.update.status !== 'completed')
+      (m.type === 'acp_tool_call' &&
+        (m.content.update.status === 'pending' || m.content.update.status === 'in_progress'))
   );
-  const [showMore, setShowMore] = useState(hasRunningTools);
-
-  // Auto-expand when new tools start running (during creation)
-  useEffect(() => {
-    if (hasRunningTools) setShowMore(true);
-  }, [hasRunningTools]);
+  const hasErrorTools = messages.some(
+    (m) =>
+      (m.type === 'tool_group' && m.content.some((tool) => tool.status === 'Error')) ||
+      (m.type === 'acp_tool_call' && m.content.update.status === 'failed')
+  );
+  const [showMore, setShowMore] = useState(false);
   const tools = useMemo(() => {
     return messages.flatMap((m) => {
       if (m.type === 'tool_group') return ToolGroupMapper(m);
@@ -215,14 +218,28 @@ const MessageToolGroupSummary: React.FC<{ messages: Array<IMessageToolGroup | IM
     });
   }, [messages]);
 
+  const leadTool = tools[0];
+  const hiddenCount = Math.max(tools.length - 1, 0);
+  const summaryStatus: BadgeProps['status'] = hasRunningTools ? 'processing' : hasErrorTools ? 'error' : 'default';
+  const summaryText = leadTool ? (leadTool.desc || leadTool.name).trim() : '';
+
   return (
-    <div>
-      <div className='flex items-center gap-10px color-#86909C cursor-pointer' onClick={() => setShowMore(!showMore)}>
-        <Badge status='default' text='View Steps' className={'![&_span.arco-badge-status-text]:color-#86909C'}></Badge>
-        {showMore ? <IconDown /> : <IconRight />}
+    <div className='tool-summary-root'>
+      <div className='tool-summary-header' onClick={() => setShowMore(!showMore)}>
+        <Badge status={summaryStatus} className={summaryStatus === 'processing' ? 'badge-breathing' : ''}></Badge>
+        <span className='tool-summary-text'>
+          {leadTool ? (
+            <>
+              <span className='tool-summary-name'>{leadTool.name}</span>
+              {summaryText && summaryText !== leadTool.name && <span className='tool-summary-desc'>{summaryText}</span>}
+            </>
+          ) : null}
+        </span>
+        {hiddenCount > 0 && <span className='tool-summary-count'>+{hiddenCount}</span>}
+        {showMore ? <IconDown className='tool-summary-arrow' /> : <IconRight className='tool-summary-arrow' />}
       </div>
       {showMore && (
-        <div className='p-l-20px flex flex-col gap-8px pt-8px'>
+        <div className='tool-summary-details'>
           {tools.map((item) => (
             <ToolItemDetail key={item.key} item={item} />
           ))}

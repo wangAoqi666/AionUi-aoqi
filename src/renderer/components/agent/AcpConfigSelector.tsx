@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@ import MarqueePillLabel from './MarqueePillLabel';
  * 目前支援 ACP configOptions 的後端列表。
  * 其他後端（如 Claude Code、OpenCode）待上游支援後再加入。
  */
-const CONFIG_OPTION_SUPPORTED_BACKENDS: Set<AcpBackend> = new Set(['codex']);
+const CONFIG_OPTION_SUPPORTED_BACKENDS: Set<AcpBackend> = new Set(['codex', 'droid']);
 
 /** ConfigStorage key for cached config options per backend */
 const CACHED_CONFIG_OPTIONS_KEY = 'acp.cachedConfigOptions';
@@ -30,6 +30,7 @@ const CACHED_CONFIG_OPTIONS_KEY = 'acp.cachedConfigOptions';
  * Save config options to ConfigStorage keyed by backend.
  */
 function cacheConfigOptions(backend: string, options: AcpSessionConfigOption[]): void {
+  if (backend === 'droid') return;
   ConfigStorage.get(CACHED_CONFIG_OPTIONS_KEY)
     .then((cached) => ConfigStorage.set(CACHED_CONFIG_OPTIONS_KEY, { ...cached, [backend]: options }))
     .catch(() => {});
@@ -70,7 +71,7 @@ const AcpConfigSelector: React.FC<{
       .invoke({ conversationId })
       .then((result) => {
         if (cancelled) return;
-        if (result.success && result.data?.configOptions?.length > 0) {
+        if (result.success && result.data?.configOptions) {
           setConfigOptions(result.data.configOptions);
           cacheConfigOptions(backend, result.data.configOptions);
         }
@@ -91,7 +92,7 @@ const AcpConfigSelector: React.FC<{
         ipcBridge.acpConversation.getConfigOptions
           .invoke({ conversationId })
           .then((result) => {
-            if (result.success && result.data?.configOptions?.length > 0) {
+            if (result.success && result.data?.configOptions) {
               setConfigOptions(result.data.configOptions);
               cacheConfigOptions(backend, result.data.configOptions);
             }
@@ -104,9 +105,7 @@ const AcpConfigSelector: React.FC<{
 
   // Sync when initialConfigOptions prop changes (e.g. agent switch on Guid page)
   useEffect(() => {
-    if (Array.isArray(initialConfigOptions) && initialConfigOptions.length > 0) {
-      setConfigOptions(initialConfigOptions as AcpSessionConfigOption[]);
-    }
+    setConfigOptions((Array.isArray(initialConfigOptions) ? initialConfigOptions : []) as AcpSessionConfigOption[]);
   }, [initialConfigOptions]);
 
   const handleSelectOption = useCallback(
@@ -126,7 +125,7 @@ const AcpConfigSelector: React.FC<{
       ipcBridge.acpConversation.setConfigOption
         .invoke({ conversationId, configId, value })
         .then((result) => {
-          if (result.success && result.data?.configOptions?.length > 0) {
+          if (result.success && result.data?.configOptions) {
             setConfigOptions(result.data.configOptions);
           }
         })
@@ -149,13 +148,13 @@ const AcpConfigSelector: React.FC<{
   // Don't render for unsupported backends
   if (!isSupported) return null;
 
-  // Filter: only show select-type options with multiple choices,
+  // Filter: only show select-type options,
   // exclude mode/model (handled by AgentModeSelector / AcpModelSelector)
   const selectOptions = configOptions.filter(
     (opt) =>
       opt.type === 'select' &&
       opt.options &&
-      opt.options.length > 1 &&
+      opt.options.length > 0 &&
       opt.category !== 'mode' &&
       opt.category !== 'model'
   );
@@ -171,6 +170,17 @@ const AcpConfigSelector: React.FC<{
           option.options?.find((o) => o.value === currentValue)?.name ||
           currentValue ||
           t('acp.config.default', { defaultValue: 'Default' });
+        const hasMultipleChoices = (option.options?.length || 0) > 1;
+
+        if (!hasMultipleChoices) {
+          return (
+            <Button key={option.id} className='sendbox-model-btn agent-mode-compact-pill' shape='round' size='small'>
+              <span className='flex items-center gap-6px min-w-0 leading-none'>
+                <MarqueePillLabel>{currentLabel}</MarqueePillLabel>
+              </span>
+            </Button>
+          );
+        }
 
         return (
           <Dropdown

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -73,6 +73,12 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
   aionrs: [
     { value: 'default', label: 'Default' },
     { value: 'auto_edit', label: 'Auto-Accept Edits' },
+    { value: 'yolo', label: 'YOLO' },
+  ],
+  droid: [
+    { value: 'default', label: 'Default' },
+    { value: 'acceptEdits', label: 'Accept Edits' },
+    { value: 'auto', label: 'Auto' },
     { value: 'yolo', label: 'YOLO' },
   ],
   codex: [

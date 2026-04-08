@@ -14,10 +14,10 @@
     "clearWorkspace": "Remove folder",
     "openFolder": "Open Folder",
     "none": "None",
-    "quickActionsTitle": "What can AionUi do?",
+    "quickActionsTitle": "What can 智能体工厂 do?",
     "quickActionFeedback": "Got feedback or suggestions?",
     "quickActionStar": "Like us? Give us a star!",
-    "skillsMarket": "AionUi Skills Market",
+    "skillsMarket": "智能体工厂 Skills Market",
     "skillsMarketDesc": "Search and activate community Skills on demand. Configure once, available for all agents.",
     "skillsMarketDetails": "View More >>"
   },
@@ -75,6 +75,10 @@
     "empty": "No matching messages found",
     "loadingMore": "Loading more...",
     "untitled": "Untitled conversation"
+  },
+  "thinking": {
+    "completed": "Thought complete",
+    "processing": "Thinking..."
   },
   "tabs": {
     "closeAll": "Close All",

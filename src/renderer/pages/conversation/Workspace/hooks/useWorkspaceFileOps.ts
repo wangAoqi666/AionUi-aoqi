@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,13 +15,13 @@ import {
 } from '@/renderer/pages/conversation/Preview/constants';
 import { removeWorkspaceEntry, renameWorkspaceEntry } from '@/renderer/utils/file/workspaceFs';
 import { useCallback } from 'react';
-import type { MessageApi, RenameModalState, DeleteModalState } from '../types';
+import type { DeleteModalState, MessageApi, RenameModalState, WorkspaceEventPrefix } from '../types';
 import type { FileOrFolderItem } from '@/renderer/utils/file/fileTypes';
 import { getPathSeparator, replacePathInList, updateTreeForRename } from '../utils/treeHelpers';
 
 interface UseWorkspaceFileOpsOptions {
   workspace: string;
-  eventPrefix: 'gemini' | 'acp' | 'codex' | 'aionrs';
+  eventPrefix: WorkspaceEventPrefix;
   messageApi: MessageApi;
   t: (key: string) => string;
 

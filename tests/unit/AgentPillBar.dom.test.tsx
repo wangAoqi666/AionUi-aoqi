@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -179,5 +179,26 @@ describe('AgentPillBar', () => {
     // One separator between the two agents plus one before the + button = 2 total
     const separators = screen.getAllByText('|');
     expect(separators.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('can render only the selected agent without the discover-more button', () => {
+    const agents: AvailableAgent[] = [
+      makeAgent({ backend: 'claude', name: 'Claude' }),
+      makeAgent({ backend: 'gemini', name: 'Gemini' }),
+    ];
+
+    render(
+      <AgentPillBar
+        {...defaultProps}
+        availableAgents={agents}
+        selectedAgentKey='claude'
+        showOnlySelected
+        showDiscoverMoreButton={false}
+      />
+    );
+
+    expect(screen.getByText('Claude')).toBeTruthy();
+    expect(screen.queryByText('Gemini')).toBeNull();
+    expect(screen.queryByTestId('icon-plus')).toBeNull();
   });
 });

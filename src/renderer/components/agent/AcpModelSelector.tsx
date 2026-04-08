@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { ConfigStorage } from '@/common/config/storage';
 import type { IProvider } from '@/common/config/storage';
+import { getFactoryDroidModelInfo } from '@/common/config/factoryModels';
 import type { AcpModelInfo } from '@/common/types/acpTypes';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
@@ -91,8 +92,10 @@ const AcpModelSelector: React.FC<{
             setModelInfo(info);
           }
         } else if (backend) {
-          // Manager not yet created — load cached model list from storage
           void loadCachedModelInfo(backend, cancelled);
+        } else if (!backend) {
+          // No backend specified but also no model info — try droid fallback
+          setModelInfo(null);
         }
       })
       .catch(() => {
@@ -111,9 +114,6 @@ const AcpModelSelector: React.FC<{
         if (isCancelled) return;
         const cachedInfo = cached?.[backendKey];
         if (cachedInfo?.availableModels?.length > 0) {
-          if (backendKey === 'codex') {
-            console.log('[AcpModelSelector][codex] Loaded cached model info:', cachedInfo);
-          }
           const effectiveModelId = initialModelId || cachedInfo.currentModelId || null;
           setModelInfo({
             ...cachedInfo,
@@ -121,6 +121,15 @@ const AcpModelSelector: React.FC<{
             currentModelLabel:
               (effectiveModelId && cachedInfo.availableModels.find((m) => m.id === effectiveModelId)?.label) ||
               effectiveModelId,
+          });
+        } else if (backendKey === 'droid') {
+          const factoryInfo = getFactoryDroidModelInfo();
+          const effectiveModelId = initialModelId || factoryInfo.currentModelId;
+          setModelInfo({
+            ...factoryInfo,
+            currentModelId: effectiveModelId,
+            currentModelLabel:
+              factoryInfo.availableModels.find((m) => m.id === effectiveModelId)?.label || effectiveModelId,
           });
         }
       } catch {

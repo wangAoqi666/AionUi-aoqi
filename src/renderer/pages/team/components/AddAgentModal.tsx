@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Button, Input, Select } from '@arco-design/web-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Input } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import AionModal from '@renderer/components/base/AionModal';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';
-import { agentKey, filterTeamSupportedAgents, AgentOptionLabel } from './agentSelectUtils';
+import { agentKey, getDefaultTeamAgent, AgentOptionLabel } from './agentSelectUtils';
 
 type Props = {
   visible: boolean;
@@ -17,11 +17,17 @@ const AddAgentModal: React.FC<Props> = ({ visible, onClose, onConfirm }) => {
   const [agentName, setAgentName] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
 
-  const allAgents = filterTeamSupportedAgents([...cliAgents, ...presetAssistants]);
+  const allAgents = useMemo(() => [...cliAgents, ...presetAssistants], [cliAgents, presetAssistants]);
+  const defaultAgent = useMemo(() => getDefaultTeamAgent(allAgents), [allAgents]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setSelectedKey(defaultAgent ? agentKey(defaultAgent) : undefined);
+  }, [defaultAgent, visible]);
 
   const handleClose = () => {
     setAgentName('');
-    setSelectedKey(undefined);
+    setSelectedKey(defaultAgent ? agentKey(defaultAgent) : undefined);
     onClose();
   };
 
@@ -69,38 +75,15 @@ const AddAgentModal: React.FC<Props> = ({ visible, onClose, onConfirm }) => {
           <label className='text-sm text-[var(--color-text-2)] font-medium'>
             {t('team.addAgent.type', { defaultValue: 'Agent Type' })}
           </label>
-          <Select
-            placeholder={
-              allAgents.length === 0
-                ? t('team.create.noSupportedAgents', { defaultValue: 'No supported agents installed' })
-                : t('team.addAgent.typePlaceholder', { defaultValue: 'Select agent type' })
-            }
-            value={selectedKey}
-            onChange={setSelectedKey}
-            showSearch
-            allowClear
-            disabled={allAgents.length === 0}
-            getPopupContainer={() => document.body}
-            renderFormat={(option) => {
-              const agent = option?.value ? allAgents.find((a) => agentKey(a) === option.value) : undefined;
-              return agent ? <AgentOptionLabel agent={agent} /> : <span>{option?.children}</span>;
-            }}
-          >
-            {allAgents.length > 0 && (
-              <Select.OptGroup label={t('conversation.dropdown.cliAgents', { defaultValue: 'CLI Agents' })}>
-                {allAgents.map((agent) => (
-                  <Select.Option key={agentKey(agent)} value={agentKey(agent)}>
-                    <AgentOptionLabel agent={agent} />
-                  </Select.Option>
-                ))}
-              </Select.OptGroup>
+          <div className='rounded-10px border border-solid border-[var(--color-border-2)] bg-[var(--color-fill-1)] px-12px py-10px'>
+            {defaultAgent ? (
+              <AgentOptionLabel agent={defaultAgent} />
+            ) : (
+              <span className='text-13px text-[var(--color-text-3)]'>
+                {t('team.create.noSupportedAgents', { defaultValue: 'No supported agents installed' })}
+              </span>
             )}
-          </Select>
-          <span className='text-12px text-[var(--color-text-4)]'>
-            {t('team.create.supportedAgentsHint', {
-              defaultValue: 'Currently supports Claude, Codex, CodeBuddy. More agents coming soon.',
-            })}
-          </span>
+          </div>
         </div>
       </div>
     </AionModal>

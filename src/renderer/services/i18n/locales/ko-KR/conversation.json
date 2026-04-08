@@ -14,10 +14,10 @@
     "clearWorkspace": "폴더 제거",
     "openFolder": "폴더 열기",
     "none": "없음",
-    "quickActionsTitle": "AionUi로 무엇을 할 수 있나요?",
+    "quickActionsTitle": "智能体工厂로 무엇을 할 수 있나요?",
     "quickActionFeedback": "피드백이나 제안이 있으신가요?",
     "quickActionStar": "마음에 드시나요? 별을 주세요!",
-    "skillsMarket": "AionUi Skills Market",
+    "skillsMarket": "智能体工厂 Skills Market",
     "skillsMarketDesc": "커뮤니티 Skills를 필요에 따라 검색하고 활성화. 한 번 설정하면 모든 Agent에서 사용 가능.",
     "skillsMarketDetails": "자세히 >>"
   },
@@ -79,6 +79,10 @@
     "empty": "일치하는 메시지를 찾을 수 없습니다",
     "loadingMore": "더 불러오는 중...",
     "untitled": "제목 없는 대화"
+  },
+  "thinking": {
+    "completed": "생각 완료",
+    "processing": "생각 중..."
   },
   "dropdown": {
     "cliAgents": "CLI Agents",

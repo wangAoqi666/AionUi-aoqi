@@ -1,11 +1,18 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { ipcBridge } from '@/common';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
+import {
+  buildFactoryReasoningConfigOption,
+  FACTORY_DEFAULT_MODEL_ID,
+  FACTORY_REASONING_CONFIG_ID,
+  getFactoryDroidModelInfo,
+  resolveFactoryReasoning,
+} from '@/common/config/factoryModels';
 import type { IProvider } from '@/common/config/storage';
 import { ConfigStorage } from '@/common/config/storage';
 import type { AcpSessionConfigOption } from '@/common/types/acpTypes';
@@ -70,7 +77,7 @@ export const useGuidAgentSelection = ({
   isGoogleAuth,
   localeKey,
 }: UseGuidAgentSelectionOptions): GuidAgentSelectionResult => {
-  const [selectedAgentKey, _setSelectedAgentKey] = useState<string>('aionrs');
+  const [selectedAgentKey, _setSelectedAgentKey] = useState<string>('droid');
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>();
   const [selectedMode, _setSelectedMode] = useState<string>('default');
   // Track whether mode was loaded from preferences to avoid overwriting during initial load
@@ -208,7 +215,14 @@ export const useGuidAgentSelection = ({
       customAgentId: ra.id,
       avatar: ra.avatar,
     }));
-    setAvailableAgents([...availableAgentsData, ...remoteAsAvailable]);
+    const merged = [...availableAgentsData, ...remoteAsAvailable];
+    // Prioritise Factory Droid so it appears first in the pill bar
+    merged.sort((a, b) => {
+      if (a.backend === 'droid' && b.backend !== 'droid') return -1;
+      if (a.backend !== 'droid' && b.backend === 'droid') return 1;
+      return 0;
+    });
+    setAvailableAgents(merged);
   }, [availableAgentsData, remoteAgentsData]);
 
   // Load last selected agent
@@ -219,6 +233,13 @@ export const useGuidAgentSelection = ({
 
     const loadLastSelectedAgent = async () => {
       try {
+        // Always prefer Factory Droid when available
+        const droidAgent = availableAgents.find((agent) => agent.backend === 'droid');
+        if (droidAgent) {
+          _setSelectedAgentKey(getAgentKey(droidAgent));
+          return;
+        }
+
         const savedAgentKey = await ConfigStorage.get('guid.lastSelectedAgent');
         if (cancelled) return;
 
@@ -325,19 +346,34 @@ export const useGuidAgentSelection = ({
     return getEffectiveAgentType(selectedAgentInfo);
   }, [isPresetAgent, selectedAgent, selectedAgentInfo, getEffectiveAgentType, isMainAgentAvailable]);
 
+  const currentConfigBackend = useMemo(
+    () =>
+      isPresetAgent
+        ? currentEffectiveAgentInfo.agentType
+        : selectedAgentKey.startsWith('custom:')
+          ? 'custom'
+          : selectedAgentKey,
+    [currentEffectiveAgentInfo.agentType, isPresetAgent, selectedAgentKey]
+  );
+
+  const currentDroidModelId = useMemo(() => {
+    if (currentConfigBackend !== 'droid') return null;
+    return selectedAcpModel || acpCachedModels.droid?.currentModelId || FACTORY_DEFAULT_MODEL_ID;
+  }, [acpCachedModels.droid?.currentModelId, currentConfigBackend, selectedAcpModel]);
+
   // Load cached ACP config options per backend
   useEffect(() => {
-    const backend = isPresetAgent
-      ? currentEffectiveAgentInfo.agentType
-      : selectedAgentKey.startsWith('custom:')
-        ? 'custom'
-        : selectedAgentKey;
-    if (!backend) return;
+    if (!currentConfigBackend) return;
+    if (currentConfigBackend === 'droid') {
+      setCachedConfigOptions([]);
+      setPendingConfigOptions({});
+      return;
+    }
     let isActive = true;
     ConfigStorage.get('acp.cachedConfigOptions')
       .then((cached) => {
         if (!isActive) return;
-        const options = cached?.[backend];
+        const options = cached?.[currentConfigBackend];
         setCachedConfigOptions(Array.isArray(options) ? options : []);
         setPendingConfigOptions({});
       })
@@ -349,42 +385,36 @@ export const useGuidAgentSelection = ({
     return () => {
       isActive = false;
     };
-  }, [selectedAgentKey, isPresetAgent, currentEffectiveAgentInfo.agentType]);
+  }, [currentConfigBackend]);
 
   // Reset selected ACP model when agent changes: prefer saved preference, fallback to cached default
   useEffect(() => {
     // For preset agents, resolve to the actual backend type for config lookup
-    const backend = isPresetAgent
-      ? currentEffectiveAgentInfo.agentType
-      : selectedAgentKey.startsWith('custom:')
-        ? 'custom'
-        : selectedAgentKey;
-
     let cancelled = false;
     // Read preferred model from acp.config[backend], fallback to cached model list default
     void ConfigStorage.get('acp.config')
       .then((config) => {
         if (cancelled) return;
-        const preferred = (config?.[backend as AcpBackend] as Record<string, unknown>)?.preferredModelId as
+        const preferred = (config?.[currentConfigBackend as AcpBackend] as Record<string, unknown>)?.preferredModelId as
           | string
           | undefined;
         if (preferred) {
           _setSelectedAcpModel(preferred);
         } else {
-          const cachedInfo = acpCachedModels[backend];
+          const cachedInfo = acpCachedModels[currentConfigBackend];
           _setSelectedAcpModel(cachedInfo?.currentModelId ?? null);
         }
       })
       .catch(() => {
         if (cancelled) return;
-        const cachedInfo = acpCachedModels[backend];
+        const cachedInfo = acpCachedModels[currentConfigBackend];
         _setSelectedAcpModel(cachedInfo?.currentModelId ?? null);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedAgentKey, acpCachedModels, isPresetAgent, currentEffectiveAgentInfo.agentType]);
+  }, [currentConfigBackend, acpCachedModels]);
 
   // Read preferred mode or fallback to legacy yoloMode config
   useEffect(() => {
@@ -447,19 +477,28 @@ export const useGuidAgentSelection = ({
     };
   }, [selectedAgent, isPresetAgent, currentEffectiveAgentInfo.agentType]);
 
+  useEffect(() => {
+    if (currentConfigBackend !== 'droid' || !currentDroidModelId) return;
+    setPendingConfigOptions((prev) => {
+      const requested = prev[FACTORY_REASONING_CONFIG_ID];
+      if (!requested) return prev;
+      const resolved = resolveFactoryReasoning(currentDroidModelId, requested);
+      if (resolved === requested) return prev;
+      return { ...prev, [FACTORY_REASONING_CONFIG_ID]: resolved };
+    });
+  }, [currentConfigBackend, currentDroidModelId]);
+
   const currentAcpCachedModelInfo = useMemo(() => {
-    // For preset agents, resolve to the actual backend type for model list lookup
-    const backend = isPresetAgent
-      ? currentEffectiveAgentInfo.agentType
-      : selectedAgentKey.startsWith('custom:')
-        ? 'custom'
-        : selectedAgentKey;
-    const cached = acpCachedModels[backend];
+    if (currentConfigBackend === 'droid') {
+      return getFactoryDroidModelInfo(currentDroidModelId || FACTORY_DEFAULT_MODEL_ID);
+    }
+
+    const cached = acpCachedModels[currentConfigBackend];
     if (cached) return cached;
 
     // Fallback: when no cached models exist for codex (e.g., first launch or stale cache),
     // use the hardcoded default list so the Guid page shows a model selector immediately.
-    if (backend === 'codex' && DEFAULT_CODEX_MODELS.length > 0) {
+    if (currentConfigBackend === 'codex' && DEFAULT_CODEX_MODELS.length > 0) {
       return {
         source: 'models' as const,
         currentModelId: DEFAULT_CODEX_MODELS[0].id,
@@ -470,7 +509,19 @@ export const useGuidAgentSelection = ({
     }
 
     return null;
-  }, [selectedAgentKey, acpCachedModels, isPresetAgent, currentEffectiveAgentInfo.agentType]);
+  }, [acpCachedModels, currentConfigBackend, currentDroidModelId]);
+
+  const effectiveCachedConfigOptions = useMemo(() => {
+    if (currentConfigBackend !== 'droid') {
+      return cachedConfigOptions;
+    }
+    return [
+      buildFactoryReasoningConfigOption(
+        currentDroidModelId || FACTORY_DEFAULT_MODEL_ID,
+        pendingConfigOptions[FACTORY_REASONING_CONFIG_ID]
+      ),
+    ];
+  }, [cachedConfigOptions, currentConfigBackend, currentDroidModelId, pendingConfigOptions]);
 
   // Auto-switch only for Gemini agent
   useEffect(() => {
@@ -483,7 +534,7 @@ export const useGuidAgentSelection = ({
   // Key of the first non-preset CLI agent (used as fallback when leaving preset mode)
   const defaultAgentKey = useMemo(() => {
     const firstCliAgent = availableAgents?.find((a) => !a.isPreset);
-    return firstCliAgent ? getAgentKey(firstCliAgent) : 'aionrs';
+    return firstCliAgent ? getAgentKey(firstCliAgent) : 'droid';
   }, [availableAgents]);
 
   return {
@@ -502,7 +553,7 @@ export const useGuidAgentSelection = ({
     setSelectedAcpModel,
     currentAcpCachedModelInfo,
     currentEffectiveAgentInfo,
-    cachedConfigOptions,
+    cachedConfigOptions: effectiveCachedConfigOptions,
     pendingConfigOptions,
     setPendingConfigOption,
     getAgentKey,

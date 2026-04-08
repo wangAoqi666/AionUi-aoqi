@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -64,6 +64,10 @@ const createWrapper = (): React.FC<React.PropsWithChildren> => {
         isMobile: false,
         siderCollapsed: false,
         setSiderCollapsed: vi.fn(),
+        activeSection: 'conversation',
+        lastNonSettingsSection: 'conversation',
+        getSectionRoute: () => '/guid',
+        navigateToSection: vi.fn(),
       }}
     >
       <ConversationHistoryProvider>{children}</ConversationHistoryProvider>

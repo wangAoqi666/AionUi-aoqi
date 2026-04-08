@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,15 +8,14 @@ import { ipcBridge } from '@/common';
 import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useRef } from 'react';
-import type { ContextMenuState } from '../types';
+import type { ContextMenuState, WorkspaceEventPrefix } from '../types';
 
 interface UseWorkspaceEventsOptions {
   conversation_id: string;
-  eventPrefix: 'gemini' | 'acp' | 'codex' | 'aionrs';
+  eventPrefix: WorkspaceEventPrefix;
 
   // Dependencies from useWorkspaceTree
   refreshWorkspace: () => void;
-  clearSelection: () => void;
   setFiles: React.Dispatch<React.SetStateAction<IDirOrFile[]>>;
   setSelected: React.Dispatch<React.SetStateAction<string[]>>;
   setExpandedKeys: React.Dispatch<React.SetStateAction<string[]>>;
@@ -43,7 +42,6 @@ export function useWorkspaceEvents(options: UseWorkspaceEventsOptions) {
     conversation_id,
     eventPrefix,
     refreshWorkspace,
-    clearSelection,
     setFiles,
     setSelected,
     setExpandedKeys,
@@ -120,31 +118,20 @@ export function useWorkspaceEvents(options: UseWorkspaceEventsOptions) {
    * Listen to agent response stream - auto refresh workspace (throttled)
    */
   useEffect(() => {
-    const handleGeminiResponse = (data: { type: string }) => {
-      if (data.type === 'tool_group' || data.type === 'tool_call') {
+    const handleResponse = (data: { type: string; conversation_id: string }) => {
+      if (data.conversation_id !== conversation_id) {
+        return;
+      }
+      if (data.type === 'tool_group' || data.type === 'tool_call' || data.type === 'acp_tool_call') {
         throttledRefresh();
       }
     };
-    const handleAcpResponse = (data: { type: string }) => {
-      if (data.type === 'acp_tool_call') {
-        throttledRefresh();
-      }
-    };
-    const handleCodexResponse = (data: { type: string }) => {
-      if (data.type === 'codex_tool_call') {
-        throttledRefresh();
-      }
-    };
-    const unsubscribeGemini = ipcBridge.geminiConversation.responseStream.on(handleGeminiResponse);
-    const unsubscribeAcp = ipcBridge.acpConversation.responseStream.on(handleAcpResponse);
-    const unsubscribeCodex = ipcBridge.codexConversation.responseStream.on(handleCodexResponse);
+    const unsubscribe = ipcBridge.conversation.responseStream.on(handleResponse);
 
     return () => {
-      unsubscribeGemini();
-      unsubscribeAcp();
-      unsubscribeCodex();
+      unsubscribe();
     };
-  }, [conversation_id, eventPrefix, throttledRefresh]);
+  }, [conversation_id, throttledRefresh]);
 
   /**
    * 监听手动刷新工作空间事件
@@ -153,48 +140,10 @@ export function useWorkspaceEvents(options: UseWorkspaceEventsOptions) {
   useAddEventListener(`${eventPrefix}.workspace.refresh`, () => refreshWorkspace(), [refreshWorkspace]);
 
   /**
-   * 监听清空选中文件事件（发送消息后）
-   * Listen to clear selected files event (after sending message)
+   * 工作空间选择与发送框上下文已解耦：
+   * sendbox 标签变化不再驱动文件树选中状态。
+   * Workspace selection is now independent from sendbox context tags.
    */
-  useAddEventListener(`${eventPrefix}.selected.file.clear`, () => clearSelection(), [clearSelection]);
-
-  /**
-   * 监听选中文件变化事件（sendbox 中关闭标签时同步状态）(#1083)
-   * Listen to selected files change event (sync state when closing tags in sendbox)
-   */
-  useAddEventListener(
-    `${eventPrefix}.selected.file`,
-    (
-      items: Array<{
-        path: string;
-        name: string;
-        isFile: boolean;
-        relativePath?: string;
-      }>
-    ) => {
-      // Extract relative paths from items, filter out files (only keep folders in tree selection)
-      // 从 items 中提取相对路径，过滤掉文件（树选中状态只保留文件夹）
-      const newKeys = items.filter((item) => !item.isFile && item.relativePath).map((item) => item.relativePath!);
-      setSelected(newKeys);
-      selectedKeysRef.current = newKeys;
-
-      // Update selectedNodeRef based on items
-      // 根据 items 更新 selectedNodeRef
-      const folders = items.filter((item) => !item.isFile);
-      if (folders.length > 0) {
-        const lastFolder = folders[folders.length - 1];
-        selectedNodeRef.current = lastFolder.relativePath
-          ? {
-              relativePath: lastFolder.relativePath,
-              fullPath: lastFolder.path,
-            }
-          : null;
-      } else {
-        selectedNodeRef.current = null;
-      }
-    },
-    [setSelected, selectedKeysRef, selectedNodeRef]
-  );
 
   /**
    * 监听搜索工作空间响应

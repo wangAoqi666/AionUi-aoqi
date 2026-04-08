@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -148,8 +148,6 @@ const GeminiConversationPanel: React.FC<{
 
   // Share model selection state between header and send box
   const modelSelection = useGeminiModelSelection({ initialModel: conversation.model, onSelectModel });
-  const workspaceEnabled = Boolean(conversation.extra?.workspace);
-
   // 使用统一的 Hook 获取预设助手信息 / Use unified hook for preset assistant info
   const { info: presetAssistantInfo } = usePresetAssistantInfo(conversation);
 
@@ -164,7 +162,7 @@ const GeminiConversationPanel: React.FC<{
         cronJobId={conversation.extra?.cronJobId as string | undefined}
       />
     ),
-    workspaceEnabled,
+    workspaceEnabled: false,
     backend: 'gemini' as const,
     // 传递预设助手信息 / Pass preset assistant info
     agentName: presetAssistantInfo?.name,
@@ -209,7 +207,6 @@ const AionrsConversationPanel: React.FC<{ conversation: AionrsConversation; slid
     initialModel: conversation.model,
     onSelectModel,
   });
-  const workspaceEnabled = Boolean(conversation.extra?.workspace);
   const { info: presetAssistantInfo } = usePresetAssistantInfo(conversation);
 
   const chatLayoutProps = {
@@ -218,7 +215,7 @@ const AionrsConversationPanel: React.FC<{ conversation: AionrsConversation; slid
     sider: <ChatSider conversation={conversation} />,
     headerLeft: <AionrsModelSelector selection={modelSelection} />,
     headerExtra: <CronJobManager conversationId={conversation.id} />,
-    workspaceEnabled,
+    workspaceEnabled: false,
     backend: 'aionrs' as const,
     agentName: presetAssistantInfo?.name,
     agentLogo: presetAssistantInfo?.logo,
@@ -242,8 +239,6 @@ const ChatConversation: React.FC<{
 }> = ({ conversation, hideSendBox }) => {
   const { t } = useTranslation();
   const { openPreview } = usePreviewContext();
-  const workspaceEnabled = Boolean(conversation?.extra?.workspace);
-
   const isGeminiConversation = conversation?.type === 'gemini';
   const isAionrsConversation = conversation?.type === 'aionrs';
 
@@ -424,7 +419,7 @@ const ChatConversation: React.FC<{
       headerExtra={headerExtraNode}
       siderTitle={sliderTitle}
       sider={<ChatSider conversation={conversation} />}
-      workspaceEnabled={workspaceEnabled}
+      workspaceEnabled={false}
       workspacePath={conversation?.extra?.workspace}
       conversationId={conversation?.id}
     >

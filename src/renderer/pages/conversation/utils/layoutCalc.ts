@@ -93,7 +93,9 @@ export const calcLayoutMetrics = (input: LayoutCalcInput): LayoutMetrics => {
   const mobileWorkspaceHandleRight = rightSiderCollapsed ? 0 : Math.max(0, Math.round(workspaceWidthPx) - 14);
   const showDesktopWorkspaceSidebar = workspaceEnabled && isDesktop && !rightSiderCollapsed;
   const desktopWorkspaceSidebarWidth = Math.max(220, Math.round(workspaceWidthPx));
-  const titleAreaMaxWidth = Math.max(320, Math.min(820, containerWidth - 520));
+  const titleMaxWidthCap = workspaceEnabled ? 820 : 1040;
+  const titleReservedWidth = workspaceEnabled ? 520 : 360;
+  const titleAreaMaxWidth = Math.max(320, Math.min(titleMaxWidthCap, containerWidth - titleReservedWidth));
 
   return {
     activeWorkspaceRatio,

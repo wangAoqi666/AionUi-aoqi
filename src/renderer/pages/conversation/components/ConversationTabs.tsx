@@ -1,24 +1,22 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { ipcBridge } from '@/common';
-import { CUSTOM_AVATAR_IMAGE_MAP } from '@/renderer/pages/guid/constants';
-import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
+import type { TChatConversation } from '@/common/config/storage';
+import { uuid } from '@/common/utils';
 import { emitter } from '@/renderer/utils/emitter';
 import { cleanupSiderTooltips } from '@/renderer/utils/ui/siderTooltip';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Dropdown, Menu, Message } from '@arco-design/web-react';
-import { Close, Plus, Robot } from '@icon-park/react';
+import { Close, Plus } from '@icon-park/react';
+import classNames from 'classnames';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useConversationTabs } from '../hooks/ConversationTabsContext';
-import { useConversationAgents } from '../hooks/useConversationAgents';
-import { applyDefaultConversationName } from '../utils/newConversationName';
-import { buildCliAgentParams, buildPresetAssistantParams } from '../utils/createConversationParams';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { iconColors } from '@/renderer/styles/colors';
 
@@ -48,27 +46,26 @@ const ConversationTabView: React.FC<ConversationTabViewProps> = ({
   onSwitch,
   onClose,
 }) => {
-  const tabClassName = `flex items-center gap-8px px-12px h-full max-w-240px cursor-pointer transition-all duration-200 shrink-0 border-r border-[color:var(--border-base)] ${isActive ? 'bg-1 text-[color:var(--color-text-1)] font-medium' : 'bg-2 text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-2)] border-b border-[color:var(--border-base)]'}`;
+  const tabClassName = classNames(
+    'flex items-center gap-8px px-14px my-6px h-36px max-w-260px cursor-pointer transition-all duration-200 shrink-0 rounded-[14px] border border-solid backdrop-blur-sm',
+    isActive
+      ? 'bg-[color:var(--color-bg-1)] text-[color:var(--color-text-1)] font-medium border-[color:color-mix(in_srgb,var(--color-border-2)_78%,transparent)] shadow-[0_12px_28px_color-mix(in_srgb,var(--color-text-1)_10%,transparent)]'
+      : 'bg-[color:color-mix(in_srgb,var(--color-bg-1)_55%,transparent)] text-[color:var(--color-text-3)] border-[color:transparent] hover:text-[color:var(--color-text-1)] hover:bg-[color:color-mix(in_srgb,var(--color-bg-1)_82%,transparent)]'
+  );
 
   return (
     <Dropdown droplist={contextMenu} trigger='contextMenu' position='bl'>
-      <div
-        className={tabClassName}
-        style={{ borderRight: '1px solid var(--border-base)' }}
-        onClick={() => onSwitch(tabId)}
-        title={isMobile ? undefined : tabName}
-      >
-        <span className='text-15px whitespace-nowrap overflow-hidden text-ellipsis select-none flex-1'>{tabName}</span>
-        <Close
-          theme='outline'
-          size='14'
-          fill={iconColors.secondary}
-          className='shrink-0 transition-all duration-200 hover:fill-[rgb(var(--danger-6))]'
+      <div className={tabClassName} onClick={() => onSwitch(tabId)} title={isMobile ? undefined : tabName}>
+        <span className='text-14px whitespace-nowrap overflow-hidden text-ellipsis select-none flex-1'>{tabName}</span>
+        <span
+          className='flex h-20px w-20px shrink-0 items-center justify-center rounded-full text-[var(--color-text-3)] transition-all duration-200 hover:bg-[color:color-mix(in_srgb,var(--color-fill-2)_78%,transparent)] hover:text-[rgb(var(--danger-6))]'
           onClick={(event) => {
             event.stopPropagation();
             onClose(tabId);
           }}
-        />
+        >
+          <Close theme='outline' size='14' fill='currentColor' />
+        </span>
       </div>
     </Dropdown>
   );
@@ -77,20 +74,58 @@ const ConversationTabView: React.FC<ConversationTabViewProps> = ({
 interface CreateConversationTriggerProps {
   disabled: boolean;
   title: string;
-  menu: React.ReactNode;
+  onClick: () => void;
 }
 
-const CreateConversationTrigger: React.FC<CreateConversationTriggerProps> = ({ disabled, title, menu }) => (
-  <Dropdown droplist={menu} trigger='click' position='bl' disabled={disabled}>
-    <div
-      className={`flex items-center justify-center w-40px h-40px shrink-0 transition-colors duration-200 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-[var(--fill-2)]'}`}
-      style={{ borderLeft: '1px solid var(--border-base)' }}
-      title={title}
-    >
-      <Plus theme='outline' size='16' fill={iconColors.primary} strokeWidth={3} />
-    </div>
-  </Dropdown>
+const CreateConversationTrigger: React.FC<CreateConversationTriggerProps> = ({ disabled, title, onClick }) => (
+  <div
+    className={`flex items-center justify-center w-40px h-40px shrink-0 rounded-[14px] border border-solid border-transparent transition-all duration-200 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer bg-[color:color-mix(in_srgb,var(--color-bg-1)_55%,transparent)] hover:bg-[color:var(--color-bg-1)] hover:border-[color:color-mix(in_srgb,var(--color-border-2)_80%,transparent)] hover:shadow-[0_12px_24px_color-mix(in_srgb,var(--color-text-1)_8%,transparent)]'}`}
+    title={title}
+    aria-disabled={disabled}
+    onClick={() => {
+      if (disabled) {
+        return;
+      }
+      onClick();
+    }}
+  >
+    <Plus theme='outline' size='16' fill={iconColors.primary} strokeWidth={3} />
+  </div>
 );
+
+const cloneConversationForNewTab = (source: TChatConversation, name: string): TChatConversation => {
+  const now = Date.now();
+  const nextExtra = {
+    ...source.extra,
+    pinned: false,
+    pinnedAt: undefined,
+    cronJobId: undefined,
+  } as TChatConversation['extra'] & {
+    acpSessionId?: string;
+    acpSessionConversationId?: string;
+    acpSessionUpdatedAt?: number;
+    sessionKey?: string;
+  };
+
+  if ('acpSessionId' in nextExtra) {
+    nextExtra.acpSessionId = undefined;
+    nextExtra.acpSessionConversationId = undefined;
+    nextExtra.acpSessionUpdatedAt = undefined;
+  }
+
+  if ('sessionKey' in nextExtra) {
+    nextExtra.sessionKey = undefined;
+  }
+
+  return {
+    ...source,
+    id: uuid(),
+    name,
+    createTime: now,
+    modifyTime: now,
+    extra: nextExtra,
+  } as TChatConversation;
+};
 
 /**
  * 会话 Tabs 栏组件
@@ -114,11 +149,9 @@ const ConversationTabs: React.FC = () => {
     openTab,
   } = useConversationTabs();
   const navigate = useNavigate();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const [tabFadeState, setTabFadeState] = useState<TabFadeState>({ left: false, right: false });
-
-  const { cliAgents, presetAssistants, isLoading } = useConversationAgents();
   const defaultConversationName = t('conversation.welcome.newConversation');
   const isCreatingRef = useRef(false);
 
@@ -194,128 +227,43 @@ const ConversationTabs: React.FC = () => {
     [closeTab, openTabs.length, activeTabId, navigate]
   );
 
-  // 创建新会话 - 通过下拉菜单选择 Agent/助手后创建
-  const handleCreateConversation = useCallback(
-    async (key: string) => {
-      if (isCreatingRef.current) return;
-      isCreatingRef.current = true;
+  // 创建新会话 - 直接基于当前工作空间和当前智能体配置创建
+  const handleCreateConversation = useCallback(async () => {
+    if (isCreatingRef.current) return;
+    isCreatingRef.current = true;
 
-      const currentTab = openTabs.find((tab) => tab.id === activeTabId);
-      if (!currentTab?.workspace) {
-        isCreatingRef.current = false;
-        void navigate('/guid');
+    const currentTab = openTabs.find((tab) => tab.id === activeTabId);
+    if (!currentTab?.workspace) {
+      isCreatingRef.current = false;
+      void navigate('/guid');
+      return;
+    }
+
+    const workspace = currentTab.workspace;
+
+    try {
+      const latestConversation = await ipcBridge.conversation.get.invoke({ id: currentTab.id }).catch((): null => null);
+      if (!latestConversation?.extra?.workspace) {
+        Message.error(t('conversation.createFailed'));
         return;
       }
 
-      const workspace = currentTab.workspace;
+      const draftConversation = cloneConversationForNewTab(latestConversation, defaultConversationName);
+      const newConversation = await ipcBridge.conversation.createWithConversation.invoke({
+        conversation: draftConversation,
+      });
 
-      try {
-        // [BUG-3] Build params inside try block: getDefaultGeminiModel() may throw if no model configured
-        let params;
-
-        if (key.startsWith('cli:')) {
-          const backend = key.slice(4);
-          // [BUG-6] Null check: find() may return undefined
-          const agent = cliAgents.find((a) => a.backend === backend);
-          if (!agent) {
-            Message.error(t('conversation.createFailed'));
-            return;
-          }
-          params = await buildCliAgentParams(agent, workspace);
-        } else if (key.startsWith('preset:')) {
-          const assistantId = key.slice(7);
-          // [BUG-6] Null check: find() may return undefined
-          const agent = presetAssistants.find((a) => a.customAgentId === assistantId);
-          if (!agent) {
-            Message.error(t('conversation.createFailed'));
-            return;
-          }
-          params = await buildPresetAssistantParams(agent, workspace, i18n.language);
-        } else {
-          return;
-        }
-
-        // Use conversation.create (calls ConversationService) not createWithConversation (direct DB insert)
-        const newConversation = await ipcBridge.conversation.create.invoke(
-          applyDefaultConversationName(params, defaultConversationName)
-        );
-
-        // [BUG-5] Order matters: closeAllTabs() must come before openTab() to prevent append behavior
-        closeAllTabs();
-        updateWorkspaceTime(workspace);
-        openTab(newConversation);
-        void navigate(`/conversation/${newConversation.id}`);
-        emitter.emit('chat.history.refresh');
-      } catch (error) {
-        // [BUG-3] Unified catch: handles both param building errors (getDefaultGeminiModel) and IPC errors
-        console.error('Failed to create conversation:', error);
-        Message.error(t('conversation.createFailed'));
-      } finally {
-        isCreatingRef.current = false;
-      }
-    },
-    [
-      navigate,
-      openTabs,
-      activeTabId,
-      cliAgents,
-      presetAssistants,
-      closeAllTabs,
-      openTab,
-      t,
-      i18n.language,
-      defaultConversationName,
-    ]
-  );
-
-  // 渲染 Agent 下拉菜单
-  const renderAgentDropdownMenu = useCallback(() => {
-    return (
-      <Menu onClickMenuItem={(key) => void handleCreateConversation(key)}>
-        {cliAgents.length > 0 && (
-          <Menu.ItemGroup title={t('conversation.dropdown.cliAgents')}>
-            {cliAgents.map((agent) => {
-              const logo = getAgentLogo(agent.backend);
-              return (
-                <Menu.Item key={`cli:${agent.backend}`}>
-                  <div className='flex items-center gap-8px'>
-                    {logo ? (
-                      <img src={logo} alt={agent.name} style={{ width: 16, height: 16, objectFit: 'contain' }} />
-                    ) : (
-                      <Robot size='16' />
-                    )}
-                    <span>{agent.name}</span>
-                  </div>
-                </Menu.Item>
-              );
-            })}
-          </Menu.ItemGroup>
-        )}
-        {presetAssistants.length > 0 && (
-          <Menu.ItemGroup title={t('conversation.dropdown.presetAssistants')}>
-            {presetAssistants.map((agent) => {
-              const avatarImage = agent.avatar ? CUSTOM_AVATAR_IMAGE_MAP[agent.avatar] : undefined;
-              const isEmoji = agent.avatar && !avatarImage && !agent.avatar.endsWith('.svg');
-              return (
-                <Menu.Item key={`preset:${agent.customAgentId}`}>
-                  <div className='flex items-center gap-8px'>
-                    {avatarImage ? (
-                      <img src={avatarImage} alt={agent.name} style={{ width: 16, height: 16, objectFit: 'contain' }} />
-                    ) : isEmoji ? (
-                      <span style={{ fontSize: 14, lineHeight: '16px' }}>{agent.avatar}</span>
-                    ) : (
-                      <Robot size='16' />
-                    )}
-                    <span>{agent.name}</span>
-                  </div>
-                </Menu.Item>
-              );
-            })}
-          </Menu.ItemGroup>
-        )}
-      </Menu>
-    );
-  }, [cliAgents, presetAssistants, handleCreateConversation, t]);
+      updateWorkspaceTime(workspace);
+      openTab(newConversation);
+      void navigate(`/conversation/${newConversation.id}`);
+      emitter.emit('chat.history.refresh');
+    } catch (error) {
+      console.error('Failed to create conversation:', error);
+      Message.error(t('conversation.createFailed'));
+    } finally {
+      isCreatingRef.current = false;
+    }
+  }, [activeTabId, defaultConversationName, navigate, openTab, openTabs, t]);
 
   // 生成右键菜单内容
   const getContextMenu = useCallback(
@@ -373,15 +321,15 @@ const ConversationTabs: React.FC = () => {
     return null;
   }
 
-  const isDropdownDisabled = isLoading || (!cliAgents.length && !presetAssistants.length);
+  const isCreateDisabled = isCreatingRef.current || !activeTabId;
 
   return (
-    <div className='relative shrink-0 bg-2 min-h-40px'>
-      <div className='relative flex items-center h-40px w-full border-t border-x border-solid border-[color:var(--border-base)]'>
+    <div className='relative shrink-0 bg-transparent px-12px pb-12px'>
+      <div className='relative flex items-center gap-6px h-48px w-full rounded-[20px] border border-solid border-[color:color-mix(in_srgb,var(--color-border-2)_76%,transparent)] bg-[color:color-mix(in_srgb,var(--color-bg-2)_92%,transparent)] px-6px shadow-[0_18px_44px_color-mix(in_srgb,var(--color-text-1)_10%,transparent)]'>
         {/* Tabs 滚动区域 */}
         <div
           ref={tabsContainerRef}
-          className='flex items-center h-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+          className='flex items-center gap-4px h-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
         >
           {openTabs.map((tab) => (
             <ConversationTabView
@@ -397,21 +345,21 @@ const ConversationTabs: React.FC = () => {
           ))}
         </div>
 
-        {/* 新建会话按钮 - 点击显示 Agent 下拉选择 */}
+        {/* 新建会话按钮 - 直接在当前工作空间创建标签 */}
         <CreateConversationTrigger
-          disabled={isDropdownDisabled}
+          disabled={isCreateDisabled}
           title={t('conversation.workspace.createNewConversation')}
-          menu={renderAgentDropdownMenu()}
+          onClick={() => void handleCreateConversation()}
         />
 
         {/* 左侧渐变指示器 */}
         {showLeftFade && (
-          <div className='pointer-events-none absolute left-0 top-0 bottom-0 w-32px [background:linear-gradient(90deg,var(--bg-2)_0%,transparent_100%)]' />
+          <div className='pointer-events-none absolute left-6px top-0 bottom-0 w-36px [background:linear-gradient(90deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
         )}
 
         {/* 右侧渐变指示器 */}
         {showRightFade && (
-          <div className='pointer-events-none absolute right-40px top-0 bottom-0 w-32px [background:linear-gradient(270deg,var(--bg-2)_0%,transparent_100%)]' />
+          <div className='pointer-events-none absolute right-46px top-0 bottom-0 w-36px [background:linear-gradient(270deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
         )}
       </div>
     </div>

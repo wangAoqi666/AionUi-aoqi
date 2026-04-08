@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,13 +13,13 @@ import { ipcBridge } from '@/common';
 import type { ICreateCronJobParams, ICronAgentConfig, ICronJob } from '@/common/adapter/ipcBridge';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';
 import { getAgentLogo } from '@renderer/utils/model/agentLogo';
+import type { AvailableAgent } from '@renderer/utils/model/agentTypes';
 import { CUSTOM_AVATAR_IMAGE_MAP } from '@/renderer/pages/guid/constants';
 import dayjs from 'dayjs';
 
 const FormItem = Form.Item;
 const TextArea = Input.TextArea;
 const Option = Select.Option;
-const OptGroup = Select.OptGroup;
 
 interface CreateTaskDialogProps {
   visible: boolean;
@@ -33,6 +33,10 @@ interface CreateTaskDialogProps {
 
 type FrequencyType = 'manual' | 'hourly' | 'daily' | 'weekdays' | 'weekly';
 type ExecutionMode = 'new_conversation' | 'existing';
+type SelectableAgentEntry = {
+  key: string;
+  agent: AvailableAgent;
+};
 
 const WEEKDAYS = [
   { value: 'MON', label: 'monday' },
@@ -87,6 +91,21 @@ function getAgentKeyFromJob(job: ICronJob): string | undefined {
   return `cli:${config.backend}`;
 }
 
+function buildCronAgentConfig(agent: AvailableAgent): ICronAgentConfig {
+  return {
+    backend: agent.backend,
+    name: agent.name,
+    cliPath: agent.cliPath,
+    ...(agent.isPreset && agent.customAgentId
+      ? {
+          isPreset: true,
+          customAgentId: agent.customAgentId,
+          presetAgentType: agent.presetAgentType,
+        }
+      : {}),
+  };
+}
+
 const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   visible,
   onClose,
@@ -105,6 +124,63 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
   const isEditMode = !!editJob;
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('new_conversation');
+  const availableAgentEntries = useMemo<SelectableAgentEntry[]>(
+    () => [
+      ...cliAgents.map((agent) => ({ key: `cli:${agent.backend}`, agent })),
+      ...presetAssistants
+        .filter((agent): agent is AvailableAgent & { customAgentId: string } => Boolean(agent.customAgentId))
+        .map((agent) => ({ key: `preset:${agent.customAgentId}`, agent })),
+    ],
+    [cliAgents, presetAssistants]
+  );
+
+  const lockedAgentEntry = useMemo<SelectableAgentEntry | undefined>(() => {
+    if (editJob) {
+      const editAgentKey = getAgentKeyFromJob(editJob);
+      const existingEntry = editAgentKey
+        ? availableAgentEntries.find((entry) => entry.key === editAgentKey)
+        : undefined;
+      if (existingEntry) {
+        return existingEntry;
+      }
+
+      const config = editJob.metadata.agentConfig;
+      if (editAgentKey) {
+        return {
+          key: editAgentKey,
+          agent: {
+            backend: (config?.backend || editJob.metadata.agentType) as AvailableAgent['backend'],
+            name: config?.name || editJob.metadata.agentType,
+            cliPath: config?.cliPath,
+            customAgentId: config?.customAgentId,
+            isPreset: config?.isPreset,
+            presetAgentType: config?.presetAgentType,
+          },
+        };
+      }
+    }
+
+    if (agentType) {
+      const currentConversationAgent = availableAgentEntries.find(({ agent }) => {
+        const effectiveType = agent.presetAgentType || agent.backend;
+        return effectiveType === agentType || agent.backend === agentType;
+      });
+      if (currentConversationAgent) {
+        return currentConversationAgent;
+      }
+    }
+
+    return availableAgentEntries.find(({ agent }) => agent.backend === 'droid') || availableAgentEntries[0];
+  }, [agentType, availableAgentEntries, editJob]);
+
+  const lockedAgent = lockedAgentEntry?.agent;
+  const lockedAgentLogo = lockedAgent ? getAgentLogo(lockedAgent.backend) : null;
+  const lockedAgentAvatarImage = lockedAgent?.avatar ? CUSTOM_AVATAR_IMAGE_MAP[lockedAgent.avatar] : undefined;
+  const lockedAgentIsEmoji =
+    Boolean(lockedAgent?.avatar) && !lockedAgentAvatarImage && !lockedAgent?.avatar?.endsWith('.svg');
+  const lockedAgentCategoryLabel = lockedAgentEntry?.key.startsWith('preset:')
+    ? t('conversation.dropdown.presetAssistants')
+    : t('conversation.dropdown.cliAgents');
 
   // Populate form when entering edit mode
   useEffect(() => {
@@ -181,36 +257,33 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
     setFrequency(value);
   };
 
-  const resolveAgentConfig = (agentValue: string) => {
+  const resolveAgentConfig = (agentValue?: string) => {
+    let agentConfig = lockedAgent ? buildCronAgentConfig(lockedAgent) : editJob?.metadata.agentConfig;
+    let resolvedAgentType: ICreateCronJobParams['agentType'] = (lockedAgent?.presetAgentType ||
+      lockedAgent?.backend ||
+      editJob?.metadata.agentType ||
+      agentType ||
+      'droid') as ICreateCronJobParams['agentType'];
+
+    if (!agentValue) {
+      return { agentConfig, resolvedAgentType };
+    }
+
     const colonIdx = agentValue.indexOf(':');
     const agentKind = agentValue.substring(0, colonIdx);
     const agentId = agentValue.substring(colonIdx + 1);
-
-    let agentConfig: ICronAgentConfig | undefined;
-    let resolvedAgentType: ICreateCronJobParams['agentType'] = (agentType ||
-      'claude') as ICreateCronJobParams['agentType'];
 
     if (agentKind === 'cli') {
       const agent = cliAgents.find((a) => a.backend === agentId);
       if (agent) {
         resolvedAgentType = agent.backend;
-        agentConfig = {
-          backend: agent.backend,
-          name: agent.name,
-          cliPath: agent.cliPath,
-        };
+        agentConfig = buildCronAgentConfig(agent);
       }
     } else if (agentKind === 'preset') {
       const agent = presetAssistants.find((a) => a.customAgentId === agentId);
       if (agent) {
-        resolvedAgentType = agent.backend;
-        agentConfig = {
-          backend: agent.backend,
-          name: agent.name,
-          isPreset: true,
-          customAgentId: agent.customAgentId,
-          presetAgentType: agent.presetAgentType,
-        };
+        resolvedAgentType = (agent.presetAgentType || agent.backend) as ICreateCronJobParams['agentType'];
+        agentConfig = buildCronAgentConfig(agent);
       }
     }
 
@@ -224,8 +297,14 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
 
       const scheduleExpr = scheduleInfo.expr;
       const scheduleDesc = scheduleInfo.description;
+      const selectedAgentKey = lockedAgentEntry?.key || values.agent;
 
-      const { agentConfig, resolvedAgentType } = resolveAgentConfig(values.agent);
+      if (!selectedAgentKey) {
+        Message.error(t('cron.page.form.agentRequired'));
+        return;
+      }
+
+      const { agentConfig, resolvedAgentType } = resolveAgentConfig(selectedAgentKey);
 
       if (isEditMode) {
         // Edit mode: update existing job
@@ -306,92 +385,26 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
             <Input placeholder={t('cron.page.form.descriptionPlaceholder')} />
           </FormItem>
 
-          <FormItem
-            label={t('cron.page.form.agent')}
-            field='agent'
-            rules={[{ required: true, message: t('cron.page.form.agentRequired') }]}
-          >
-            <Select
-              placeholder={t('cron.page.form.agentPlaceholder')}
-              renderFormat={(_option, value) => {
-                // Find selected agent to render logo + name in the trigger
-                const strVal = value as unknown as string;
-                if (!strVal) return '';
-                const [type, id] = strVal.split(':');
-                let name = id;
-                let logo: React.ReactNode = <Robot size='16' />;
-                if (type === 'cli') {
-                  const agent = cliAgents.find((a) => a.backend === id);
-                  if (agent) {
-                    name = agent.name;
-                    const logoSrc = getAgentLogo(agent.backend);
-                    if (logoSrc) {
-                      logo = <img src={logoSrc} alt={agent.name} className='w-16px h-16px object-contain' />;
-                    }
-                  }
-                } else if (type === 'preset') {
-                  const agent = presetAssistants.find((a) => a.customAgentId === id);
-                  if (agent) {
-                    name = agent.name;
-                    const avatarImage = agent.avatar ? CUSTOM_AVATAR_IMAGE_MAP[agent.avatar] : undefined;
-                    const isEmoji = agent.avatar && !avatarImage && !agent.avatar.endsWith('.svg');
-                    if (avatarImage) {
-                      logo = <img src={avatarImage} alt={agent.name} className='w-16px h-16px object-contain' />;
-                    } else if (isEmoji) {
-                      logo = <span className='text-14px leading-16px'>{agent.avatar}</span>;
-                    }
-                  }
-                }
-                return (
-                  <div className='flex items-center gap-8px'>
-                    {logo}
-                    <span>{name}</span>
-                  </div>
-                );
-              }}
-            >
-              {cliAgents.length > 0 && (
-                <OptGroup label={t('conversation.dropdown.cliAgents')}>
-                  {cliAgents.map((agent) => {
-                    const logo = getAgentLogo(agent.backend);
-                    return (
-                      <Option key={`cli:${agent.backend}`} value={`cli:${agent.backend}`}>
-                        <div className='flex items-center gap-8px'>
-                          {logo ? (
-                            <img src={logo} alt={agent.name} className='w-16px h-16px object-contain' />
-                          ) : (
-                            <Robot size='16' />
-                          )}
-                          <span>{agent.name}</span>
-                        </div>
-                      </Option>
-                    );
-                  })}
-                </OptGroup>
-              )}
-              {presetAssistants.length > 0 && (
-                <OptGroup label={t('conversation.dropdown.presetAssistants')}>
-                  {presetAssistants.map((agent) => {
-                    const avatarImage = agent.avatar ? CUSTOM_AVATAR_IMAGE_MAP[agent.avatar] : undefined;
-                    const isEmoji = agent.avatar && !avatarImage && !agent.avatar.endsWith('.svg');
-                    return (
-                      <Option key={`preset:${agent.customAgentId}`} value={`preset:${agent.customAgentId}`}>
-                        <div className='flex items-center gap-8px'>
-                          {avatarImage ? (
-                            <img src={avatarImage} alt={agent.name} className='w-16px h-16px object-contain' />
-                          ) : isEmoji ? (
-                            <span className='text-14px leading-16px'>{agent.avatar}</span>
-                          ) : (
-                            <Robot size='16' />
-                          )}
-                          <span>{agent.name}</span>
-                        </div>
-                      </Option>
-                    );
-                  })}
-                </OptGroup>
-              )}
-            </Select>
+          <FormItem label={t('cron.page.form.agent')}>
+            <div className='flex items-center gap-12px rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-14px py-12px'>
+              <div className='flex h-36px w-36px shrink-0 items-center justify-center rounded-12px bg-[var(--color-bg-2)] text-[var(--color-text-2)]'>
+                {lockedAgentAvatarImage ? (
+                  <img src={lockedAgentAvatarImage} alt={lockedAgent?.name} className='h-18px w-18px object-contain' />
+                ) : lockedAgentIsEmoji ? (
+                  <span className='text-16px leading-18px'>{lockedAgent?.avatar}</span>
+                ) : lockedAgentLogo ? (
+                  <img src={lockedAgentLogo} alt={lockedAgent?.name} className='h-18px w-18px object-contain' />
+                ) : (
+                  <Robot size='18' />
+                )}
+              </div>
+              <div className='min-w-0 flex-1'>
+                <div className='truncate text-14px font-medium text-text-1'>
+                  {lockedAgent?.name || t('cron.page.form.agentRequired')}
+                </div>
+                {lockedAgent && <div className='text-12px leading-18px text-text-3'>{lockedAgentCategoryLabel}</div>}
+              </div>
+            </div>
           </FormItem>
 
           <FormItem label={t('cron.page.form.executionMode')}>

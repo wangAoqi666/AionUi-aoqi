@@ -1,15 +1,21 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { ipcBridge } from '@/common';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { IProvider } from '@/common/config/storage';
+import {
+  FACTORY_MODELS,
+  FACTORY_DEFAULT_MODEL_ID,
+  getFactoryReasoningLabel,
+  type FactoryModel,
+} from '@/common/config/factoryModels';
 import { uuid } from '@/common/utils';
 import { Button, Divider, Message, Popconfirm, Collapse, Tag, Switch, Tooltip } from '@arco-design/web-react';
-import { DeleteFour, Info, Minus, Plus, Write, Heartbeat } from '@icon-park/react';
+import { DeleteFour, Info, Minus, Plus, Write, Heartbeat, Star } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
@@ -95,6 +101,88 @@ const isModelEnabled = (platform: IProvider, model: string): boolean => {
 };
 
 const HEALTH_CHECK_FIRST_RESPONSE_TIMEOUT_MS = 30000;
+
+const getReasoningTagColor = (level: string): string => {
+  switch (level) {
+    case 'max':
+    case 'xhigh':
+      return 'purple';
+    case 'high':
+      return 'blue';
+    case 'medium':
+      return 'green';
+    case 'low':
+    case 'minimal':
+      return 'gold';
+    default:
+      return 'gray';
+  }
+};
+
+const FactoryDroidModelSection: React.FC = () => {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className='mb-16px'>
+      <Collapse
+        activeKey={expanded ? ['factory'] : []}
+        onChange={(_, keys) => setExpanded(keys.includes('factory'))}
+        bordered
+        expandIconPosition='left'
+        className={`[&_.arco-collapse-item]:!border-0 [&_.arco-collapse-item]:!rounded-12px [&_.arco-collapse-item]:!overflow-hidden [&_.arco-collapse-item]:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!bg-[var(--fill-0)] [&_.arco-collapse-item-header]:!pl-36px [&_.arco-collapse-item-header]:!pr-12px [&_.arco-collapse-item-header]:!py-8px [&_.arco-collapse-item-header]:transition-colors [&_.arco-collapse-item-header]:hover:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!gap-8px [&_.arco-collapse-item-header-title]:!min-w-0 [&_.arco-collapse-item-header-icon]:!text-2 [&_.arco-collapse-item-header:hover_.arco-collapse-item-header-icon]:!text-1 [&_.arco-collapse-item-content]:!bg-fill-1 [&_.arco-collapse-item-content-box]:!px-10px [&_.arco-collapse-item-content-box]:!py-8px [&_.arco-collapse-item-content]:!border-t [&_.arco-collapse-item-content]:!border-[var(--color-border-2)] ${
+          expanded
+            ? '[&_.arco-collapse-item-header]:!rounded-t-12px [&_.arco-collapse-item-header]:!rounded-b-0 [&_.arco-collapse-item-content]:!rounded-b-12px'
+            : '[&_.arco-collapse-item-header]:!rounded-12px'
+        }`}
+      >
+        <Collapse.Item
+          name='factory'
+          header={
+            <div className='flex items-center justify-between w-full min-h-32px gap-8px min-w-0'>
+              <span
+                className={`text-14px font-500 truncate min-w-0 transition-colors ${expanded ? 'text-t-primary' : 'text-2 group-hover:text-1'}`}
+              >
+                Factory Droid
+              </span>
+              <div className='flex items-center gap-8px shrink-0' onClick={(e) => e.stopPropagation()}>
+                <Tag size='small' color='arcoblue'>
+                  Built-in
+                </Tag>
+                <span className='text-12px text-t-secondary'>
+                  {FACTORY_MODELS.filter((m) => !m.deprecated).length} models
+                </span>
+              </div>
+            </div>
+          }
+        >
+          {FACTORY_MODELS.filter((m) => !m.deprecated).map(
+            (model: FactoryModel, index: number, arr: FactoryModel[]) => (
+              <div key={model.id}>
+                <div className='flex items-center justify-between px-8px py-10px transition-colors hover:bg-[var(--fill-0)]'>
+                  <div className='flex items-center gap-8px min-w-0'>
+                    {model.id === FACTORY_DEFAULT_MODEL_ID && (
+                      <Tooltip content='Default Model'>
+                        <Star theme='filled' size='14' fill='rgb(var(--primary-6))' className='shrink-0' />
+                      </Tooltip>
+                    )}
+                    <span className='text-13px text-t-primary font-500 shrink-0'>{model.name}</span>
+                    <span className='text-11px text-t-tertiary truncate min-w-0'>{model.id}</span>
+                  </div>
+                  <div className='flex items-center gap-4px shrink-0'>
+                    <Tag size='small' color={getReasoningTagColor(model.defaultReasoning)}>
+                      {getFactoryReasoningLabel(model.defaultReasoning)}
+                    </Tag>
+                  </div>
+                </div>
+                {index < arr.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}
+              </div>
+            )
+          )}
+        </Collapse.Item>
+      </Collapse>
+    </div>
+  );
+};
 
 const ModelModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -486,38 +574,15 @@ const ModelModalContent: React.FC = () => {
             </Button>
           </div>
         </div>
-        <div
-          className='rd-8px px-12px py-8px text-12px leading-5 border border-solid'
-          style={{
-            borderColor: 'rgba(var(--primary-6),0.32)',
-            backgroundColor: 'rgba(var(--primary-6),0.08)',
-            color: 'rgb(var(--primary-6))',
-          }}
-        >
-          {t('settings.customModelSupportNote')}
-        </div>
       </div>
 
       {/* Content Area */}
       <AionScrollArea className='flex-1 min-h-0' disableOverflow={isPageMode}>
-        {!data || data.length === 0 ? (
-          <div className='flex flex-col items-center justify-center py-40px'>
-            <Info theme='outline' size='48' className='text-t-secondary mb-16px' />
-            <h3 className='text-16px font-500 text-t-primary mb-8px'>{t('settings.noConfiguredModels')}</h3>
-            <p className='text-14px text-t-secondary text-center max-w-400px'>
-              {t('settings.needHelpConfigGuide')}
-              <a
-                href='https://github.com/iOfficeAI/AionUi/wiki/LLM-Configuration'
-                target='_blank'
-                rel='noopener noreferrer'
-                className='text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] underline ml-4px'
-              >
-                {t('settings.configGuide')}
-              </a>
-              {t('settings.configGuideSuffix')}
-            </p>
-          </div>
-        ) : (
+        {/* Factory Droid Built-in Models */}
+        <FactoryDroidModelSection />
+
+        {/* User-configured providers */}
+        {data && data.length > 0 ? (
           <div className='space-y-16px'>
             {(data || []).map((platform: IProvider) => {
               const key = platform.id;
@@ -734,7 +799,7 @@ const ModelModalContent: React.FC = () => {
               );
             })}
           </div>
-        )}
+        ) : null}
       </AionScrollArea>
     </div>
   );

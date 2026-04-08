@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,16 +46,14 @@ export const useSettingsModal = (): UseSettingsModalReturn => {
   // 弹窗可见状态 / Modal visibility state
   const [visible, setVisible] = useState(false);
   // 默认选中的标签页 / Default selected tab
-  const [defaultTab, setDefaultTab] = useState<SettingTab>('gemini');
+  const [defaultTab, setDefaultTab] = useState<SettingTab>('model');
 
   /**
    * 打开设置弹窗 / Open settings modal
    * @param tab - 可选，指定打开的标签页 / Optional, specify which tab to open
    */
   const openSettings = useCallback((tab?: SettingTab) => {
-    if (tab) {
-      setDefaultTab(tab);
-    }
+    setDefaultTab(tab || 'model');
     setVisible(true);
   }, []);
 

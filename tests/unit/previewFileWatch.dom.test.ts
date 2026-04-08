@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -344,5 +344,53 @@ describe('PreviewContext — closeTab clears fileMtimeRef', () => {
     // If mtime was properly cleared, prevMtime was undefined on the first post-reopen check,
     // so the "backward mtime" does NOT trigger a spurious read.
     expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('hides and reopens the preview panel without discarding existing tabs', () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+
+    act(() => {
+      result.current.openPreview('initial', 'code', {
+        filePath: '/workspace/file.ts',
+        language: 'typescript',
+      });
+    });
+
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.tabs).toHaveLength(1);
+
+    act(() => {
+      result.current.hidePreviewPanel();
+    });
+
+    expect(result.current.isOpen).toBe(false);
+    expect(result.current.tabs).toHaveLength(1);
+
+    act(() => {
+      result.current.showPreviewPanel();
+    });
+
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.tabs).toHaveLength(1);
+  });
+
+  it('closePreview still clears tabs after the panel is hidden', () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+
+    act(() => {
+      result.current.openPreview('initial', 'code', {
+        filePath: '/workspace/file.ts',
+        language: 'typescript',
+      });
+    });
+
+    act(() => {
+      result.current.hidePreviewPanel();
+      result.current.closePreview();
+    });
+
+    expect(result.current.isOpen).toBe(false);
+    expect(result.current.tabs).toHaveLength(0);
+    expect(result.current.activeTabId).toBeNull();
   });
 });

@@ -1,15 +1,168 @@
+.conversation-message-stream {
+  --conversation-message-border: color-mix(in srgb, var(--color-border-2) 74%, transparent);
+  --conversation-message-surface: color-mix(in srgb, var(--bg-1) 96%, transparent);
+}
+
+.message-item {
+  padding-inline: 12px;
+}
+
+.message-thread {
+  width: min(100%, 860px);
+}
+
+.message-turn-stack {
+  width: min(100%, 860px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-turn-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline: 6px;
+}
+
+.message-item--assistant,
+.message-item--user {
+  width: 100%;
+}
+
+.message-bubble {
+  position: relative;
+  min-width: 0;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.message-bubble--assistant {
+  padding: 8px 4px;
+  background: transparent;
+}
+
+.message-bubble--user {
+  max-width: min(100%, 720px);
+  padding: 14px 16px;
+  border: 1px solid var(--conversation-message-border);
+  border-radius: 24px 14px 24px 24px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, rgb(var(--primary-6)) 12%, var(--bg-1)) 0%,
+    color-mix(in srgb, var(--bg-1) 94%, transparent) 100%
+  );
+  box-shadow: 0 14px 30px color-mix(in srgb, rgb(var(--primary-6)) 10%, transparent);
+}
+
+.message-bubble--teammate {
+  max-width: min(100%, 760px);
+  padding: 14px 16px;
+  border: 1px solid var(--conversation-message-border);
+  border-radius: 14px 24px 24px 24px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-fill-1) 96%, transparent) 0%,
+    color-mix(in srgb, var(--bg-2) 90%, transparent) 100%
+  );
+}
+
+.message-bubble .markdown-shadow-body {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.message-bubble .markdown-shadow-body p {
+  margin-block-start: 12px;
+  margin-block-end: 12px;
+}
+
+.message-bubble .markdown-shadow-body blockquote {
+  margin: 14px 0;
+  padding-left: 14px;
+  border-left: 2px solid color-mix(in srgb, rgb(var(--primary-6)) 34%, transparent);
+  color: var(--text-secondary);
+}
+
+.message-bubble .markdown-shadow-body pre {
+  margin-block: 10px;
+  border-radius: 18px;
+  border: 1px solid var(--conversation-message-border);
+  background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+  padding: 12px 14px;
+}
+
+.message-bubble .markdown-shadow-body code:not(pre code) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-fill-2) 88%, transparent);
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
+.message-bubble .markdown-shadow-body table {
+  background: color-mix(in srgb, var(--bg-1) 92%, transparent);
+}
+
+.message-sender,
+.message-meta {
+  padding-inline: 6px;
+}
+
+.message-copy-action {
+  background: color-mix(in srgb, var(--bg-1) 78%, transparent);
+}
+
+.message-copy-action:hover {
+  background: color-mix(in srgb, var(--color-fill-2) 90%, transparent);
+}
+
+.message-timestamp {
+  letter-spacing: 0.01em;
+}
+
 /* Mobile typography tuning: conversation readability */
 @media (max-width: 767px) {
-  /* Message body */
-  .message-item .markdown-shadow-body {
-    font-size: 16px !important;
-    line-height: 1.6 !important;
+  .message-item {
+    padding-inline: 8px;
   }
 
-  .message-item .markdown-shadow-body p,
-  .message-item .markdown-shadow-body li,
-  .message-item .markdown-shadow-body blockquote {
+  .message-thread {
+    width: 100%;
+  }
+
+  .message-turn-stack {
+    width: 100%;
+  }
+
+  .message-turn-activities {
+    padding-inline: 0;
+  }
+
+  .message-bubble--assistant {
+    padding-inline: 0;
+  }
+
+  .message-bubble--user,
+  .message-bubble--teammate {
+    max-width: calc(100vw - 40px);
+    padding: 12px 14px;
+    border-radius: 20px;
+  }
+
+  .message-bubble .markdown-shadow-body {
     font-size: 16px !important;
-    line-height: 1.6 !important;
+    line-height: 1.7 !important;
+  }
+
+  .message-bubble .markdown-shadow-body p,
+  .message-bubble .markdown-shadow-body li,
+  .message-bubble .markdown-shadow-body blockquote {
+    font-size: 16px !important;
+    line-height: 1.7 !important;
   }
 }

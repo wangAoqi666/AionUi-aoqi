@@ -230,14 +230,14 @@ const ChatLayout: React.FC<{
 
   return (
     <ArcoLayout
-      className='size-full color-black '
+      className='chat-layout-shell size-full color-black'
       style={{
         // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
       }}
     >
-      <div ref={containerRef} className='flex flex-1 relative w-full overflow-hidden'>
+      <div ref={containerRef} className='chat-layout-frame flex flex-1 relative w-full overflow-hidden'>
         <div
-          className='flex flex-col relative'
+          className='chat-layout-main-pane flex flex-col relative'
           style={{
             flexGrow: isPreviewOpen && isDesktop ? 0 : chatFlex,
             flexShrink: 0,
@@ -253,7 +253,7 @@ const ChatLayout: React.FC<{
             }}
           >
             {headerBlock}
-            <ArcoLayout.Content className='flex flex-col flex-1 bg-1 overflow-hidden'>
+            <ArcoLayout.Content className='chat-layout-main-content flex flex-col flex-1 bg-1 overflow-hidden'>
               {props.children}
             </ArcoLayout.Content>
           </ArcoLayout.Content>
@@ -261,8 +261,8 @@ const ChatLayout: React.FC<{
         {isPreviewOpen && (
           <div
             className={classNames(
-              'preview-panel flex flex-col relative overflow-visible rounded-[15px]',
-              layout?.isMobile ? 'm-[8px]' : 'my-[12px] mr-[12px] ml-[8px]'
+              'preview-panel chat-layout-preview-pane flex flex-col relative overflow-visible rounded-[15px]',
+              layout?.isMobile && 'm-[8px]'
             )}
             style={{
               flexGrow: 1,

@@ -39,6 +39,11 @@ export function filterTeamSupportedAgents(agents: AvailableAgent[]): AvailableAg
   });
 }
 
+export function getDefaultTeamAgent(agents: AvailableAgent[]): AvailableAgent | undefined {
+  const supportedAgents = filterTeamSupportedAgents(agents);
+  return agents.find((agent) => resolveTeamAgentType(agent, agent.backend) === 'droid') || supportedAgents[0];
+}
+
 export function resolveConversationType(
   backend: string
 ): 'gemini' | 'acp' | 'aionrs' | 'codex' | 'openclaw-gateway' | 'nanobot' | 'remote' {

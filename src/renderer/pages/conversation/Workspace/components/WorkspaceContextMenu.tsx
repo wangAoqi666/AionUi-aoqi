@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,7 +15,6 @@ type WorkspaceContextMenuProps = {
   node: IDirOrFile | null;
   t: TFunction;
   // File operation handlers
-  handleAddToChat: (node: IDirOrFile) => void;
   handleOpenNode: (node: IDirOrFile) => Promise<void>;
   handleRevealNode: (node: IDirOrFile) => Promise<void>;
   handlePreviewFile: (node: IDirOrFile) => Promise<void>;
@@ -35,7 +34,6 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
   style,
   node,
   t,
-  handleAddToChat,
   handleOpenNode,
   handleRevealNode,
   handlePreviewFile,
@@ -61,15 +59,6 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
       }}
     >
       <div className='flex flex-col gap-4px'>
-        <button
-          type='button'
-          className={MENU_BUTTON_BASE}
-          onClick={() => {
-            handleAddToChat(node);
-          }}
-        >
-          {t('conversation.workspace.contextMenu.addToChat')}
-        </button>
         <button
           type='button'
           className={MENU_BUTTON_BASE}

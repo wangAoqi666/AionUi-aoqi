@@ -452,7 +452,7 @@ const TeamPage: React.FC<Props> = ({ team }) => {
     async (data: { agentName: string; agentKey: string }) => {
       const allAgents = [...cliAgents, ...presetAssistants];
       const agent = agentFromKey(data.agentKey, allAgents);
-      const backend = resolveTeamAgentType(agent, 'claude');
+      const backend = resolveTeamAgentType(agent, 'droid');
       await addAgent({
         conversationId: '',
         role: 'teammate',

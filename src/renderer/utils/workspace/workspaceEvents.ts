@@ -2,8 +2,15 @@ export const WORKSPACE_TOGGLE_EVENT = 'aionui-workspace-toggle';
 export const WORKSPACE_STATE_EVENT = 'aionui-workspace-state';
 export const WORKSPACE_HAS_FILES_EVENT = 'aionui-workspace-has-files';
 
+export type WorkspaceToggleAction = 'toggle' | 'expand' | 'collapse';
+
+export interface WorkspaceToggleDetail {
+  action: WorkspaceToggleAction;
+}
+
 export interface WorkspaceStateDetail {
   collapsed: boolean;
+  available?: boolean;
 }
 
 export interface WorkspaceHasFilesDetail {
@@ -11,14 +18,16 @@ export interface WorkspaceHasFilesDetail {
   conversationId?: string;
 }
 
-export function dispatchWorkspaceToggleEvent() {
+export function dispatchWorkspaceToggleEvent(action: WorkspaceToggleAction = 'toggle') {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(WORKSPACE_TOGGLE_EVENT));
+  window.dispatchEvent(new CustomEvent<WorkspaceToggleDetail>(WORKSPACE_TOGGLE_EVENT, { detail: { action } }));
 }
 
-export function dispatchWorkspaceStateEvent(collapsed: boolean) {
+export function dispatchWorkspaceStateEvent(collapsed: boolean, available?: boolean) {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent<WorkspaceStateDetail>(WORKSPACE_STATE_EVENT, { detail: { collapsed } }));
+  window.dispatchEvent(
+    new CustomEvent<WorkspaceStateDetail>(WORKSPACE_STATE_EVENT, { detail: { collapsed, available } })
+  );
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -233,6 +233,15 @@ const NanobotSendBox: React.FC<{ conversation_id: string }> = ({ conversation_id
     }, 10);
   });
 
+  const appendDroppedWorkspaceItems = useCallback((items: Array<string | FileOrFolderItem>) => {
+    setTimeout(() => {
+      const merged = mergeFileSelectionItems(atPathRef.current, items);
+      if (merged !== atPathRef.current) {
+        setAtPath(merged as Array<string | FileOrFolderItem>);
+      }
+    }, 10);
+  }, []);
+
   const executeCommand = useCallback(
     async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
       const msg_id = uuid();
@@ -399,7 +408,7 @@ const NanobotSendBox: React.FC<{ conversation_id: string }> = ({ conversation_id
         onChange={setContent}
         loading={aiProcessing}
         disabled={false}
-        className='z-10'
+        className='z-10 conversation-sendbox-dock'
         placeholder={
           aiProcessing
             ? t('conversation.chat.processing')
@@ -410,6 +419,7 @@ const NanobotSendBox: React.FC<{ conversation_id: string }> = ({ conversation_id
         }
         onStop={handleStop}
         onFilesAdded={handleFilesAdded}
+        onWorkspaceItemsDropped={appendDroppedWorkspaceItems}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
         supportedExts={allSupportedExts}
         tools={<FileAttachButton openFileSelector={openFileSelector} onLocalFilesAdded={handleFilesAdded} />}

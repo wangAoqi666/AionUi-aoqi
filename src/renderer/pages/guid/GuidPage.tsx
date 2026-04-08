@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -490,7 +490,7 @@ const GuidPage: React.FC = () => {
   return (
     <ConfigProvider getPopupContainer={() => guidContainerRef.current || document.body}>
       <div ref={guidContainerRef} className={styles.guidContainer}>
-        <SkillsMarketBanner />
+        {/* SkillsMarketBanner hidden */}
         <div className={styles.guidLayout}>
           <div className={styles.heroHeader}>
             {agentSelection.isPresetAgent ? (
@@ -645,6 +645,8 @@ const GuidPage: React.FC = () => {
               selectedAgentKey={agentSelection.selectedAgentKey}
               getAgentKey={agentSelection.getAgentKey}
               onSelectAgent={handleSelectAgentFromPillBar}
+              showOnlySelected
+              showDiscoverMoreButton={false}
             />
           ) : null}
 
@@ -681,19 +683,21 @@ const GuidPage: React.FC = () => {
             actionRow={actionRowNode}
           />
 
-          <AssistantSelectionArea
-            isPresetAgent={agentSelection.isPresetAgent}
-            selectedAgentInfo={agentSelection.selectedAgentInfo}
-            customAgents={agentSelection.customAgents}
-            localeKey={localeKey}
-            currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
-            onSelectAssistant={handleSelectAssistant}
-            onSetInput={guidInput.setInput}
-            onFocusInput={guidInput.handleTextareaFocus}
-            onRegisterOpenDetails={(openDetails) => {
-              openAssistantDetailsRef.current = openDetails;
-            }}
-          />
+          {agentSelection.isPresetAgent && (
+            <AssistantSelectionArea
+              isPresetAgent={agentSelection.isPresetAgent}
+              selectedAgentInfo={agentSelection.selectedAgentInfo}
+              customAgents={agentSelection.customAgents}
+              localeKey={localeKey}
+              currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
+              onSelectAssistant={handleSelectAssistant}
+              onSetInput={guidInput.setInput}
+              onFocusInput={guidInput.handleTextareaFocus}
+              onRegisterOpenDetails={(openDetails) => {
+                openAssistantDetailsRef.current = openDetails;
+              }}
+            />
+          )}
         </div>
 
         <QuickActionButtons

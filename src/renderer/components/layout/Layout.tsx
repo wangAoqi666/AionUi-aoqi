@@ -1,11 +1,12 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { ipcBridge } from '@/common';
 import { ConfigStorage, type ICssTheme } from '@/common/config/storage';
+import PrimaryRail from '@/renderer/components/layout/PrimaryRail';
 import PwaPullToRefresh from '@/renderer/components/layout/PwaPullToRefresh';
 import Titlebar from '@/renderer/components/layout/Titlebar';
 import { Layout as ArcoLayout } from '@arco-design/web-react';
@@ -21,13 +22,21 @@ import { useMultiAgentDetection } from '@renderer/hooks/agent/useMultiAgentDetec
 import { processCustomCss } from '@renderer/utils/theme/customCssProcessor';
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { useConversationShortcuts } from '@renderer/hooks/ui/useConversationShortcuts';
+import { useSectionRouteMemory } from '@renderer/hooks/ui/useSectionRouteMemory';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { computeCssSyncDecision, resolveCssByActiveTheme } from '@renderer/utils/theme/themeCssSync';
+import AppBrandLogo from '@renderer/assets/logos/brand/app.png';
+import {
+  DESKTOP_NAVIGATION_WIDTH,
+  PRIMARY_RAIL_WIDTH,
+  resolveLayoutSectionByPath,
+  type LayoutSection,
+} from './layoutSections';
 import '@renderer/styles/layout.css';
 
 const useDebug = () => {
   const [count, setCount] = useState(0);
-  const timer = useRef<any>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onClick = () => {
     const open = () => {
       ipcBridge.application.openDevTools.invoke().catch((error) => {
@@ -57,9 +66,7 @@ const useDebug = () => {
 
 const UpdateModal = React.lazy(() => import('@/renderer/components/settings/UpdateModal'));
 
-const DEFAULT_SIDER_WIDTH = 250;
-const DESKTOP_COLLAPSED_WIDTH = 64;
-const SIDER_DRAG_SNAP_THRESHOLD = Math.round((DEFAULT_SIDER_WIDTH + DESKTOP_COLLAPSED_WIDTH) / 2);
+const SIDER_DRAG_SNAP_THRESHOLD = Math.round((DESKTOP_NAVIGATION_WIDTH + PRIMARY_RAIL_WIDTH) / 2);
 const SIDER_DRAG_HYSTERESIS = 6;
 const MOBILE_SIDER_WIDTH_RATIO = 0.67;
 const MOBILE_SIDER_MIN_WIDTH = 260;
@@ -90,7 +97,6 @@ const Layout: React.FC<{
     typeof window === 'undefined' ? 390 : window.innerWidth
   );
   const [customCss, setCustomCss] = useState<string>('');
-  const [shouldMountUpdateModal, setShouldMountUpdateModal] = useState(false);
   const { onClick } = useDebug();
   const { contextHolder: multiAgentContextHolder } = useMultiAgentDetection();
   const { contextHolder: directorySelectionContextHolder } = useDirectorySelection();
@@ -99,6 +105,12 @@ const Layout: React.FC<{
   const navigate = useNavigate();
   useConversationShortcuts({ navigate });
   const location = useLocation();
+  const activeSection = resolveLayoutSectionByPath(location.pathname);
+  const { getRouteForSection, lastNonSettingsSection } = useSectionRouteMemory({
+    pathname: location.pathname,
+    search: location.search,
+    hash: location.hash,
+  });
   const workspaceAvailable = location.pathname.startsWith('/conversation/') || location.pathname.startsWith('/team/');
   const collapsedRef = useRef(collapsed);
   const lastCssRef = useRef('');
@@ -106,8 +118,12 @@ const Layout: React.FC<{
   const dragStateRef = useRef<{ active: boolean; startX: number; startWidth: number }>({
     active: false,
     startX: 0,
-    startWidth: DEFAULT_SIDER_WIDTH,
+    startWidth: DESKTOP_NAVIGATION_WIDTH,
   });
+  type LayoutSiderElementProps = {
+    onSessionClick?: () => void;
+    section?: LayoutSection;
+  };
 
   const loadAndHealCustomCss = useCallback(async () => {
     try {
@@ -307,7 +323,6 @@ const Layout: React.FC<{
 
     // Handle pause all tasks request from tray / 托盘请求暂停所有任务
     const handlePauseAllTasks = async () => {
-      const { ipcBridge } = await import('@/common');
       const result = await ipcBridge.task.stopAll.invoke();
       if (result?.success) {
         // Navigate to settings page to show task status
@@ -347,10 +362,32 @@ const Layout: React.FC<{
         MOBILE_SIDER_MIN_WIDTH,
         Math.min(MOBILE_SIDER_MAX_WIDTH, Math.round(viewportWidth * MOBILE_SIDER_WIDTH_RATIO))
       )
-    : DEFAULT_SIDER_WIDTH;
+    : DESKTOP_NAVIGATION_WIDTH;
   useEffect(() => {
     collapsedRef.current = collapsed;
   }, [collapsed]);
+
+  const navigateToSection = useCallback(
+    (section: LayoutSection) => {
+      const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+      const targetRoute = getRouteForSection(section);
+
+      if (!isMobile && collapsedRef.current) {
+        setCollapsed(false);
+      }
+
+      if (targetRoute !== currentRoute) {
+        Promise.resolve(navigate(targetRoute)).catch((error) => {
+          console.error('Navigation failed:', error);
+        });
+      }
+
+      if (isMobile) {
+        setCollapsed(true);
+      }
+    },
+    [getRouteForSection, isMobile, location.hash, location.pathname, location.search, navigate]
+  );
 
   const beginSiderResizeDrag = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -359,7 +396,7 @@ const Layout: React.FC<{
       dragStateRef.current = {
         active: true,
         startX: event.clientX,
-        startWidth: collapsedRef.current ? DESKTOP_COLLAPSED_WIDTH : DEFAULT_SIDER_WIDTH,
+        startWidth: collapsedRef.current ? PRIMARY_RAIL_WIDTH : DESKTOP_NAVIGATION_WIDTH,
       };
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
@@ -415,9 +452,24 @@ const Layout: React.FC<{
         overflow: 'visible' as const,
       };
 
+  const layoutLeftOffset = isMobile ? 0 : collapsed ? PRIMARY_RAIL_WIDTH : DESKTOP_NAVIGATION_WIDTH;
+
   return (
-    <LayoutContext.Provider value={{ isMobile, siderCollapsed: collapsed, setSiderCollapsed: setCollapsed }}>
-      <div className='app-shell flex flex-col size-full min-h-0'>
+    <LayoutContext.Provider
+      value={{
+        isMobile,
+        siderCollapsed: collapsed,
+        setSiderCollapsed: setCollapsed,
+        activeSection,
+        lastNonSettingsSection,
+        getSectionRoute: getRouteForSection,
+        navigateToSection,
+      }}
+    >
+      <div
+        className='app-shell flex flex-col size-full min-h-0'
+        style={{ '--layout-left-offset': `${layoutLeftOffset}px` } as React.CSSProperties}
+      >
         <Titlebar workspaceAvailable={workspaceAvailable} />
         {/* 移动端左侧边栏蒙板 / Mobile left sider backdrop */}
         {isMobile && !collapsed && (
@@ -426,7 +478,7 @@ const Layout: React.FC<{
 
         <ArcoLayout className={'size-full layout flex-1 min-h-0'}>
           <ArcoLayout.Sider
-            collapsedWidth={isMobile ? 0 : 64}
+            collapsedWidth={isMobile ? 0 : PRIMARY_RAIL_WIDTH}
             collapsed={collapsed}
             width={siderWidth}
             className={classNames('!bg-2 layout-sider', {
@@ -444,35 +496,14 @@ const Layout: React.FC<{
               )}
             >
               <div
-                className={classNames('bg-black shrink-0 size-40px relative rd-0.5rem', {
+                className={classNames('shrink-0 size-40px relative', {
                   '!size-24px': collapsed,
                 })}
                 onClick={onClick}
               >
-                <svg
-                  className={classNames('w-5.5 h-5.5 absolute inset-0 m-auto', {
-                    ' scale-140': !collapsed,
-                  })}
-                  viewBox='0 0 80 80'
-                  fill='none'
-                >
-                  <path
-                    key='logo-path-1'
-                    d='M40 20 Q38 22 25 40 Q23 42 26 42 L30 42 Q32 40 40 30 Q48 40 50 42 L54 42 Q57 42 55 40 Q42 22 40 20'
-                    fill='white'
-                  ></path>
-                  <circle key='logo-circle' cx='40' cy='46' r='3' fill='white'></circle>
-                  <path
-                    key='logo-path-2'
-                    d='M18 50 Q40 70 62 50'
-                    stroke='white'
-                    strokeWidth='3.5'
-                    fill='none'
-                    strokeLinecap='round'
-                  ></path>
-                </svg>
+                <img src={AppBrandLogo} alt='智能体工厂' className='size-full object-contain' />
               </div>
-              <div className='flex-1 text-20px text-1 collapsed-hidden font-bold'>AionUi</div>
+              <div className='flex-1 text-20px text-1 collapsed-hidden font-bold'>智能体工厂</div>
               {isMobile && !collapsed && (
                 <button
                   type='button'
@@ -489,18 +520,30 @@ const Layout: React.FC<{
               )}
               {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}
             </ArcoLayout.Header>
-            <ArcoLayout.Content
-              className={classNames('p-8px layout-sider-content', !isMobile && 'h-[calc(100%-72px-16px)]')}
-            >
-              {React.isValidElement(sider)
-                ? React.cloneElement(sider, {
-                    onSessionClick: () => {
-                      cleanupSiderTooltips();
-                      if (isMobile) setCollapsed(true);
-                    },
-                    collapsed,
-                  } as any)
-                : sider}
+            <ArcoLayout.Content className={classNames('layout-sider-content', !isMobile && 'h-[calc(100%-72px-16px)]')}>
+              <div
+                className={classNames(
+                  'layout-navigation-shell',
+                  !isMobile && collapsed && 'layout-navigation-shell--panel-hidden'
+                )}
+              >
+                <div className='shrink-0 basis-[64px]'>
+                  <PrimaryRail activeSection={activeSection} isMobile={isMobile} onSelectSection={navigateToSection} />
+                </div>
+                {(!collapsed || isMobile) && (
+                  <div className='layout-section-panel'>
+                    {React.isValidElement<LayoutSiderElementProps>(sider)
+                      ? React.cloneElement(sider, {
+                          onSessionClick: () => {
+                            cleanupSiderTooltips();
+                            if (isMobile) setCollapsed(true);
+                          },
+                          section: activeSection,
+                        })
+                      : sider}
+                  </div>
+                )}
+              </div>
             </ArcoLayout.Content>
             {!isMobile && (
               <div

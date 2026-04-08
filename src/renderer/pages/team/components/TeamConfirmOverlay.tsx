@@ -5,8 +5,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { removeStack } from '@/renderer/utils/common';
+import {
+  AskUserConfirmCard,
+  type AskUserAnswerResult,
+} from '@renderer/pages/conversation/components/ConversationChatConfirm';
 
-type StoredConfirmation = IConfirmation<any> & { conversation_id: string };
+type StoredConfirmation = IConfirmation<unknown> & { conversation_id: string };
 
 /**
  * Global confirmation overlay for team mode.
@@ -57,6 +61,7 @@ const TeamConfirmOverlay: React.FC<{
   useEffect(() => {
     if (!confirmations.length) return;
     const confirmation = confirmations[0];
+    if (confirmation.interaction?.type === 'ask_user') return;
 
     const confirmOption = (option: (typeof confirmation.options)[number]) => {
       setConfirmations((prev) => prev.filter((p) => p.id !== confirmation.id));
@@ -117,6 +122,15 @@ const TeamConfirmOverlay: React.FC<{
 
   const confirmation = confirmations[0];
   const $t = (key: string, params?: Record<string, string>) => t(key, { ...params, defaultValue: key });
+  const submitConfirmation = (currentConfirmation: StoredConfirmation, data: unknown) => {
+    setConfirmations((prev) => prev.filter((p) => p.id !== currentConfirmation.id));
+    void ipcBridge.conversation.confirmation.confirm.invoke({
+      conversation_id: currentConfirmation.conversation_id,
+      callId: currentConfirmation.callId,
+      msg_id: currentConfirmation.id,
+      data,
+    });
+  };
 
   return createPortal(
     <div
@@ -139,41 +153,44 @@ const TeamConfirmOverlay: React.FC<{
             {$t(confirmation.description)}
           </Typography.Ellipsis>
         </div>
-        <div className='shrink-0'>
-          {confirmation.options.map((option, index) => {
-            const label = $t(option.label, option.params);
-            const shortcut =
-              index === 0
-                ? 'Enter'
-                : option.value === 'cancel'
-                  ? 'Esc'
-                  : option.value === 'proceed_always'
-                    ? 'A'
-                    : option.value === 'proceed_once'
-                      ? 'Y'
-                      : String(index + 1);
-            return (
-              <div
-                onClick={() => {
-                  setConfirmations((prev) => prev.filter((p) => p.id !== confirmation.id));
-                  void ipcBridge.conversation.confirmation.confirm.invoke({
-                    conversation_id: confirmation.conversation_id,
-                    callId: confirmation.callId,
-                    msg_id: confirmation.id,
-                    data: option.value,
-                  });
-                }}
-                key={label + option.value + index}
-                className='b-1px b-solid h-30px lh-30px b-[rgba(229,230,235,1)] rd-8px px-12px hover:bg-[rgba(229,231,240,1)] cursor-pointer mt-10px flex items-center gap-8px'
-              >
-                <span className='inline-flex items-center justify-center px-4px h-18px rd-4px bg-[rgba(229,230,235,0.6)] text-11px text-[rgba(134,144,156,1)] font-mono shrink-0'>
-                  {shortcut}
-                </span>
-                {label}
-              </div>
-            );
-          })}
-        </div>
+        {confirmation.interaction?.type === 'ask_user' ? (
+          <AskUserConfirmCard
+            confirmation={confirmation}
+            onSubmit={(result: AskUserAnswerResult) => {
+              submitConfirmation(confirmation, result);
+            }}
+          />
+        ) : (
+          <div className='shrink-0'>
+            {confirmation.options.map((option, index) => {
+              const label = $t(option.label, option.params);
+              const shortcut =
+                index === 0
+                  ? 'Enter'
+                  : option.value === 'cancel'
+                    ? 'Esc'
+                    : option.value === 'proceed_always'
+                      ? 'A'
+                      : option.value === 'proceed_once'
+                        ? 'Y'
+                        : String(index + 1);
+              return (
+                <div
+                  onClick={() => {
+                    submitConfirmation(confirmation, option.value);
+                  }}
+                  key={label + option.value + index}
+                  className='b-1px b-solid h-30px lh-30px b-[rgba(229,230,235,1)] rd-8px px-12px hover:bg-[rgba(229,231,240,1)] cursor-pointer mt-10px flex items-center gap-8px'
+                >
+                  <span className='inline-flex items-center justify-center px-4px h-18px rd-4px bg-[rgba(229,230,235,0.6)] text-11px text-[rgba(134,144,156,1)] font-mono shrink-0'>
+                    {shortcut}
+                  </span>
+                  {label}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>,
     document.body

@@ -204,6 +204,7 @@ vi.mock('@renderer/components/base/ModalWrapper', () => ({
 vi.mock('@renderer/pages/conversation/hooks/useConversationAgents', () => ({
   useConversationAgents: () => ({
     cliAgents: [
+      { backend: 'droid', name: 'Factory Droid', cliPath: '/usr/bin/droid' },
       { backend: 'claude', name: 'Claude', cliPath: '/usr/bin/claude' },
       { backend: 'openai', name: 'OpenAI', cliPath: '/usr/bin/openai' },
     ],
@@ -778,6 +779,13 @@ describe('CreateTaskDialog - component behavior', () => {
     vi.clearAllMocks();
   });
 
+  it('shows a locked Factory Droid card instead of an agent selector for new tasks', () => {
+    render(<CreateTaskDialog visible={true} onClose={vi.fn()} conversationId='conv-1' />);
+
+    expect(screen.getByText('Factory Droid')).toBeInTheDocument();
+    expect(screen.queryAllByLabelText('cron.page.form.agentPlaceholder')).toHaveLength(0);
+  });
+
   it('renders in create mode when no editJob is provided', () => {
     render(<CreateTaskDialog visible={true} onClose={vi.fn()} conversationId='conv-1' />);
 
@@ -843,6 +851,7 @@ describe('CreateTaskDialog - component behavior', () => {
       expect(mockAddJob).toHaveBeenCalled();
     });
 
+    expect(mockAddJob.mock.calls[0][0].agentType).toBe('droid');
     expect(onClose).toHaveBeenCalled();
   });
 

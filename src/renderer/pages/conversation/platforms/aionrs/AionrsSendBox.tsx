@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -278,6 +278,16 @@ const AionrsSendBox: React.FC<{
     }
   });
 
+  const appendDroppedWorkspaceItems = useCallback(
+    (selectedItems: Array<string | FileOrFolderItem>) => {
+      const merged = mergeFileSelectionItems(atPathRef.current, selectedItems);
+      if (merged !== atPathRef.current) {
+        setAtPath(merged as Array<string | FileOrFolderItem>);
+      }
+    },
+    [setAtPath]
+  );
+
   // Stop conversation handler
   const handleStop = async (): Promise<void> => {
     try {
@@ -316,8 +326,9 @@ const AionrsSendBox: React.FC<{
             : t('conversation.chat.noModelSelected')
         }
         onStop={handleStop}
-        className='z-10'
+        className='z-10 conversation-sendbox-dock'
         onFilesAdded={handleFilesAdded}
+        onWorkspaceItemsDropped={appendDroppedWorkspaceItems}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
         supportedExts={allSupportedExts}
         defaultMultiLine={true}

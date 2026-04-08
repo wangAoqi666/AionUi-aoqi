@@ -1,12 +1,13 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import type { FileOrFolderItem } from '@/renderer/utils/file/fileTypes';
 
 export type FileSelectionItem = string | FileOrFolderItem;
+export const WORKSPACE_DRAG_MIME = 'application/x-agent-factory-workspace-item';
 
 const getItemPath = (item: FileSelectionItem): string | undefined => {
   if (typeof item === 'string') {
@@ -59,4 +60,37 @@ export const mergeFileSelectionItems = (
   });
 
   return changed ? result : current;
+};
+
+export const serializeWorkspaceDragItem = (item: FileOrFolderItem): string => JSON.stringify(item);
+
+export const parseWorkspaceDragItem = (value: string): FileOrFolderItem | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<FileOrFolderItem> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    if (
+      typeof parsed.path !== 'string' ||
+      typeof parsed.name !== 'string' ||
+      typeof parsed.isFile !== 'boolean' ||
+      (parsed.relativePath !== undefined && typeof parsed.relativePath !== 'string')
+    ) {
+      return null;
+    }
+
+    return {
+      path: parsed.path,
+      name: parsed.name,
+      isFile: parsed.isFile,
+      relativePath: parsed.relativePath,
+    };
+  } catch {
+    return null;
+  }
 };

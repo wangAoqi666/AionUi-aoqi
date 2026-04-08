@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,6 +22,9 @@ interface MessageAgentStatusProps {
 const MessageAgentStatus: React.FC<MessageAgentStatusProps> = ({ message }) => {
   const { t } = useTranslation();
   const { backend, status, agentName } = message.content;
+
+  // Droid backend uses SDK natively — no connection status badges needed.
+  if (backend === 'droid' || !backend) return null;
 
   // Resolve display name: agentName (extension/custom) > ACP_BACKENDS_ALL name > capitalized backend
   const displayName =

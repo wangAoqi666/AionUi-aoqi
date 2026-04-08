@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -123,7 +123,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   const copyButton = (
     <Tooltip content={t('common.copy', { defaultValue: 'Copy' })}>
       <div
-        className='p-4px rd-4px cursor-pointer hover:bg-3 transition-colors opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto'
+        className='message-copy-action p-4px rd-8px cursor-pointer hover:bg-3 transition-colors opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto'
         onClick={handleCopy}
         style={{ lineHeight: 0 }}
       >
@@ -139,10 +139,15 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
 
   return (
     <>
-      <div className={classNames('min-w-0 flex flex-col group', isUserMessage ? 'items-end' : 'items-start')}>
+      <div
+        className={classNames(
+          'message-thread min-w-0 flex flex-col group',
+          isUserMessage ? 'items-end' : 'items-start'
+        )}
+      >
         {cronMeta && <MessageCronBadge meta={cronMeta} />}
         {isTeammateMessage && senderName && (
-          <div className='flex items-center gap-6px mb-4px'>
+          <div className='message-sender flex items-center gap-6px mb-6px'>
             {agentLogo ? (
               <img src={agentLogo} alt={senderName} className='w-20px h-20px rounded-full object-contain' />
             ) : (
@@ -154,7 +159,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
           </div>
         )}
         {files.length > 0 && (
-          <div className={classNames('mt-6px', { 'self-end': isUserMessage })}>
+          <div className={classNames('message-attachments mt-6px', { 'self-end': isUserMessage })}>
             {files.length === 1 ? (
               <div className='flex items-center'>
                 <FilePreview path={files[0]} onRemove={() => undefined} readonly />
@@ -169,18 +174,14 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
           </div>
         )}
         <div
-          className={classNames('min-w-0 [&>p:first-child]:mt-0px [&>p:last-child]:mb-0px md:max-w-780px', {
-            'bg-aou-2 p-8px': isUserMessage || cronMeta,
-            'bg-3 p-8px': isTeammateMessage,
-            'w-full': !(isUserMessage || cronMeta || isTeammateMessage),
-          })}
-          style={
-            isUserMessage || cronMeta
-              ? { borderRadius: '8px 0 8px 8px' }
-              : isTeammateMessage
-                ? { borderRadius: '0 8px 8px 8px' }
-                : undefined
-          }
+          className={classNames(
+            'message-bubble min-w-0 [&>p:first-child]:mt-0px [&>p:last-child]:mb-0px md:max-w-860px',
+            {
+              'message-bubble--user': isUserMessage || cronMeta,
+              'message-bubble--teammate': isTeammateMessage,
+              'message-bubble--assistant w-full': !(isUserMessage || cronMeta || isTeammateMessage),
+            }
+          )}
         >
           {/* JSON 内容使用折叠组件 Use CollapsibleContent for JSON content */}
           {json ? (
@@ -194,13 +195,13 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
           )}
         </div>
         <div
-          className={classNames('h-32px flex items-center mt-4px gap-8px', {
+          className={classNames('message-meta h-32px flex items-center mt-6px gap-8px', {
             'flex-row-reverse': isUserMessage,
           })}
         >
           {copyButton}
           {message.createdAt && (
-            <span className='text-12px c-text-4 opacity-0 group-hover:opacity-100 transition-opacity select-none'>
+            <span className='message-timestamp text-12px c-text-4 opacity-0 group-hover:opacity-100 transition-opacity select-none'>
               {formatMessageTime(message.createdAt)}
             </span>
           )}

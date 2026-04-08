@@ -1,8 +1,91 @@
-<svg class="w-5.5 h-5.5 absolute inset-0 m-auto" viewBox="0 0 80 80" fill="none">
-                            <!-- 上方的"^"代表A - 更圆润的线条 -->
-                            <path d="M40 20 Q38 22 25 40 Q23 42 26 42 L30 42 Q32 40 40 30 Q48 40 50 42 L54 42 Q57 42 55 40 Q42 22 40 20" fill="white"></path>
-                            <!-- 中间的"."代表i - 中心圆点 -->
-                            <circle cx="40" cy="46" r="3" fill="white"></circle>
-                            <!-- 下方的弧线代表UI - 更圆润的底部弧线 -->
-                            <path d="M18 50 Q40 70 62 50" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"></path>
-                        </svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#141414"/>
+        <stop offset="100%" stop-color="#030303"/>
+    </linearGradient>
+    <radialGradient id="seed-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.6"/>
+        <stop offset="40%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+        <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="branch-gradient" x1="0%" y1="100%" x2="0%" y2="0%">
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8"/>
+        <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.3"/>
+        <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+    </linearGradient>
+        <g id="hex-solid">
+      <polygon points="20.8,-12.0 20.8,12.0 0.0,24.0 -20.8,12.0 -20.8,-12.0 -0.0,-24.0" fill="#FFFFFF"/>
+    </g>
+    <g id="hex-outline">
+      <polygon points="20.8,-12.0 20.8,12.0 0.0,24.0 -20.8,12.0 -20.8,-12.0 -0.0,-24.0" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+    </g>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="strong-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="15" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+      </defs>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg-gradient)"/>
+  <rect x="64" y="64" width="896" height="896" rx="208" stroke="#1A1A1A" stroke-width="8"/>
+  <g fill="none">
+    <path d="M 512,800 C 512,725.0 440,725.0 440,650" stroke="url(#branch-gradient)" stroke-width="16" stroke-linecap="round"/>
+    <path d="M 512,800 C 512,740.0 590,740.0 590,680" stroke="url(#branch-gradient)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 440,650 C 440,585.0 360,585.0 360,520" stroke="url(#branch-gradient)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M 440,650 C 440,565.0 490,565.0 490,480" stroke="url(#branch-gradient)" stroke-width="13" stroke-linecap="round"/>
+    <path d="M 590,680 C 590,580.0 490,580.0 490,480" stroke="url(#branch-gradient)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M 590,680 C 590,610.0 670,610.0 670,540" stroke="url(#branch-gradient)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M 360,520 C 360,450.0 280,450.0 280,380" stroke="url(#branch-gradient)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M 360,520 C 360,435.0 400,435.0 400,350" stroke="url(#branch-gradient)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M 490,480 C 490,415.0 400,415.0 400,350" stroke="url(#branch-gradient)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M 490,480 C 490,400.0 560,400.0 560,320" stroke="url(#branch-gradient)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M 490,480 C 490,450.0 620,450.0 620,420" stroke="url(#branch-gradient)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M 670,540 C 670,480.0 620,480.0 620,420" stroke="url(#branch-gradient)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 670,540 C 670,470.0 740,470.0 740,400" stroke="url(#branch-gradient)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M 280,380 C 280,310.0 230,310.0 230,240" stroke="url(#branch-gradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 280,380 C 280,290.0 360,290.0 360,200" stroke="url(#branch-gradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 400,350 C 400,275.0 360,275.0 360,200" stroke="url(#branch-gradient)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 400,350 C 400,335.0 480,335.0 480,320" stroke="url(#branch-gradient)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 480,320 C 480,245.0 510,245.0 510,170" stroke="url(#branch-gradient)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 560,320 C 560,245.0 510,245.0 510,170" stroke="url(#branch-gradient)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M 560,320 C 560,270.0 680,270.0 680,220" stroke="url(#branch-gradient)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M 620,420 C 620,320.0 680,320.0 680,220" stroke="url(#branch-gradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 740,400 C 740,310.0 680,310.0 680,220" stroke="url(#branch-gradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 740,400 C 740,340.0 810,340.0 810,280" stroke="url(#branch-gradient)" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(512 800)">
+    <circle cx="0" cy="0" r="160" fill="url(#seed-glow)"/>
+    <polygon points="39.0,-22.5 39.0,22.5 0.0,45.0 -39.0,22.5 -39.0,-22.5 -0.0,-45.0" fill="#FFFFFF" opacity="0.4" filter="url(#strong-glow)"/>
+    <polygon points="26.0,-15.0 26.0,15.0 0.0,30.0 -26.0,15.0 -26.0,-15.0 -0.0,-30.0" fill="#FFFFFF" opacity="0.6" transform="rotate(30)"/>
+    <polygon points="13.0,-7.5 13.0,7.5 0.0,15.0 -13.0,7.5 -13.0,-7.5 -0.0,-15.0" fill="#FFFFFF" opacity="0.9"/>
+  </g>
+  <use href="#hex-solid" transform="translate(440 650) scale(1.3)" opacity="0.9" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(590 680) scale(1.1)" opacity="0.7" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(360 520) scale(1.2)" opacity="0.8" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(490 480) scale(1.5)" opacity="0.95" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(670 540) scale(1.0)" opacity="0.6" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(280 380) scale(0.9)" opacity="0.5" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(400 350) scale(1.1)" opacity="0.7" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(560 320) scale(1.4)" opacity="0.85" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(740 400) scale(0.9)" opacity="0.5" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(230 240) scale(0.7)" opacity="0.4" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(360 200) scale(0.9)" opacity="0.5" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(510 170) scale(1.2)" opacity="0.7" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(680 220) scale(0.8)" opacity="0.5" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(810 280) scale(0.6)" opacity="0.3" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(430 120) scale(0.6)" opacity="0.4" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(600 110) scale(0.5)" opacity="0.3" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(280 140) scale(0.5)" opacity="0.3" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(750 150) scale(0.6)" opacity="0.3" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(170 350) scale(0.4)" opacity="0.2" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(860 380) scale(0.4)" opacity="0.2" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(512 60) scale(0.4)" opacity="0.15" filter="url(#glow)"/>
+  <use href="#hex-solid" transform="translate(620 420) scale(0.8)" opacity="0.6" filter="url(#glow)"/>
+  <use href="#hex-outline" transform="translate(480 320) scale(0.7)" opacity="0.4" filter="url(#glow)"/>
+</svg>

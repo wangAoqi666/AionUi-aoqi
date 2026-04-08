@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -33,6 +33,7 @@ import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 import { getConversationInputHistory, isCaretOnFirstLine } from '@/renderer/utils/chat/messageHistory';
 import { type ReplyQuote, useAddEventListener } from '@/renderer/utils/emitter';
+import type { FileSelectionItem } from '@renderer/utils/file/fileSelection';
 import './sendbox.css';
 
 const constVoid = (): void => undefined;
@@ -58,6 +59,7 @@ const SendBox: React.FC<{
   prefix?: React.ReactNode;
   placeholder?: string;
   onFilesAdded?: (files: FileMetadata[]) => void;
+  onWorkspaceItemsDropped?: (items: FileSelectionItem[]) => void;
   supportedExts?: string[];
   defaultMultiLine?: boolean;
   lockMultiLine?: boolean;
@@ -80,6 +82,7 @@ const SendBox: React.FC<{
   value: input = '',
   onChange: setInput = constVoid,
   onFilesAdded,
+  onWorkspaceItemsDropped,
   supportedExts = allSupportedExts,
   defaultMultiLine = false,
   lockMultiLine = false,
@@ -233,6 +236,7 @@ const SendBox: React.FC<{
   const { isFileDragging, dragHandlers } = useDragUpload({
     supportedExts,
     onFilesAdded,
+    onWorkspaceItemsDropped,
     conversationId: conversationContext?.conversationId,
   });
 
@@ -776,7 +780,7 @@ const SendBox: React.FC<{
             )}
           </div>
         )}
-        <div style={{ width: '100%' }}>
+        <div className='sendbox-prefix' style={{ width: '100%' }}>
           {prefix}
           {context}
           {/* Reply quote preview */}
@@ -816,7 +820,11 @@ const SendBox: React.FC<{
         </div>
         <UploadProgressBar source='sendbox' />
         <div
-          className={isSingleLine ? 'flex items-center gap-2 w-full min-w-0 overflow-hidden' : 'w-full overflow-hidden'}
+          className={
+            isSingleLine
+              ? 'sendbox-composer sendbox-composer--single flex items-center gap-2 w-full min-w-0 overflow-hidden'
+              : 'sendbox-composer w-full overflow-hidden'
+          }
         >
           {isSingleLine && (
             <div className={isMobile ? 'sendbox-tools sendbox-tools-scroll-mobile' : 'flex-shrink-0 sendbox-tools'}>
@@ -828,7 +836,7 @@ const SendBox: React.FC<{
             disabled={disabled}
             value={input}
             placeholder={placeholder}
-            className={`pl-0 pr-0 !b-none focus:shadow-none m-0 !bg-transparent !focus:bg-transparent !hover:bg-transparent lh-[20px] !resize-none text-14px ${isMobile ? 'sendbox-input--mobile' : ''}`}
+            className={`sendbox-input pl-0 pr-0 !b-none focus:shadow-none m-0 !bg-transparent !focus:bg-transparent !hover:bg-transparent lh-[20px] !resize-none text-14px ${isMobile ? 'sendbox-input--mobile' : ''}`}
             style={{
               width: isSingleLine ? 'auto' : '100%',
               flex: isSingleLine ? 1 : 'none',
@@ -836,7 +844,7 @@ const SendBox: React.FC<{
               maxWidth: '100%',
               marginLeft: 0,
               marginRight: 0,
-              marginBottom: isSingleLine ? 0 : '8px',
+              marginBottom: isSingleLine ? 0 : '10px',
               height: isSingleLine ? '20px' : 'auto',
               minHeight: isSingleLine ? '20px' : '80px',
               overflowY: isSingleLine ? 'hidden' : 'auto',
@@ -859,7 +867,7 @@ const SendBox: React.FC<{
             })}
           ></Input.TextArea>
           {isSingleLine && (
-            <div className='flex items-center gap-2'>
+            <div className='sendbox-action-cluster flex items-center gap-2'>
               <SpeechInputButton
                 disabled={disabled || isLoading || loading || isUploading}
                 locale={speechLocale}
@@ -871,9 +879,9 @@ const SendBox: React.FC<{
           )}
         </div>
         {!isSingleLine && (
-          <div className='flex items-center justify-between gap-2 w-full'>
+          <div className='sendbox-footer flex items-center justify-between gap-2 w-full'>
             <div className={isMobile ? 'sendbox-tools sendbox-tools-scroll-mobile' : 'sendbox-tools'}>{tools}</div>
-            <div className='flex items-center gap-2'>
+            <div className='sendbox-action-cluster flex items-center gap-2'>
               <SpeechInputButton
                 disabled={disabled || isLoading || loading || isUploading}
                 locale={speechLocale}

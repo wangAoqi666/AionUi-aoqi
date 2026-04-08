@@ -1,15 +1,180 @@
 import { ipcBridge } from '@/common';
-import type { IConfirmation } from '@/common/chat/chatLib';
+import type { AskUserConfirmationQuestion, IConfirmation } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
-import { Divider, Typography } from '@arco-design/web-react';
+import { Button, Divider, Input, Typography } from '@arco-design/web-react';
 import type { PropsWithChildren } from 'react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeStack } from '../../../utils/common';
 
 /** IConfirmation extended with the conversation it belongs to (needed for team-mode cross-agent routing) */
-type StoredConfirmation = IConfirmation<any> & { conversation_id: string };
+type StoredConfirmation = IConfirmation<unknown> & { conversation_id: string };
+
+export type AskUserAnswerResult = {
+  cancelled?: boolean;
+  answers: Array<{
+    index: number;
+    question: string;
+    answer: string;
+  }>;
+};
+
+type AskUserConfirmationRenderable = Pick<IConfirmation<unknown>, 'id' | 'interaction'>;
+
+export const AskUserConfirmCard: React.FC<{
+  confirmation: AskUserConfirmationRenderable;
+  onSubmit: (result: AskUserAnswerResult) => void;
+}> = ({ confirmation, onSubmit }) => {
+  const { t } = useTranslation();
+  const questions = confirmation.interaction?.questions || [];
+  const [selectedOptions, setSelectedOptions] = useState<Record<number, string>>({});
+  const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setSelectedOptions({});
+    setCustomAnswers({});
+    setIsSubmitting(false);
+  }, [confirmation.id]);
+
+  const getCustomOption = useCallback(
+    (question: AskUserConfirmationQuestion): string | undefined =>
+      question.options.length === 4 ? question.options[question.options.length - 1] : undefined,
+    []
+  );
+
+  const resolveAnswer = useCallback(
+    (
+      question: AskUserConfirmationQuestion,
+      nextSelectedOptions: Record<number, string> = selectedOptions,
+      nextCustomAnswers: Record<number, string> = customAnswers
+    ): string => {
+      const selectedOption = nextSelectedOptions[question.index] || '';
+      const customOption = getCustomOption(question);
+      if (customOption && selectedOption === customOption) {
+        return (nextCustomAnswers[question.index] || '').trim();
+      }
+      return selectedOption.trim();
+    },
+    [customAnswers, getCustomOption, selectedOptions]
+  );
+
+  const canSubmitWithState = useCallback(
+    (nextSelectedOptions: Record<number, string>, nextCustomAnswers: Record<number, string>): boolean =>
+      questions.every((question) => Boolean(resolveAnswer(question, nextSelectedOptions, nextCustomAnswers))),
+    [questions, resolveAnswer]
+  );
+
+  const buildSubmitResult = useCallback(
+    (
+      nextSelectedOptions: Record<number, string> = selectedOptions,
+      nextCustomAnswers: Record<number, string> = customAnswers
+    ): AskUserAnswerResult => ({
+      cancelled: false,
+      answers: questions.map((question) => ({
+        index: question.index,
+        question: question.question,
+        answer: resolveAnswer(question, nextSelectedOptions, nextCustomAnswers),
+      })),
+    }),
+    [customAnswers, questions, resolveAnswer, selectedOptions]
+  );
+
+  const canSubmit = canSubmitWithState(selectedOptions, customAnswers);
+
+  const handleSubmit = async (cancelled: boolean) => {
+    if (isSubmitting) return;
+    if (!cancelled && !canSubmit) return;
+
+    setIsSubmitting(true);
+    onSubmit(cancelled ? { cancelled: true, answers: [] } : buildSubmitResult());
+  };
+
+  const handleOptionClick = (question: AskUserConfirmationQuestion, option: string) => {
+    if (isSubmitting) return;
+
+    const nextSelectedOptions = {
+      ...selectedOptions,
+      [question.index]: option,
+    };
+    setSelectedOptions(nextSelectedOptions);
+
+    const customOption = getCustomOption(question);
+    if (customOption && option === customOption) {
+      return;
+    }
+
+    if (!canSubmitWithState(nextSelectedOptions, customAnswers)) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    onSubmit(buildSubmitResult(nextSelectedOptions, customAnswers));
+  };
+
+  return (
+    <div className='shrink-0 mt-12px flex flex-col gap-12px'>
+      {questions.map((question) => {
+        const selectedOption = selectedOptions[question.index] || '';
+        const customOption = getCustomOption(question);
+        const shouldShowCustomInput = Boolean(customOption && selectedOption === customOption);
+        const shouldShowInput = question.options.length === 0 || !customOption || shouldShowCustomInput;
+        const value = shouldShowCustomInput ? customAnswers[question.index] || '' : selectedOption;
+
+        return (
+          <div key={`${confirmation.id}-${question.index}`} className='rounded-12px bg-fill-1 p-12px'>
+            <div className='mb-6px text-12px text-t-secondary'>{question.topic}</div>
+            <div className='mb-10px text-14px text-t-primary'>{question.question}</div>
+            {question.options.length > 0 && (
+              <div className='mb-10px flex flex-wrap gap-8px'>
+                {question.options.map((option) => (
+                  <Button
+                    key={option}
+                    size='mini'
+                    type={selectedOption === option ? 'primary' : 'secondary'}
+                    onClick={() => {
+                      handleOptionClick(question, option);
+                    }}
+                  >
+                    {option}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {shouldShowInput && (
+              <Input.TextArea
+                autoSize={{ minRows: 2, maxRows: 6 }}
+                placeholder={
+                  customOption && shouldShowCustomInput
+                    ? customOption
+                    : question.options.join(' / ') || question.question
+                }
+                value={value}
+                onChange={(nextValue) => {
+                  if (shouldShowCustomInput) {
+                    setCustomAnswers((prev) => ({ ...prev, [question.index]: nextValue }));
+                    return;
+                  }
+                  setSelectedOptions((prev) => ({ ...prev, [question.index]: nextValue }));
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      <div className='flex items-center justify-end gap-8px'>
+        <Button disabled={isSubmitting} onClick={() => void handleSubmit(true)}>
+          {t('common.cancel', { defaultValue: '取消' })}
+        </Button>
+        <Button type='primary' disabled={!canSubmit || isSubmitting} onClick={() => void handleSubmit(false)}>
+          {t('common.confirm', { defaultValue: '确认' })}
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 const ConversationChatConfirm: React.FC<PropsWithChildren<{ conversation_id: string }>> = ({
   conversation_id,
@@ -83,20 +248,29 @@ const ConversationChatConfirm: React.FC<PropsWithChildren<{ conversation_id: str
 
     const loadConfirmations = async () => {
       try {
-        // Load confirmations for all listened conversation IDs
-        const allData: StoredConfirmation[] = [];
-        for (const cid of listenConversationIds) {
-          const data = await ipcBridge.conversation.confirmation.list.invoke({ conversation_id: cid });
-          allData.push(...data.map((c) => ({ ...c, conversation_id: cid })));
-        }
-        // Filter out confirmations that should be auto-confirmed (async)
-        const manualConfirmations: StoredConfirmation[] = [];
-        for (const c of allData) {
-          const shouldAutoConfirm = await checkAndAutoConfirm(c);
-          if (!shouldAutoConfirm) {
-            manualConfirmations.push(c);
+        const confirmationGroups = await Promise.all(
+          listenConversationIds.map(async (cid) => {
+            const data = await ipcBridge.conversation.confirmation.list.invoke({ conversation_id: cid });
+            const nextConfirmations: StoredConfirmation[] = [];
+            for (const confirmation of data) {
+              nextConfirmations.push({ ...confirmation, conversation_id: cid });
+            }
+            return nextConfirmations;
+          })
+        );
+        const allData = confirmationGroups.flat();
+        const manualConfirmationResults = await Promise.all(
+          allData.map(async (confirmation) => ({
+            confirmation,
+            shouldAutoConfirm: await checkAndAutoConfirm(confirmation),
+          }))
+        );
+        const manualConfirmations = manualConfirmationResults.flatMap(({ confirmation, shouldAutoConfirm }) => {
+          if (shouldAutoConfirm) {
+            return [];
           }
-        }
+          return [confirmation];
+        });
         setConfirmations(manualConfirmations);
         setLoadError(null);
       } catch (error) {
@@ -142,6 +316,7 @@ const ConversationChatConfirm: React.FC<PropsWithChildren<{ conversation_id: str
     if (!confirmations.length) return;
 
     const confirmation = confirmations[0];
+    if (confirmation.interaction?.type === 'ask_user') return;
 
     const confirmOption = (option: (typeof confirmation.options)[number]) => {
       setConfirmations((prev) => prev.filter((p) => p.id !== confirmation.id));
@@ -255,6 +430,15 @@ const ConversationChatConfirm: React.FC<PropsWithChildren<{ conversation_id: str
   const hasConfirmation = confirmations.length > 0;
   const confirmation = hasConfirmation ? confirmations[0] : null;
   const $t = (key: string, params?: Record<string, string>) => t(key, { ...params, defaultValue: key });
+  const submitConfirmation = useCallback((currentConfirmation: StoredConfirmation, data: unknown) => {
+    setConfirmations((prev) => prev.filter((p) => p.id !== currentConfirmation.id));
+    void ipcBridge.conversation.confirmation.confirm.invoke({
+      conversation_id: currentConfirmation.conversation_id,
+      callId: currentConfirmation.callId,
+      msg_id: currentConfirmation.id,
+      data,
+    });
+  }, []);
 
   // Keep children in a stable tree position to prevent unmount/remount when confirmation state changes.
   // Previously, switching between <>{children}</> and <div>...<div className='hidden'>{children}</div></div>
@@ -277,44 +461,44 @@ const ConversationChatConfirm: React.FC<PropsWithChildren<{ conversation_id: str
               {$t(confirmation.description)}
             </Typography.Ellipsis>
           </div>
-          <div className='shrink-0'>
-            {confirmation.options.map((option, index) => {
-              const label = $t(option.label, option.params);
-              // Determine shortcut hint for this option
-              const shortcut =
-                index === 0
-                  ? 'Enter'
-                  : option.value === 'cancel'
-                    ? 'Esc'
-                    : option.value === 'proceed_always'
-                      ? 'A'
-                      : option.value === 'proceed_once'
-                        ? 'Y'
-                        : String(index + 1);
-              return (
-                <div
-                  onClick={() => {
-                    // Note: "always allow" is stored by backend when proceed_always is confirmed
-                    // 注意：后端会在确认 proceed_always 时自动存储权限
-                    setConfirmations((prev) => prev.filter((p) => p.id !== confirmation.id));
-                    void ipcBridge.conversation.confirmation.confirm.invoke({
-                      conversation_id: confirmation.conversation_id,
-                      callId: confirmation.callId,
-                      msg_id: confirmation.id,
-                      data: option.value,
-                    });
-                  }}
-                  key={label + option.value + index}
-                  className='b-1px b-solid h-30px lh-30px b-[rgba(229,230,235,1)] rd-8px px-12px hover:bg-[rgba(229,231,240,1)] cursor-pointer mt-10px flex items-center gap-8px'
-                >
-                  <span className='inline-flex items-center justify-center px-4px h-18px rd-4px bg-[rgba(229,230,235,0.6)] text-11px text-[rgba(134,144,156,1)] font-mono shrink-0'>
-                    {shortcut}
-                  </span>
-                  {label}
-                </div>
-              );
-            })}
-          </div>
+          {confirmation.interaction?.type === 'ask_user' ? (
+            <AskUserConfirmCard
+              confirmation={confirmation}
+              onSubmit={(result) => {
+                submitConfirmation(confirmation, result);
+              }}
+            />
+          ) : (
+            <div className='shrink-0'>
+              {confirmation.options.map((option, index) => {
+                const label = $t(option.label, option.params);
+                const shortcut =
+                  index === 0
+                    ? 'Enter'
+                    : option.value === 'cancel'
+                      ? 'Esc'
+                      : option.value === 'proceed_always'
+                        ? 'A'
+                        : option.value === 'proceed_once'
+                          ? 'Y'
+                          : String(index + 1);
+                return (
+                  <div
+                    onClick={() => {
+                      submitConfirmation(confirmation, option.value);
+                    }}
+                    key={label + option.value + index}
+                    className='b-1px b-solid h-30px lh-30px b-[rgba(229,230,235,1)] rd-8px px-12px hover:bg-[rgba(229,231,240,1)] cursor-pointer mt-10px flex items-center gap-8px'
+                  >
+                    <span className='inline-flex items-center justify-center px-4px h-18px rd-4px bg-[rgba(229,230,235,0.6)] text-11px text-[rgba(134,144,156,1)] font-mono shrink-0'>
+                      {shortcut}
+                    </span>
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       <div className={hasConfirmation ? 'hidden' : ''}>{children}</div>

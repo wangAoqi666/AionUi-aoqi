@@ -5,6 +5,7 @@ import {
   WORKSPACE_TOGGLE_EVENT,
   dispatchWorkspaceStateEvent,
   type WorkspaceHasFilesDetail,
+  type WorkspaceToggleDetail,
 } from '@/renderer/utils/workspace/workspaceEvents';
 import { detectMobileViewportOrTouch } from '@/renderer/pages/conversation/utils/detectPlatform';
 import { useEffect, useRef, useState } from 'react';
@@ -61,12 +62,13 @@ export function useWorkspaceCollapse({
     if (typeof window === 'undefined') {
       return undefined;
     }
-    const handleWorkspaceToggle = () => {
+    const handleWorkspaceToggle = (event: Event) => {
       if (!workspaceEnabled) {
         return;
       }
+      const action = (event as CustomEvent<WorkspaceToggleDetail>).detail?.action ?? 'toggle';
       setRightSiderCollapsed((prev) => {
-        const newState = !prev;
+        const newState = action === 'expand' ? false : action === 'collapse' ? true : !prev;
         // Record user manual operation preference
         const convId = currentConversationIdRef.current;
         if (convId) {
@@ -142,10 +144,10 @@ export function useWorkspaceCollapse({
   // Broadcast workspace state event
   useEffect(() => {
     if (!workspaceEnabled) {
-      dispatchWorkspaceStateEvent(true);
+      dispatchWorkspaceStateEvent(true, false);
       return;
     }
-    dispatchWorkspaceStateEvent(rightSiderCollapsed);
+    dispatchWorkspaceStateEvent(rightSiderCollapsed, true);
   }, [rightSiderCollapsed, workspaceEnabled]);
 
   // Persist workspace panel collapse state

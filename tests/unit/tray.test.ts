@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -193,7 +193,7 @@ describe('tray module', () => {
 
       createOrUpdateTray();
 
-      expect(mockTrayInstance.setToolTip).toHaveBeenCalledWith('AionUi');
+      expect(mockTrayInstance.setToolTip).toHaveBeenCalledWith('智能体工厂');
     });
 
     it('should be idempotent - second call does not create another tray', async () => {

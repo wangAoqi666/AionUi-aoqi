@@ -1,6 +1,6 @@
 /**
  * @license
- * Copyright 2025 AionUi (aionui.com)
+ * Copyright 2025 Agent Factory
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -50,6 +50,8 @@ export interface PreviewContextValue {
 
   // 预览面板操作 / Preview panel operations
   openPreview: (content: string, type: PreviewContentType, metadata?: PreviewMetadata) => void;
+  showPreviewPanel: () => void;
+  hidePreviewPanel: () => void;
   closePreview: () => void;
   closeTab: (tabId: string) => void;
   switchTab: (tabId: string) => void;
@@ -86,7 +88,11 @@ const sanitizeTabsForPersistence = (input: PreviewTab[]): PreviewTab[] => {
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.contentType))
     .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map((tab) => ({
-      ...tab,
+      id: tab.id,
+      content: tab.content,
+      contentType: tab.contentType,
+      metadata: tab.metadata,
+      title: tab.title,
       isDirty: false,
       originalContent: tab.content,
     }));
@@ -109,7 +115,11 @@ const parsePersistedTabs = (value: unknown): PreviewTab[] => {
     .filter((tab) => PERSISTABLE_CONTENT_TYPES.has(tab.contentType))
     .filter((tab) => tab.content.length <= MAX_PERSISTED_TAB_CONTENT_LENGTH)
     .map((tab) => ({
-      ...tab,
+      id: tab.id,
+      content: tab.content,
+      contentType: tab.contentType,
+      metadata: tab.metadata,
+      title: tab.title,
       originalContent: typeof tab.originalContent === 'string' ? tab.originalContent : tab.content,
       isDirty: false,
     }));
@@ -330,6 +340,14 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     },
     [extractFileName, findPreviewTabInList]
   );
+
+  const showPreviewPanel = useCallback(() => {
+    setIsOpen((prev) => (tabs.length > 0 ? true : prev));
+  }, [tabs.length]);
+
+  const hidePreviewPanel = useCallback(() => {
+    setIsOpen(false);
+  }, []);
 
   const closePreview = useCallback(() => {
     setIsOpen(false);
@@ -666,6 +684,8 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       activeTabId,
       activeTab,
       openPreview,
+      showPreviewPanel,
+      hidePreviewPanel,
       closePreview,
       closeTab,
       switchTab: setActiveTabId,
@@ -686,6 +706,8 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     activeTabId,
     activeTab,
     openPreview,
+    showPreviewPanel,
+    hidePreviewPanel,
     closePreview,
     closeTab,
     setActiveTabId,

@@ -1,9 +1,104 @@
 /* Sendbox component styles */
 
+.conversation-sendbox-dock {
+  width: min(100%, 1040px);
+  margin: 0 auto 20px;
+  padding: 0 10px;
+}
+
+.conversation-sendbox-dock .sendbox-panel {
+  border-radius: 26px !important;
+  border: 1px solid color-mix(in srgb, var(--color-border-2) 78%, transparent) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-bg-1) 98%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg-2) 92%, transparent) 100%
+  ) !important;
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--color-text-1) 12%, transparent);
+}
+
+.conversation-sendbox-dock .sendbox-panel::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, white 72%, transparent) 20%,
+    color-mix(in srgb, white 72%, transparent) 80%,
+    transparent 100%
+  );
+}
+
+@supports ((-webkit-backdrop-filter: blur(14px)) or (backdrop-filter: blur(14px))) {
+  .conversation-sendbox-dock .sendbox-panel {
+    -webkit-backdrop-filter: saturate(120%) blur(14px);
+    backdrop-filter: saturate(120%) blur(14px);
+  }
+}
+
+.conversation-sendbox-dock .sendbox-prefix {
+  margin-bottom: 8px;
+}
+
+.conversation-sendbox-dock .sendbox-input {
+  font-size: 15px !important;
+  line-height: 24px !important;
+  color: var(--text-primary);
+}
+
+.conversation-sendbox-dock .sendbox-footer {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border-2) 76%, transparent);
+}
+
+.conversation-sendbox-dock .sendbox-action-cluster {
+  border: 1px solid color-mix(in srgb, var(--color-border-2) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-1) 96%, transparent);
+  padding: 4px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 54%, transparent);
+}
+
+.send-button-custom,
+.send-button-custom.arco-btn,
+.send-button-custom.arco-btn-primary {
+  width: 36px !important;
+  min-width: 36px !important;
+  height: 36px !important;
+  border: none !important;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--primary-6)) 0%,
+    color-mix(in srgb, rgb(var(--primary-6)) 78%, var(--color-bg-1)) 100%
+  ) !important;
+  box-shadow: 0 14px 28px color-mix(in srgb, rgb(var(--primary-6)) 22%, transparent) !important;
+}
+
+.send-button-custom:hover,
+.send-button-custom.arco-btn:hover,
+.send-button-custom.arco-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px color-mix(in srgb, rgb(var(--primary-6)) 28%, transparent) !important;
+}
+
+.send-button-custom:active,
+.send-button-custom.arco-btn:active,
+.send-button-custom.arco-btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 20px color-mix(in srgb, rgb(var(--primary-6)) 18%, transparent) !important;
+}
+
 /* Send button disabled state - override Arco Design default disabled styles */
 .send-button-custom:disabled {
-  background-color: #d3d4d9 !important;
-  border-color: #d3d4d9 !important;
+  background: color-mix(in srgb, var(--color-fill-3) 92%, transparent) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
   opacity: 1 !important;
 }
 
@@ -14,8 +109,9 @@
 }
 
 /* Input placeholder color */
-::placeholder {
-  color: #a1a2aa !important;
+.sendbox-input::placeholder,
+.sendbox-input textarea::placeholder {
+  color: var(--color-text-4) !important;
 }
 
 /* Sendbox tools buttons - prevent layout jitter from theme hover transforms (#1075) */
@@ -32,10 +128,13 @@
 .sendbox-tools .sendbox-model-btn:active,
 .sendbox-tools .sendbox-model-btn:focus,
 .sendbox-tools .sendbox-model-btn:focus-visible {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: color-mix(in srgb, var(--color-bg-1) 96%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--color-border-2) 76%, transparent) !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 54%, transparent) !important;
   color: var(--text-secondary) !important;
+  min-height: 30px !important;
+  padding: 0 10px !important;
 }
 
 .sendbox-tools .sendbox-model-btn:hover,
@@ -43,16 +142,19 @@
 .sendbox-tools .sendbox-model-btn:focus,
 .sendbox-tools .sendbox-model-btn:focus-visible {
   color: var(--text-primary) !important;
+  border-color: color-mix(in srgb, rgb(var(--primary-6)) 30%, var(--color-border-2)) !important;
 }
 
 .speech-input-button {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
   padding: 0 !important;
-  border-color: var(--color-border-2) !important;
-  background: var(--color-fill-2) !important;
+  border-radius: 999px !important;
+  border-color: color-mix(in srgb, var(--color-border-2) 78%, transparent) !important;
+  background: color-mix(in srgb, var(--color-bg-1) 96%, transparent) !important;
   color: var(--text-secondary) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 52%, transparent) !important;
 }
 
 .speech-input-button:hover,
@@ -97,6 +199,10 @@
 /* Allow sendbox tools area to shrink so the send button stays visible */
 .sendbox-tools {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* Circle / icon-only buttons must not shrink */
@@ -139,6 +245,21 @@
 
 /* Mobile: allow horizontal scrolling for sendbox tools (model/permission pills) */
 @media (max-width: 767px) {
+  .conversation-sendbox-dock {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 0 8px;
+  }
+
+  .conversation-sendbox-dock .sendbox-panel {
+    border-radius: 20px !important;
+    box-shadow: 0 18px 40px color-mix(in srgb, var(--color-text-1) 10%, transparent);
+  }
+
+  .conversation-sendbox-dock .sendbox-footer {
+    padding-top: 10px;
+  }
+
   .sendbox-tools-scroll-mobile {
     display: flex;
     align-items: center;

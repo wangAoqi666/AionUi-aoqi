@@ -280,6 +280,16 @@ Please check your local CLI tool authentication status`,
     }
   });
 
+  const appendDroppedWorkspaceItems = useCallback(
+    (selectedItems: Array<string | FileOrFolderItem>) => {
+      const merged = mergeFileSelectionItems(atPathRef.current, selectedItems);
+      if (merged !== atPathRef.current) {
+        setAtPath(merged as Array<string | FileOrFolderItem>);
+      }
+    },
+    [setAtPath]
+  );
+
   // Stop conversation handler
   const handleStop = async (): Promise<void> => {
     // Use finally to ensure UI state is reset even if backend stop fails
@@ -318,8 +328,9 @@ Please check your local CLI tool authentication status`,
           defaultValue: `Send message to {{backend}}...`,
         })}
         onStop={handleStop}
-        className='z-10'
+        className='z-10 conversation-sendbox-dock'
         onFilesAdded={handleFilesAdded}
+        onWorkspaceItemsDropped={appendDroppedWorkspaceItems}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
         enableBtw={isSideQuestionSupported({ type: 'acp', backend })}
         supportedExts={allSupportedExts}

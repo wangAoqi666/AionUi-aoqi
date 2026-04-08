@@ -154,13 +154,11 @@ describe('AgentHubModal', () => {
     expect(screen.getByText('No agents available in the market.')).toBeTruthy();
   });
 
-  it('renders the market contribution link and opens the repo', () => {
+  it('does not render the market contribution link', () => {
     render(<AgentHubModal visible={true} onCancel={vi.fn()} />);
 
-    expect(screen.getByText('Want a new Agent listed here?')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open a PR on AionHub' }));
-
-    expect(mockOpenExternalUrl).toHaveBeenCalledWith('https://github.com/iOfficeAI/AionHub');
+    expect(screen.queryByText('Want a new Agent listed here?')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open a PR on AionHub' })).toBeNull();
+    expect(mockOpenExternalUrl).not.toHaveBeenCalled();
   });
 });
