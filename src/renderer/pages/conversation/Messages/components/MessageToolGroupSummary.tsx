@@ -198,19 +198,6 @@ const ToolItemDetail: React.FC<{ item: ToolItem }> = ({ item }) => {
 const MessageToolGroupSummary: React.FC<{ messages: Array<IMessageToolGroup | IMessageAcpToolCall> }> = ({
   messages,
 }) => {
-  const hasRunningTools = messages.some(
-    (m) =>
-      (m.type === 'tool_group' &&
-        m.content.some((t) => t.status !== 'Success' && t.status !== 'Error' && t.status !== 'Canceled')) ||
-      (m.type === 'acp_tool_call' &&
-        (m.content.update.status === 'pending' || m.content.update.status === 'in_progress'))
-  );
-  const hasErrorTools = messages.some(
-    (m) =>
-      (m.type === 'tool_group' && m.content.some((tool) => tool.status === 'Error')) ||
-      (m.type === 'acp_tool_call' && m.content.update.status === 'failed')
-  );
-  const [showMore, setShowMore] = useState(false);
   const tools = useMemo(() => {
     return messages.flatMap((m) => {
       if (m.type === 'tool_group') return ToolGroupMapper(m);
@@ -218,33 +205,17 @@ const MessageToolGroupSummary: React.FC<{ messages: Array<IMessageToolGroup | IM
     });
   }, [messages]);
 
-  const leadTool = tools[0];
-  const hiddenCount = Math.max(tools.length - 1, 0);
-  const summaryStatus: BadgeProps['status'] = hasRunningTools ? 'processing' : hasErrorTools ? 'error' : 'default';
-  const summaryText = leadTool ? (leadTool.desc || leadTool.name).trim() : '';
+  if (!tools.length) {
+    return null;
+  }
 
   return (
     <div className='tool-summary-root'>
-      <div className='tool-summary-header' onClick={() => setShowMore(!showMore)}>
-        <Badge status={summaryStatus} className={summaryStatus === 'processing' ? 'badge-breathing' : ''}></Badge>
-        <span className='tool-summary-text'>
-          {leadTool ? (
-            <>
-              <span className='tool-summary-name'>{leadTool.name}</span>
-              {summaryText && summaryText !== leadTool.name && <span className='tool-summary-desc'>{summaryText}</span>}
-            </>
-          ) : null}
-        </span>
-        {hiddenCount > 0 && <span className='tool-summary-count'>+{hiddenCount}</span>}
-        {showMore ? <IconDown className='tool-summary-arrow' /> : <IconRight className='tool-summary-arrow' />}
+      <div className='tool-summary-details'>
+        {tools.map((item) => (
+          <ToolItemDetail key={item.key} item={item} />
+        ))}
       </div>
-      {showMore && (
-        <div className='tool-summary-details'>
-          {tools.map((item) => (
-            <ToolItemDetail key={item.key} item={item} />
-          ))}
-        </div>
-      )}
     </div>
   );
 };

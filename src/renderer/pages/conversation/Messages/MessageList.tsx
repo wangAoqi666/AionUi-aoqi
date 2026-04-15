@@ -8,7 +8,8 @@ import type { TMessage } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
-import { Image } from '@arco-design/web-react';
+import { Badge, Image } from '@arco-design/web-react';
+import { IconDown, IconRight } from '@arco-design/web-react/icon';
 import { Down } from '@icon-park/react';
 import MessageAcpPermission from '@renderer/pages/conversation/Messages/acp/MessageAcpPermission';
 import MessageAcpToolCall from '@renderer/pages/conversation/Messages/acp/MessageAcpToolCall';
@@ -37,6 +38,8 @@ import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewO
 import SelectionReplyButton from './components/SelectionReplyButton';
 import {
   buildProcessedMessageList,
+  getActiveTaskBoard,
+  getCurrentTurnPlanMessageIds,
   getProcessedItemAnchorId,
   matchesTargetMsgId,
   matchesTargetMessage,
@@ -55,13 +58,217 @@ const highlightStyle: React.CSSProperties = {
   borderRadius: '12px',
 };
 
+type ActivityBadgeStatus = 'default' | 'success' | 'processing' | 'error';
+type MessagePosition = TMessage['position'];
+
+const MESSAGE_ROW_BASE_CLASS = 'min-w-0 flex items-start message-item w-full m-t-4px [&>div]:max-w-full';
+
 const getUnhandledMessageType = (_message: never): string => 'unknown';
 
-const renderAssistantActivity = (activity: AssistantActivityItem): React.ReactNode => {
+export const getConversationMessageRowClassName = (position: MessagePosition, extraClassName?: string): string =>
+  classNames(MESSAGE_ROW_BASE_CLASS, extraClassName, {
+    'justify-center': position === 'center',
+    'justify-end': position === 'right',
+    'justify-start': position === 'left',
+    'message-item--center': position === 'center',
+    'message-item--user': position === 'right',
+    'message-item--assistant': position === 'left',
+  });
+
+const getFirstLine = (content: string): string => {
+  const firstLine = content.split('\n')[0] || '';
+  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine;
+};
+
+const formatDuration = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return `${minutes}m ${remaining}s`;
+};
+
+const buildToolParamSummary = (kind: string, rawInput?: Record<string, unknown>): string | undefined => {
+  if (!rawInput) return undefined;
+
+  if (kind === 'read' || kind === 'edit' || kind === 'write') {
+    return (rawInput.file_path as string) || (rawInput.path as string) || (rawInput.fileName as string);
+  }
+  if (kind === 'execute') {
+    return rawInput.command as string;
+  }
+  if (kind === 'search' || kind === 'grep') {
+    const parts: string[] = [];
+    if (rawInput.pattern) parts.push(`"${rawInput.pattern}"`);
+    if (rawInput.path) parts.push(`in ${rawInput.path}`);
+    return parts.length > 0 ? parts.join(' ') : undefined;
+  }
+
+  for (const key of ['file_path', 'command', 'path', 'pattern', 'query', 'url']) {
+    if (rawInput[key] && typeof rawInput[key] === 'string') {
+      return rawInput[key] as string;
+    }
+  }
+
+  return undefined;
+};
+
+const getToolActivityMeta = (
+  activity: Extract<AssistantActivityItem, { type: 'tool_summary' }>
+): { title: string; detail?: string; status: ActivityBadgeStatus; count: number } => {
+  const count = activity.messages.reduce((total, message) => {
+    return total + (message.type === 'tool_group' ? message.content.length : 1);
+  }, 0);
+  const latestMessage = activity.messages.at(-1);
+
+  if (!latestMessage) {
+    return { title: 'Tool', status: 'default', count: Math.max(count, 1) };
+  }
+
+  if (latestMessage.type === 'acp_tool_call') {
+    const update = latestMessage.content.update;
+    return {
+      title: update.title,
+      detail: buildToolParamSummary(update.kind, update.rawInput),
+      status:
+        update.status === 'completed' ? 'success' : update.status === 'failed' ? 'error' : ('processing' as const),
+      count: Math.max(count, 1),
+    };
+  }
+
+  const latestTool = latestMessage.content.at(-1);
+  if (!latestTool) {
+    return { title: 'Tool', status: 'default', count: Math.max(count, 1) };
+  }
+
+  const confirmationDetails = latestTool.confirmationDetails;
+  let detail = latestTool.description.slice(0, 100);
+  if (confirmationDetails?.type === 'edit') detail = confirmationDetails.fileName;
+  if (confirmationDetails?.type === 'exec') detail = confirmationDetails.command;
+  if (confirmationDetails?.type === 'info') detail = confirmationDetails.urls?.join(';') || confirmationDetails.title;
+  if (confirmationDetails?.type === 'mcp') detail = `${confirmationDetails.serverName}:${confirmationDetails.toolName}`;
+
+  return {
+    title: latestTool.name,
+    detail,
+    status:
+      latestTool.status === 'Success'
+        ? 'success'
+        : latestTool.status === 'Error'
+          ? 'error'
+          : latestTool.status === 'Canceled'
+            ? 'default'
+            : 'processing',
+    count: Math.max(count, 1),
+  };
+};
+
+const getActivityMeta = (
+  activity: AssistantActivityItem,
+  t: (key: string, options?: Record<string, unknown>) => string
+): { title: string; detail?: string; status: ActivityBadgeStatus; count: number } => {
+  if (activity.type === 'thinking') {
+    const isDone = activity.content.status === 'done';
+    return {
+      title: isDone
+        ? t('conversation.thinking.completed', { defaultValue: 'Completed' })
+        : t('common.processing', { defaultValue: 'Processing...' }),
+      detail:
+        activity.content.subject ||
+        getFirstLine(activity.content.content) ||
+        (isDone ? formatDuration(activity.content.duration || 0) : undefined),
+      status: isDone ? 'success' : 'processing',
+      count: 1,
+    };
+  }
+
+  if (activity.type === 'tool_summary') {
+    return getToolActivityMeta(activity);
+  }
+
+  return {
+    title: t('messages.fileChangesCount', { count: activity.diffs.length }),
+    detail: activity.diffs[0]?.fileName,
+    status: 'success',
+    count: Math.max(activity.diffs.length, 1),
+  };
+};
+
+const renderAssistantActivityDetail = (activity: AssistantActivityItem): React.ReactNode => {
   if (activity.type === 'thinking') {
     return <MessageThinking key={activity.id} message={activity} />;
   }
-  return <MessageToolGroupSummary key={activity.id} messages={activity.messages} />;
+  if (activity.type === 'tool_summary') {
+    return <MessageToolGroupSummary key={activity.id} messages={activity.messages} />;
+  }
+  return <MessageFileChanges key={activity.id} diffsChanges={activity.diffs} />;
+};
+
+export const MessageActivitySummaryCard: React.FC<{ activities: AssistantActivityItem[] }> = ({ activities }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  const summary = useMemo<{
+    title: string;
+    detail: string;
+    status: ActivityBadgeStatus;
+    count: number;
+  }>(() => {
+    const items = activities.map((activity) => getActivityMeta(activity, t));
+    const latest = items.at(-1);
+    const hasRunning = items.some((item) => item.status === 'processing');
+    const hasError = items.some((item) => item.status === 'error');
+
+    return {
+      title: hasRunning
+        ? t('common.processing', { defaultValue: 'Processing...' })
+        : hasError
+          ? t('common.failed', { defaultValue: 'Failed' })
+          : t('conversation.thinking.completed', { defaultValue: 'Completed' }),
+      detail: latest ? (latest.detail ? `${latest.title} · ${latest.detail}` : latest.title) : '',
+      status: hasRunning ? 'processing' : hasError ? 'error' : 'success',
+      count: items.reduce((total, item) => total + item.count, 0),
+    };
+  }, [activities, t]);
+  const titleLabel = summary.status === 'processing' ? summary.title.replace(/(?:\.{3}|…)+$/u, '') : summary.title;
+
+  return (
+    <div className='activity-box'>
+      <div
+        className='activity-box__header'
+        onClick={() => setExpanded((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setExpanded((value) => !value);
+          }
+        }}
+        role='button'
+        tabIndex={0}
+        aria-expanded={expanded}
+      >
+        <Badge
+          status={summary.status}
+          className={summary.status === 'processing' ? 'activity-box__badge--processing' : undefined}
+        />
+        <div className='activity-box__summary'>
+          <div className='activity-box__title-row'>
+            <span
+              className={classNames('activity-box__title', {
+                'activity-box__title--processing': summary.status === 'processing',
+              })}
+            >
+              {titleLabel}
+            </span>
+            <span className='activity-box__count'>{summary.count}</span>
+          </div>
+          {summary.detail && <span className='activity-box__desc'>{summary.detail}</span>}
+        </div>
+        {expanded ? <IconDown className='activity-box__arrow' /> : <IconRight className='activity-box__arrow' />}
+      </div>
+      {expanded && <div className='activity-box__details'>{activities.map(renderAssistantActivityDetail)}</div>}
+    </div>
+  );
 };
 
 // Image preview context
@@ -73,18 +280,7 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
     return (
       <div
         id={`message-${message.id}`}
-        className={classNames(
-          'min-w-0 flex items-start message-item [&>div]:max-w-full px-8px m-t-10px max-w-full md:max-w-860px mx-auto',
-          message.type,
-          {
-            'justify-center': message.position === 'center',
-            'justify-end': message.position === 'right',
-            'justify-start': message.position === 'left',
-            'message-item--center': message.position === 'center',
-            'message-item--user': message.position === 'right',
-            'message-item--assistant': message.position === 'left',
-          }
-        )}
+        className={getConversationMessageRowClassName(message.position, message.type)}
         style={highlighted ? highlightStyle : undefined}
       >
         {props.children}
@@ -134,7 +330,7 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
     prev.highlighted === next.highlighted
 );
 
-const MessageList: React.FC<{ className?: string }> = () => {
+const MessageList: React.FC<{ className?: string }> = ({ className }) => {
   const list = useMessageList();
   const conversationContext = useConversationContextSafe();
   useAutoPreviewOfficeFiles(conversationContext?.workspace);
@@ -147,6 +343,15 @@ const MessageList: React.FC<{ className?: string }> = () => {
 
   // Pre-process message list to group Codex turn_diff messages
   const processedList = useMemo(() => buildProcessedMessageList(list), [list]);
+  const activeTaskBoard = useMemo(() => getActiveTaskBoard(list), [list]);
+  const currentTurnPlanMessageIds = useMemo(() => getCurrentTurnPlanMessageIds(list), [list]);
+  const visibleProcessedList = useMemo(() => {
+    if (!activeTaskBoard || currentTurnPlanMessageIds.size === 0) {
+      return processedList;
+    }
+
+    return processedList.filter((item) => !(item.type === 'plan' && currentTurnPlanMessageIds.has(item.id)));
+  }, [activeTaskBoard, currentTurnPlanMessageIds, processedList]);
 
   // Use auto-scroll hook
   const {
@@ -160,11 +365,11 @@ const MessageList: React.FC<{ className?: string }> = () => {
     hideScrollButton,
   } = useAutoScroll({
     messages: list,
-    itemCount: processedList.length,
+    itemCount: visibleProcessedList.length,
   });
 
   useEffect(() => {
-    if (!targetMessageId || processedList.length === 0 || !virtuosoRef.current) {
+    if (!targetMessageId) {
       return;
     }
 
@@ -173,7 +378,27 @@ const MessageList: React.FC<{ className?: string }> = () => {
       return;
     }
 
-    const targetIndex = processedList.findIndex((item) => matchesTargetMessage(item, targetMessageId));
+    if (activeTaskBoard && activeTaskBoard.sourceMessageId === targetMessageId) {
+      handledTargetKeyRef.current = targetKey;
+      setHighlightedMessageId(targetMessageId);
+      hideScrollButton();
+
+      const timer = window.setTimeout(() => {
+        setHighlightedMessageId((current) => (current === targetMessageId ? undefined : current));
+      }, 2400);
+
+      return () => window.clearTimeout(timer);
+    }
+
+    if (visibleProcessedList.length === 0) {
+      return;
+    }
+
+    if (!virtuosoRef.current) {
+      return;
+    }
+
+    const targetIndex = visibleProcessedList.findIndex((item) => matchesTargetMessage(item, targetMessageId));
     if (targetIndex === -1) {
       return;
     }
@@ -195,7 +420,7 @@ const MessageList: React.FC<{ className?: string }> = () => {
     }, 2400);
 
     return () => window.clearTimeout(timer);
-  }, [hideScrollButton, location.key, processedList, targetMessageId, virtuosoRef]);
+  }, [activeTaskBoard, hideScrollButton, location.key, targetMessageId, visibleProcessedList, virtuosoRef]);
 
   useEffect(() => {
     const handleMessageJump = (event: Event) => {
@@ -203,7 +428,16 @@ const MessageList: React.FC<{ className?: string }> = () => {
       if (!detail || !detail.conversationId) return;
       if (!conversationContext?.conversationId || detail.conversationId !== conversationContext.conversationId) return;
 
-      const targetIndex = processedList.findIndex(
+      const targetId = detail.messageId || detail.msgId;
+      if (activeTaskBoard && targetId && targetId === activeTaskBoard.sourceMessageId) {
+        setHighlightedMessageId(targetId);
+        window.setTimeout(() => {
+          setHighlightedMessageId((current) => (current === targetId ? undefined : current));
+        }, 2400);
+        return;
+      }
+
+      const targetIndex = visibleProcessedList.findIndex(
         (item) => matchesTargetMessage(item, detail.messageId) || matchesTargetMsgId(item, detail.msgId)
       );
       if (targetIndex < 0) return;
@@ -222,7 +456,7 @@ const MessageList: React.FC<{ className?: string }> = () => {
     return () => {
       window.removeEventListener(CHAT_MESSAGE_JUMP_EVENT, handleMessageJump);
     };
-  }, [conversationContext?.conversationId, hideScrollButton, processedList, virtuosoRef]);
+  }, [activeTaskBoard, conversationContext?.conversationId, hideScrollButton, visibleProcessedList, virtuosoRef]);
 
   // Click scroll button
   const handleScrollButtonClick = () => {
@@ -237,11 +471,11 @@ const MessageList: React.FC<{ className?: string }> = () => {
         <div
           key={item.id}
           id={`message-${getProcessedItemAnchorId(item)}`}
-          className='min-w-0 flex items-start message-item message-item--assistant px-8px m-t-10px max-w-full md:max-w-860px mx-auto justify-start'
+          className={getConversationMessageRowClassName('left', 'message-item--assistant')}
           style={highlighted ? highlightStyle : undefined}
         >
           <div className='message-turn-stack'>
-            <div className='message-turn-activities'>{item.activities.map(renderAssistantActivity)}</div>
+            <MessageActivitySummaryCard activities={item.activities} />
             {item.type === 'assistant_turn' && <MessageText message={item.message} />}
           </div>
         </div>
@@ -252,11 +486,10 @@ const MessageList: React.FC<{ className?: string }> = () => {
         <div
           key={item.id}
           id={`message-${getProcessedItemAnchorId(item)}`}
-          className={'min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-860px mx-auto ' + item.type}
+          className={getConversationMessageRowClassName('left', item.type)}
           style={highlighted ? highlightStyle : undefined}
         >
-          {item.type === 'file_summary' && <MessageFileChanges diffsChanges={item.diffs} />}
-          {item.type === 'tool_summary' && <MessageToolGroupSummary messages={item.messages}></MessageToolGroupSummary>}
+          <MessageActivitySummaryCard activities={[item]} />
         </div>
       );
     }
@@ -264,48 +497,60 @@ const MessageList: React.FC<{ className?: string }> = () => {
   };
 
   return (
-    <div className='relative flex-1 h-full'>
-      {/* Use PreviewGroup to wrap all messages for cross-message image preview */}
-      <Image.PreviewGroup actionsLayout={['zoomIn', 'zoomOut', 'originalSize', 'rotateLeft', 'rotateRight']}>
-        <ImagePreviewContext.Provider value={{ inPreviewGroup: true }}>
-          <Virtuoso
-            ref={virtuosoRef}
-            scrollerRef={handleScrollerRef}
-            className='conversation-message-stream flex-1 h-full pb-16px box-border'
-            data={processedList}
-            initialTopMostItemIndex={processedList.length - 1}
-            defaultItemHeight={40}
-            atBottomThreshold={100}
-            increaseViewportBy={1200}
-            itemContent={renderItem}
-            followOutput={handleFollowOutput}
-            onScroll={handleScroll}
-            atBottomStateChange={handleAtBottomStateChange}
-            components={{
-              Header: () => <div className='h-10px' />,
-              Footer: () => <div className='h-20px' />,
-            }}
-          />
-        </ImagePreviewContext.Provider>
-      </Image.PreviewGroup>
-
-      {showScrollButton && (
-        <>
-          {/* Gradient mask */}
-          <div className='absolute bottom-0 left-0 right-0 h-100px pointer-events-none' />
-          {/* Scroll button */}
-          <div className='absolute bottom-20px left-50% transform -translate-x-50% z-100'>
-            <div
-              className='flex items-center justify-center w-40px h-40px rd-full bg-base shadow-lg cursor-pointer hover:bg-1 transition-all hover:scale-110 border-1 border-solid border-3'
-              onClick={handleScrollButtonClick}
-              title={t('messages.scrollToBottom')}
-              style={{ lineHeight: 0 }}
-            >
-              <Down theme='filled' size='20' fill={iconColors.secondary} style={{ display: 'block' }} />
-            </div>
-          </div>
-        </>
+    <div className={classNames('relative flex-1 h-full min-h-0 flex flex-col', className)}>
+      {activeTaskBoard && (
+        <div
+          id={`task-board-${activeTaskBoard.sourceMessageId}`}
+          className='conversation-task-board'
+          style={highlightedMessageId === activeTaskBoard.sourceMessageId ? highlightStyle : undefined}
+        >
+          <MessagePlan entries={activeTaskBoard.entries} variant='sticky' />
+        </div>
       )}
+
+      <div className='relative flex-1 min-h-0'>
+        {/* Use PreviewGroup to wrap all messages for cross-message image preview */}
+        <Image.PreviewGroup actionsLayout={['zoomIn', 'zoomOut', 'originalSize', 'rotateLeft', 'rotateRight']}>
+          <ImagePreviewContext.Provider value={{ inPreviewGroup: true }}>
+            <Virtuoso
+              ref={virtuosoRef}
+              scrollerRef={handleScrollerRef}
+              className='conversation-message-stream flex-1 h-full pb-12px box-border'
+              data={visibleProcessedList}
+              initialTopMostItemIndex={visibleProcessedList.length > 0 ? visibleProcessedList.length - 1 : 0}
+              defaultItemHeight={40}
+              atBottomThreshold={100}
+              increaseViewportBy={1200}
+              itemContent={renderItem}
+              followOutput={handleFollowOutput}
+              onScroll={handleScroll}
+              atBottomStateChange={handleAtBottomStateChange}
+              components={{
+                Header: () => <div className='h-4px' />,
+                Footer: () => <div className='h-8px' />,
+              }}
+            />
+          </ImagePreviewContext.Provider>
+        </Image.PreviewGroup>
+
+        {showScrollButton && (
+          <>
+            {/* Gradient mask */}
+            <div className='absolute bottom-0 left-0 right-0 h-100px pointer-events-none' />
+            {/* Scroll button */}
+            <div className='absolute bottom-20px left-50% transform -translate-x-50% z-100'>
+              <div
+                className='flex items-center justify-center w-40px h-40px rd-full bg-base shadow-lg cursor-pointer hover:bg-1 transition-all hover:scale-110 border-1 border-solid border-3'
+                onClick={handleScrollButtonClick}
+                title={t('messages.scrollToBottom')}
+                style={{ lineHeight: 0 }}
+              >
+                <Down theme='filled' size='20' fill={iconColors.secondary} style={{ display: 'block' }} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       <SelectionReplyButton messages={list} />
     </div>

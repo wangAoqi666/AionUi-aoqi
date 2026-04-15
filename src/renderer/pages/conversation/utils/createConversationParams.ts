@@ -9,6 +9,7 @@ import type { ICreateConversationParams } from '@/common/adapter/ipcBridge';
 import type { TProviderWithModel } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import { loadPresetAssistantResources } from '@/common/utils/presetAssistantResources';
+import { LOCKED_BUILTIN_ASSISTANT_BACKEND } from '@/renderer/hooks/assistant/assistantBackendOptions';
 import {
   buildAgentConversationParams,
   getConversationTypeForBackend,
@@ -143,6 +144,9 @@ export async function buildPresetAssistantParams(
   language: string
 ): Promise<ICreateConversationParams> {
   const { customAgentId, presetAgentType = 'gemini' } = agent;
+  const resolvedPresetAgentType = customAgentId?.startsWith('builtin-')
+    ? LOCKED_BUILTIN_ASSISTANT_BACKEND
+    : presetAgentType;
 
   // [BUG-2] Map raw i18n.language to standard locale key
   const localeKey = resolveLocaleKey(language);
@@ -152,7 +156,7 @@ export async function buildPresetAssistantParams(
     localeKey,
   });
 
-  const type = getConversationTypeForPreset(presetAgentType);
+  const type = getConversationTypeForPreset(resolvedPresetAgentType);
   const model = type === 'gemini' ? await getDefaultGeminiModel() : ({} as TProviderWithModel);
 
   return buildAgentConversationParams({
@@ -162,7 +166,7 @@ export async function buildPresetAssistantParams(
     workspace,
     customAgentId,
     isPreset: true,
-    presetAgentType,
+    presetAgentType: resolvedPresetAgentType,
     presetResources: {
       rules: presetContext,
       enabledSkills,

@@ -9,6 +9,7 @@ import type { TChatConversation } from '@/common/config/storage';
 import { uuid } from '@/common/utils';
 import { emitter } from '@/renderer/utils/emitter';
 import { cleanupSiderTooltips } from '@/renderer/utils/ui/siderTooltip';
+import { getSelectedSpaceGuidState } from '@/renderer/utils/workspace/selectedSpace';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Dropdown, Menu, Message } from '@arco-design/web-react';
 import { Close, Plus } from '@icon-park/react';
@@ -221,7 +222,12 @@ const ConversationTabs: React.FC = () => {
       // 如果关闭的是当前 tab，导航将由 context 自动处理（切换到最后一个）
       // 如果没有 tab 了，导航到欢迎页
       if (openTabs.length === 1 && tabId === activeTabId) {
-        void navigate('/guid');
+        const state = getSelectedSpaceGuidState();
+        if (state) {
+          void navigate('/guid', { state });
+        } else {
+          void navigate('/guid');
+        }
       }
     },
     [closeTab, openTabs.length, activeTabId, navigate]
@@ -235,7 +241,12 @@ const ConversationTabs: React.FC = () => {
     const currentTab = openTabs.find((tab) => tab.id === activeTabId);
     if (!currentTab?.workspace) {
       isCreatingRef.current = false;
-      void navigate('/guid');
+      const state = getSelectedSpaceGuidState();
+      if (state) {
+        void navigate('/guid', { state });
+      } else {
+        void navigate('/guid');
+      }
       return;
     }
 
@@ -279,7 +290,14 @@ const ConversationTabs: React.FC = () => {
             switch (key) {
               case 'close-all':
                 closeAllTabs();
-                void navigate('/guid');
+                {
+                  const state = getSelectedSpaceGuidState();
+                  if (state) {
+                    void navigate('/guid', { state });
+                  } else {
+                    void navigate('/guid');
+                  }
+                }
                 break;
               case 'close-left':
                 closeTabsToLeft(tabId);

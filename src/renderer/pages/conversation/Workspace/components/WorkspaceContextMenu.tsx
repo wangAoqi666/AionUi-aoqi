@@ -16,9 +16,11 @@ type WorkspaceContextMenuProps = {
   t: TFunction;
   // File operation handlers
   handleOpenNode: (node: IDirOrFile) => Promise<void>;
+  handleOpenFolderWith: (node: IDirOrFile, tool: 'terminal' | 'explorer') => Promise<void>;
   handleRevealNode: (node: IDirOrFile) => Promise<void>;
   handlePreviewFile: (node: IDirOrFile) => Promise<void>;
   handleDownloadFile: (node: IDirOrFile) => Promise<void>;
+  handleAddToChat: (node: IDirOrFile) => void;
   handleDeleteNode: (node: IDirOrFile) => void;
   openRenameModal: (node: IDirOrFile) => void;
   closeContextMenu: () => void;
@@ -35,9 +37,11 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
   node,
   t,
   handleOpenNode,
+  handleOpenFolderWith,
   handleRevealNode,
   handlePreviewFile,
   handleDownloadFile,
+  handleAddToChat,
   handleDeleteNode,
   openRenameModal,
   closeContextMenu,
@@ -59,16 +63,41 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
       }}
     >
       <div className='flex flex-col gap-4px'>
-        <button
-          type='button'
-          className={MENU_BUTTON_BASE}
-          onClick={() => {
-            void handleOpenNode(node);
-            closeContextMenu();
-          }}
-        >
-          {t('conversation.workspace.contextMenu.open')}
-        </button>
+        {isFile ? (
+          <button
+            type='button'
+            className={MENU_BUTTON_BASE}
+            onClick={() => {
+              void handleOpenNode(node);
+              closeContextMenu();
+            }}
+          >
+            {t('conversation.workspace.contextMenu.open')}
+          </button>
+        ) : (
+          <>
+            <button
+              type='button'
+              className={MENU_BUTTON_BASE}
+              onClick={() => {
+                void handleOpenFolderWith(node, 'explorer');
+                closeContextMenu();
+              }}
+            >
+              {t('conversation.workspace.contextMenu.openFolder')}
+            </button>
+            <button
+              type='button'
+              className={MENU_BUTTON_BASE}
+              onClick={() => {
+                void handleOpenFolderWith(node, 'terminal');
+                closeContextMenu();
+              }}
+            >
+              {t('conversation.workspace.openWith.terminal')}
+            </button>
+          </>
+        )}
         {isFile && (
           <button
             type='button'
@@ -103,6 +132,15 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
             {t('conversation.workspace.contextMenu.download')}
           </button>
         )}
+        <button
+          type='button'
+          className={MENU_BUTTON_BASE}
+          onClick={() => {
+            handleAddToChat(node);
+          }}
+        >
+          {t('conversation.workspace.contextMenu.addToChat')}
+        </button>
         <div className='h-1px bg-3 my-2px'></div>
         <button
           type='button'

@@ -36,7 +36,7 @@ const GeminiChat: React.FC<{
 
   return (
     <ConversationProvider value={conversationValue}>
-      <div className='flex-1 flex flex-col px-20px min-h-0'>
+      <div className='flex-1 flex flex-col px-12px md:px-16px min-h-0'>
         <FlexFullContainer>
           <MessageList className='flex-1'></MessageList>
         </FlexFullContainer>

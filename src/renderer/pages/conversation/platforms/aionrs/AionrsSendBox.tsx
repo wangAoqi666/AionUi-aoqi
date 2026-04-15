@@ -299,7 +299,7 @@ const AionrsSendBox: React.FC<{
   };
 
   return (
-    <div className='max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
+    <div className='w-full flex flex-col mt-auto mb-8px'>
       <ThoughtDisplay thought={thought} running={running} onStop={handleStop} />
       <CommandQueuePanel
         items={queuedCommands}

@@ -65,8 +65,7 @@
 }
 
 .tool-summary-details {
-  padding-left: 18px;
-  padding-top: 8px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;

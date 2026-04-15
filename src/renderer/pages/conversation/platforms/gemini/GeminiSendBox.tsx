@@ -352,7 +352,7 @@ const GeminiSendBox: React.FC<{
   };
 
   return (
-    <div className='max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
+    <div className='w-full flex flex-col mt-auto mb-8px'>
       {/* Agent Setup Card - only show for new conversation + no auth, auto-switch to available agent */}
       {showSetupCard && isNewConversation && hasNoAuth && (
         <AgentSetupCard

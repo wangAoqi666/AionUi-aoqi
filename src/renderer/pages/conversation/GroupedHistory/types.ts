@@ -6,6 +6,17 @@
 
 import type { TChatConversation } from '@/common/config/storage';
 
+export type AgentSpaceType = 'temp' | 'folder';
+
+export type AgentSpace = {
+  id: string;
+  type: AgentSpaceType;
+  displayName: string;
+  workspacePath: string | null;
+  conversations: TChatConversation[];
+  lastActiveAt: number;
+};
+
 export type WorkspaceGroup = {
   workspace: string;
   displayName: string;

@@ -6,6 +6,7 @@
 
 import type { IMessageAcpPermission } from '@/common/chat/chatLib';
 import { conversation } from '@/common/adapter/ipcBridge';
+import MarkdownView from '@/renderer/components/Markdown';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +20,8 @@ interface MessageAcpPermissionProps {
 const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ message }) => {
   const { options = [], toolCall } = message.content || {};
   const { t } = useTranslation();
+  const specPlan = typeof toolCall?.rawInput?.plan === 'string' ? toolCall.rawInput.plan : undefined;
+  const isSpecReview = toolCall?.kind === 'exit_spec_mode' || Boolean(specPlan);
 
   // 基于实际数据生成显示信息
   const getToolInfo = () => {
@@ -39,6 +42,7 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
       read: '📖',
       fetch: '🌐',
       execute: '⚡',
+      exit_spec_mode: '📝',
     };
 
     return {
@@ -91,15 +95,19 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
           <span className='text-2xl'>{icon}</span>
           <Text className='block'>{title}</Text>
         </div>
-        {(toolCall.rawInput?.command || toolCall.title) && (
+        {specPlan ? (
+          <div className='rounded-8px border border-[var(--border-base)] bg-[var(--bg-2)] p-12px max-h-360px overflow-auto'>
+            <MarkdownView className='text-13px'>{specPlan}</MarkdownView>
+          </div>
+        ) : toolCall.rawInput?.command || toolCall.title ? (
           <div>
             <Text className='text-xs text-t-secondary mb-1'>{t('messages.command')}</Text>
             <code className='text-xs bg-1 p-2 rounded block text-t-primary break-all'>
               {toolCall.rawInput?.command || toolCall.title}
             </code>
           </div>
-        )}
-        {!hasResponded && (
+        ) : null}
+        {!isSpecReview && !hasResponded && (
           <>
             <div className='mt-10px'>{t('messages.chooseAction')}</div>
             <Radio.Group direction='vertical' size='mini' value={selected} onChange={setSelected}>

@@ -10,7 +10,7 @@ import type { WorkspaceEventPrefix } from '@/renderer/pages/conversation/Workspa
 import { Message } from '@arco-design/web-react';
 import React from 'react';
 
-const WORKSPACE_EVENT_PREFIX_BY_TYPE: Partial<Record<TChatConversation['type'], WorkspaceEventPrefix>> = {
+export const WORKSPACE_EVENT_PREFIX_BY_TYPE: Partial<Record<TChatConversation['type'], WorkspaceEventPrefix>> = {
   gemini: 'gemini',
   acp: 'acp',
   codex: 'codex',

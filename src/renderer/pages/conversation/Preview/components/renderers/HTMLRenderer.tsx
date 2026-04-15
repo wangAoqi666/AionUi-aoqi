@@ -6,7 +6,10 @@
 
 import { ipcBridge } from '@/common';
 import { useTypingAnimation } from '@/renderer/hooks/chat/useTypingAnimation';
+import { Refresh } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { usePreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
 import { useScrollSyncTarget } from '../../hooks/useScrollSyncHelpers';
 import { generateInspectScript } from './htmlInspectScript';
 
@@ -21,6 +24,7 @@ export interface InspectedElement {
 interface HTMLRendererProps {
   content: string;
   filePath?: string;
+  preferFileSource?: boolean;
   containerRef?: React.RefObject<HTMLDivElement>;
   onScroll?: (scrollTop: number, scrollHeight: number, clientHeight: number) => void;
   inspectMode?: boolean; // 是否开启检查模式 / Whether inspect mode is enabled
@@ -33,6 +37,19 @@ interface HTMLRendererProps {
 interface ElectronWebView extends HTMLElement {
   src: string;
   executeJavaScript: (code: string) => Promise<void>;
+}
+
+function getDirectoryPath(targetPath: string): string {
+  const separatorIndex = Math.max(targetPath.lastIndexOf('/'), targetPath.lastIndexOf('\\'));
+  return separatorIndex >= 0 ? targetPath.slice(0, separatorIndex + 1) : targetPath;
+}
+
+function toFileUrl(targetPath: string): string {
+  const normalized = targetPath.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+  return `file://${encodeURI(normalized)}`;
 }
 
 /**
@@ -183,12 +200,14 @@ async function inlineRelativeResources(html: string, basePath: string): Promise<
 const HTMLRenderer: React.FC<HTMLRendererProps> = ({
   content,
   filePath,
+  preferFileSource,
   containerRef,
   onScroll,
   inspectMode = false,
   copySuccessMessage,
   onElementSelected,
 }) => {
+  const { t } = useTranslation();
   const divRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<ElectronWebView | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -196,9 +215,11 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
   const isSyncingScrollRef = useRef(false); // 防止滚动同步循环 / Prevent scroll sync loops
   const [webviewContentHeight, setWebviewContentHeight] = useState(0); // webview 内容高度 / webview content height
   const [inlinedHtmlContent, setInlinedHtmlContent] = useState<string>(''); // 内联化后的 HTML（用于 browser iframe）/ Inlined HTML (for browser iframe)
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>(() => {
     return (document.documentElement.getAttribute('data-theme') as 'light' | 'dark') || 'light';
   });
+  const toolbarExtrasContext = usePreviewToolbarExtras();
 
   // 检测是否在 Electron 环境 / Detect if in Electron environment
   const isElectron = useMemo(() => typeof window !== 'undefined' && window.electronAPI !== undefined, []);
@@ -219,18 +240,6 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // 判断是否应该直接从文件加载（支持相对资源）- 仅 Electron 环境
-  // Determine if should load directly from file (supports relative resources) - Electron only
-  const shouldLoadFromFile = useMemo(() => {
-    if (!isElectron || !filePath) return false;
-    // 检查 HTML 是否引用了相对资源 / Check if HTML references relative resources
-    const hasRelativeResources =
-      /<link[^>]+href=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content) ||
-      /<script[^>]+src=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content) ||
-      /<img[^>]+src=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content);
-    return hasRelativeResources;
-  }, [content, filePath, isElectron]);
-
   // 检查是否有相对资源（用于 browser inline 处理）
   // Check if has relative resources (for browser inline processing)
   const hasRelativeResources = useMemo(() => {
@@ -240,6 +249,41 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
       /<img[^>]+src=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content)
     );
   }, [content]);
+
+  // 判断是否应该直接从文件加载（支持 fetch / worker / 相对资源等真实文件语义）- 仅 Electron 环境
+  // Determine if should load directly from file (preserves real file semantics like fetch/worker/relative assets) - Electron only
+  const shouldLoadFromFile = useMemo(() => {
+    if (!isElectron || !filePath) return false;
+    if (typeof preferFileSource === 'boolean') {
+      return preferFileSource;
+    }
+    return hasRelativeResources;
+  }, [filePath, hasRelativeResources, isElectron, preferFileSource]);
+
+  const refreshLabel = useMemo(() => t('common.refresh', { defaultValue: 'Refresh' }), [t]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshNonce((current) => current + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!toolbarExtrasContext) return;
+
+    toolbarExtrasContext.setExtras({
+      right: (
+        <div
+          className='flex items-center gap-2px px-8px py-3px rd-4px cursor-pointer transition-colors duration-150 text-12px font-medium text-t-secondary hover:text-t-primary hover:bg-bg-3'
+          onClick={handleRefresh}
+          title={refreshLabel}
+        >
+          <Refresh theme='outline' size='12' className='text-current' />
+          <span>{refreshLabel}</span>
+        </div>
+      ),
+    });
+
+    return () => toolbarExtrasContext.setExtras(null);
+  }, [handleRefresh, refreshLabel, toolbarExtrasContext]);
 
   // 流式打字动画：HTML 预览在使用 data URL 渲染时也能获得流式体验
   // Typing animation: provide streaming experience when rendering via data URL
@@ -303,10 +347,10 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
   // 计算 webview 的 src
   // Calculate webview src
   const webviewSrc = useMemo(() => {
-    // 如果有相对资源引用且有文件路径，直接用 file:// URL 加载
-    // If has relative resource references and has file path, load directly via file:// URL
+    // 当内容对应磁盘文件且当前没有未保存修改时，优先直接加载真实文件
+    // Prefer loading the real file when the preview is backed by disk content
     if (shouldLoadFromFile && filePath) {
-      return `file://${filePath}`;
+      return toFileUrl(filePath);
     }
 
     // 否则使用 data URL（适用于动态生成的 HTML 或没有外部资源的情况）
@@ -315,8 +359,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
 
     // 注入 base 标签支持相对路径 / Inject base tag for relative paths
     if (filePath) {
-      const fileDir = filePath.substring(0, filePath.lastIndexOf('/') + 1);
-      const baseUrl = `file://${fileDir}`;
+      const baseUrl = toFileUrl(getDirectoryPath(filePath));
 
       // 检查是否已有 base 标签 / Check if base tag exists
       if (!html.match(/<base\s+href=/i)) {
@@ -334,10 +377,16 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
     return `data:text/html;charset=utf-8,${encoded}`;
   }, [htmlContent, filePath, shouldLoadFromFile]);
 
+  const webviewInstanceKey = useMemo(() => `${webviewSrc}::${refreshNonce}`, [refreshNonce, webviewSrc]);
+
+  const iframeInstanceKey = useMemo(() => {
+    return `${filePath ?? 'html-preview'}::${refreshNonce}`;
+  }, [filePath, refreshNonce]);
+
   // 当 webviewSrc 改变时重置加载状态 / Reset loading state when webviewSrc changes
   useEffect(() => {
     webviewLoadedRef.current = false;
-  }, [webviewSrc]);
+  }, [webviewInstanceKey]);
 
   // 监听 webview 加载完成
   // 依赖 webviewSrc 确保 webview 重新挂载时重新添加监听器
@@ -361,7 +410,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
       webview.removeEventListener('did-finish-load', handleDidFinishLoad);
       webview.removeEventListener('did-fail-load', handleDidFailLoad);
     };
-  }, [webviewSrc]);
+  }, [webviewInstanceKey]);
 
   // 生成检查模式注入脚本 / Generate inspect mode injection script
   // 使用 useMemo 缓存，只在 inspectMode 改变时重新生成 / Use useMemo to cache, only regenerate when inspectMode changes
@@ -592,7 +641,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
           {/* webview 固定在容器顶部 / webview fixed at container top */}
           {/* key 确保内容改变时 webview 重新挂载 / key ensures webview remounts when content changes */}
           <webview
-            key={webviewSrc}
+            key={webviewInstanceKey}
             ref={webviewRef}
             src={webviewSrc}
             className='w-full border-0'
@@ -610,6 +659,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
         </>
       ) : (
         <iframe
+          key={iframeInstanceKey}
           ref={iframeRef}
           srcDoc={browserHtmlContent}
           className='w-full h-full border-0'

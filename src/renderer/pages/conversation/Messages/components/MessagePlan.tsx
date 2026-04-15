@@ -1,34 +1,42 @@
-import { Badge } from '@arco-design/web-react';
-import { IconCheckCircle, IconDown, IconRight } from '@arco-design/web-react/icon';
-import React, { useState } from 'react';
+import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { IMessagePlan } from '@/common/chat/chatLib';
 
-const MessagePlan: React.FC<{ message: IMessagePlan }> = ({ message }) => {
-  const [showMore, setShowMore] = useState(true);
+type TaskEntry = IMessagePlan['content']['entries'][number];
+
+type MessagePlanProps = {
+  message?: IMessagePlan;
+  entries?: TaskEntry[];
+  variant?: 'inline' | 'sticky';
+};
+
+const MessagePlan: React.FC<MessagePlanProps> = ({ message, entries: entriesProp, variant = 'inline' }) => {
+  const { t } = useTranslation();
+  const entries = entriesProp ?? message?.content.entries ?? [];
+  if (!entries.length) {
+    return null;
+  }
+
+  const completedCount = entries.filter((item) => item.status === 'completed').length;
+
   return (
-    <div>
-      <div className='flex items-center gap-10px color-#86909C cursor-pointer' onClick={() => setShowMore(!showMore)}>
-        <Badge status='default' text='To do list' className={'![&_span.arco-badge-status-text]:color-#86909C'}></Badge>
-        {showMore ? <IconDown /> : <IconRight />}
+    <div className={`message-plan message-plan--${variant}`}>
+      <div className='message-plan__header'>
+        <span className='message-plan__label'>{t('common.tasks')}</span>
+        <span className='message-plan__progress'>
+          {completedCount}/{entries.length}
+        </span>
       </div>
-      {showMore && (
-        <div className='p-l-20px flex flex-col gap-8px pt-8px'>
-          {message.content.entries.map((item, index) => {
-            return (
-              <div className='flex flex-row items-center color-#86909C gap-8px'>
-                {item.status === 'completed' ? (
-                  <IconCheckCircle fontSize={22} strokeWidth={4} className='flex color-#00B42A' />
-                ) : (
-                  <div className='size-22px flex items-center justify-center'>
-                    <div className='size-14px  rd-10px b-2px b-solid b-[rgba(201,205,212,1)]'></div>
-                  </div>
-                )}
-                <span>{item.content} </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className='message-plan__items'>
+        {entries.map((item, index) => {
+          return (
+            <div className={`message-plan__item message-plan__item--${item.status}`} key={`${item.content}-${index}`}>
+              <span className='message-plan__marker' aria-hidden='true'></span>
+              <span className='message-plan__text'>{item.content}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

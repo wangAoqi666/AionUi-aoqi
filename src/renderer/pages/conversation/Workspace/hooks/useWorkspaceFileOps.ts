@@ -46,7 +46,7 @@ interface UseWorkspaceFileOpsOptions {
   setDeleteModal: React.Dispatch<React.SetStateAction<DeleteModalState>>;
 
   // Dependencies from preview context
-  openPreview: (content: string, type: PreviewContentType, metadata?: any) => void;
+  openPreview: (content: string, type: PreviewContentType, metadata?: unknown) => void;
 }
 
 /**
@@ -87,7 +87,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
       if (!nodeData) return;
       try {
         await ipcBridge.shell.openFile.invoke(nodeData.fullPath);
-      } catch (error) {
+      } catch {
         messageApi.error(t('conversation.workspace.contextMenu.openFailed') || 'Failed to open');
       }
     },
@@ -103,8 +103,27 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
       if (!nodeData) return;
       try {
         await ipcBridge.shell.showItemInFolder.invoke(nodeData.fullPath);
-      } catch (error) {
+      } catch {
         messageApi.error(t('conversation.workspace.contextMenu.revealFailed') || 'Failed to reveal');
+      }
+    },
+    [messageApi, t]
+  );
+
+  /**
+   * 用指定工具打开文件夹
+   * Open folder with a specific tool
+   */
+  const handleOpenFolderWith = useCallback(
+    async (nodeData: IDirOrFile | null, tool: 'terminal' | 'explorer') => {
+      if (!nodeData || nodeData.isFile) return;
+      try {
+        await ipcBridge.shell.openFolderWith.invoke({
+          folderPath: nodeData.fullPath,
+          tool,
+        });
+      } catch {
+        messageApi.error(t('conversation.workspace.contextMenu.openFailed') || 'Failed to open');
       }
     },
     [messageApi, t]
@@ -115,9 +134,9 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
    * Show delete confirmation modal
    */
   const handleDeleteNode = useCallback(
-    (nodeData: IDirOrFile | null, options?: { emit?: boolean }) => {
+    (nodeData: IDirOrFile | null, actionOptions?: { emit?: boolean }) => {
       if (!nodeData || !nodeData.relativePath) return;
-      ensureNodeSelected(nodeData, { emit: Boolean(options?.emit) });
+      ensureNodeSelected(nodeData, { emit: Boolean(actionOptions?.emit) });
       closeContextMenu();
       setDeleteModal({ visible: true, target: nodeData, loading: false });
     },
@@ -147,7 +166,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
       emitter.emit(`${eventPrefix}.selected.file`, []);
       closeDeleteModal();
       setTimeout(() => refreshWorkspace(), 200);
-    } catch (error) {
+    } catch {
       messageApi.error(t('conversation.workspace.contextMenu.deleteFailed'));
       setDeleteModal((prev) => ({ ...prev, loading: false }));
     }
@@ -415,7 +434,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
           // Markdown and image files default to read-only mode
           editable: contentType === 'markdown' || contentType === 'image' || isLargeTextTruncated ? false : undefined,
         });
-      } catch (error) {
+      } catch {
         messageApi.error(t('conversation.workspace.contextMenu.previewFailed'));
       }
     },
@@ -448,7 +467,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
       try {
         await downloadFileFromPath(nodeData.fullPath, nodeData.name);
         messageApi.success(t('conversation.workspace.contextMenu.downloadSuccess'));
-      } catch (error) {
+      } catch {
         messageApi.error(t('conversation.workspace.contextMenu.downloadFailed'));
       }
     },
@@ -457,6 +476,7 @@ export function useWorkspaceFileOps(options: UseWorkspaceFileOpsOptions) {
 
   return {
     handleOpenNode,
+    handleOpenFolderWith,
     handleRevealNode,
     handleDeleteNode,
     handleDeleteConfirm,

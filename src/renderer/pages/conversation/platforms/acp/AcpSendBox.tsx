@@ -22,7 +22,7 @@ import { Shield } from '@icon-park/react';
 import { iconColors } from '@/renderer/styles/colors';
 import FileAttachButton from '@/renderer/components/media/FileAttachButton';
 import AcpConfigSelector from '@/renderer/components/agent/AcpConfigSelector';
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
@@ -97,7 +97,6 @@ const AcpSendBox: React.FC<{
     resetState,
     tokenUsage,
     contextLimit,
-    hasThinkingMessage,
   } = useAcpMessage(conversation_id);
   const { t } = useTranslation();
   const teamPermission = useTeamPermission();
@@ -107,6 +106,7 @@ const AcpSendBox: React.FC<{
   const slashCommands = useSlashCommands(conversation_id, { agentStatus: acpStatus });
   const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
   const { setSendBoxHandler } = usePreviewContext();
+  const [selectedMode, setSelectedMode] = useState(sessionMode || 'default');
 
   // Use useLatestRef to keep latest setters to avoid re-registering handler
   const setContentRef = useLatestRef(setContent);
@@ -123,6 +123,39 @@ const AcpSendBox: React.FC<{
     setUploadFile,
   });
   const isBusy = running || aiProcessing;
+
+  useEffect(() => {
+    setSelectedMode(sessionMode || 'default');
+  }, [sessionMode]);
+
+  const syncSelectedModeFromManager = useCallback(() => {
+    void ipcBridge.acpConversation.getMode
+      .invoke({ conversationId: conversation_id })
+      .then((result) => {
+        if (!result.success || !result.data) {
+          return;
+        }
+
+        if (result.data.initialized === false && sessionMode) {
+          return;
+        }
+
+        setSelectedMode(result.data.mode || 'default');
+      })
+      .catch(() => {});
+  }, [conversation_id, sessionMode]);
+
+  useEffect(() => {
+    syncSelectedModeFromManager();
+
+    return ipcBridge.conversation.listChanged.on((event) => {
+      if (event.conversationId !== conversation_id || event.action !== 'updated') {
+        return;
+      }
+
+      syncSelectedModeFromManager();
+    });
+  }, [conversation_id, syncSelectedModeFromManager]);
 
   // Register handler for adding text from preview panel to sendbox
   useEffect(() => {
@@ -159,6 +192,12 @@ const AcpSendBox: React.FC<{
       setAiProcessing(true);
 
       try {
+        const modeResult = await ipcBridge.acpConversation.setMode.invoke({
+          conversationId: conversation_id,
+          mode: selectedMode,
+        });
+        assertBridgeSuccess(modeResult, `Failed to set mode for ${backend}`);
+
         void checkAndUpdateTitle(conversation_id, input);
         if (teamId) {
           if (agentSlotId) {
@@ -222,7 +261,7 @@ Please check your local CLI tool authentication status`,
         emitter.emit('acp.workspace.refresh');
       }
     },
-    [agentSlotId, backend, checkAndUpdateTitle, conversation_id, setAiProcessing, t, teamId]
+    [agentSlotId, backend, checkAndUpdateTitle, conversation_id, selectedMode, setAiProcessing, t, teamId]
   );
 
   const {
@@ -268,6 +307,14 @@ Please check your local CLI tool authentication status`,
     },
     [setUploadFile]
   );
+
+  const handleModeChanged = useCallback(
+    (mode: string) => {
+      setSelectedMode(mode);
+      teamPermission?.propagateMode(mode);
+    },
+    [teamPermission]
+  );
   const { openFileSelector, onSlashBuiltinCommand } = useOpenFileSelector({
     onFilesSelected: appendSelectedFiles,
   });
@@ -302,8 +349,8 @@ Please check your local CLI tool authentication status`,
   };
 
   return (
-    <div className='max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
-      <ThoughtDisplay running={aiProcessing && !hasThinkingMessage} onStop={handleStop} />
+    <div className='w-full flex flex-col mt-auto mb-8px'>
+      <ThoughtDisplay running={running || aiProcessing} onStop={handleStop} />
       <CommandQueuePanel
         items={queuedCommands}
         paused={isQueuePaused}
@@ -344,12 +391,12 @@ Please check your local CLI tool authentication status`,
                 backend={backend}
                 conversationId={conversation_id}
                 compact
-                initialMode={sessionMode}
+                initialMode={selectedMode}
                 compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
                 modeLabelFormatter={(mode) => t(`agentMode.${mode.value}`, { defaultValue: mode.label })}
                 compactLabelPrefix={t('agentMode.permission')}
                 hideCompactLabelPrefixOnMobile
-                onModeChanged={teamPermission?.propagateMode}
+                onModeChanged={handleModeChanged}
               />
             )}
             <AcpConfigSelector
@@ -357,6 +404,7 @@ Please check your local CLI tool authentication status`,
               backend={backend}
               compact={!!teamId}
               initialConfigOptions={cachedConfigOptions}
+              selectedMode={selectedMode}
             />
           </div>
         }

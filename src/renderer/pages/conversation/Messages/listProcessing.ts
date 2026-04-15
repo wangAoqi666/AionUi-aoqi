@@ -6,6 +6,7 @@
 
 import type {
   IMessageAcpToolCall,
+  IMessagePlan,
   IMessageText,
   IMessageThinking,
   IMessageToolGroup,
@@ -31,12 +32,13 @@ export type ToolSummaryItem = {
   sourceMessageIds: string[];
 };
 
-export type AssistantActivityItem = IMessageThinking | ToolSummaryItem;
+export type AssistantActivityItem = IMessageThinking | ToolSummaryItem | FileSummaryItem;
 
 export type AssistantTurnItem = {
   type: 'assistant_turn';
   id: string;
   message: IMessageText;
+  messageMsgIds: string[];
   activities: AssistantActivityItem[];
   sourceMessageIds: string[];
 };
@@ -48,17 +50,135 @@ export type ActivityGroupItem = {
   sourceMessageIds: string[];
 };
 
+export type TaskBoardEntry = IMessagePlan['content']['entries'][number];
+
+export type ActiveTaskBoard = {
+  entries: TaskBoardEntry[];
+  source: 'plan' | 'todo_write';
+  sourceMessageId: string;
+  completedCount: number;
+  totalCount: number;
+};
+
 type BaseProcessedItem = TMessage | FileSummaryItem | ToolSummaryItem;
 
 export type ProcessedMessageItem = BaseProcessedItem | AssistantTurnItem | ActivityGroupItem;
 
+const TODO_WRITE_ENTRY_PATTERN = /^\s*(?:(?:\d+\.|[-*])\s*)?\[(pending|in_progress|completed)\]\s+(.+?)\s*$/;
+
 const isActivityItem = (item: BaseProcessedItem): item is AssistantActivityItem =>
-  item.type === 'thinking' || item.type === 'tool_summary';
+  item.type === 'thinking' || item.type === 'tool_summary' || item.type === 'file_summary';
 
 const isAssistantTextMessage = (item: BaseProcessedItem): item is IMessageText =>
   item.type === 'text' && item.position === 'left' && item.content.teammateMessage !== true;
 
 const uniqueIds = (sourceMessageIds: string[]): string[] => [...new Set(sourceMessageIds.filter(Boolean))];
+
+const appendAssistantTextContent = (current: string, next: string): string => {
+  const previousContent = current;
+  const nextContent = next;
+
+  if (!previousContent) {
+    return nextContent;
+  }
+
+  if (!nextContent) {
+    return previousContent;
+  }
+
+  if (previousContent.endsWith('\n') || nextContent.startsWith('\n')) {
+    return `${previousContent}${nextContent}`;
+  }
+
+  return `${previousContent}\n\n${nextContent}`;
+};
+
+const mergeAssistantTextMessages = (messages: IMessageText[]): { message: IMessageText; messageMsgIds: string[] } => {
+  const [firstMessage, ...restMessages] = messages;
+
+  if (!firstMessage) {
+    throw new Error('Expected at least one assistant text message');
+  }
+
+  const mergedContent = restMessages.reduce(
+    (combined, current) => appendAssistantTextContent(combined, current.content.content),
+    firstMessage.content.content
+  );
+  const lastMessage = restMessages.at(-1) ?? firstMessage;
+
+  return {
+    message: {
+      ...firstMessage,
+      createdAt: lastMessage.createdAt ?? firstMessage.createdAt,
+      content: {
+        ...firstMessage.content,
+        content: mergedContent,
+      },
+    },
+    messageMsgIds: uniqueIds(messages.map((message) => message.msg_id || '')),
+  };
+};
+
+const normalizeTaskEntries = (entries: TaskBoardEntry[]): TaskBoardEntry[] =>
+  entries
+    .map((entry) => ({
+      ...entry,
+      content: entry.content.trim(),
+    }))
+    .filter((entry) => entry.content.length > 0);
+
+const parseTodoWriteEntries = (todos: string): TaskBoardEntry[] =>
+  todos
+    .split('\n')
+    .map((line) => line.trim())
+    .map((line) => line.match(TODO_WRITE_ENTRY_PATTERN))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => ({
+      content: match[2].trim(),
+      status: match[1] as TaskBoardEntry['status'],
+    }));
+
+const hasActiveTaskEntries = (entries: TaskBoardEntry[]): boolean =>
+  entries.some((entry) => entry.status !== 'completed');
+
+const createTaskBoard = (
+  entries: TaskBoardEntry[],
+  source: ActiveTaskBoard['source'],
+  sourceMessageId: string
+): ActiveTaskBoard | null => {
+  const normalizedEntries = normalizeTaskEntries(entries);
+  if (!hasActiveTaskEntries(normalizedEntries)) {
+    return null;
+  }
+
+  return {
+    entries: normalizedEntries,
+    source,
+    sourceMessageId,
+    completedCount: normalizedEntries.filter((entry) => entry.status === 'completed').length,
+    totalCount: normalizedEntries.length,
+  };
+};
+
+const getCurrentTurnStartIndex = (list: TMessage[]): number => {
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    if (item.type === 'text' && item.position === 'right' && item.hidden !== true) {
+      return index + 1;
+    }
+  }
+
+  return 0;
+};
+
+const getTodoWriteBoard = (message: IMessageAcpToolCall): ActiveTaskBoard | null | undefined => {
+  const todos = message.content.update.rawInput?.todos;
+  if (typeof todos !== 'string') {
+    return undefined;
+  }
+
+  return createTaskBoard(parseTodoWriteEntries(todos), 'todo_write', message.id);
+};
 
 const buildBaseProcessedList = (list: TMessage[]): BaseProcessedItem[] => {
   const result: BaseProcessedItem[] = [];
@@ -147,17 +267,37 @@ export const buildProcessedMessageList = (list: TMessage[]): ProcessedMessageIte
   const baseList = buildBaseProcessedList(list);
   const result: ProcessedMessageItem[] = [];
   let pendingActivities: AssistantActivityItem[] = [];
+  let pendingTexts: IMessageText[] = [];
   let pendingSourceMessageIds: string[] = [];
 
-  const flushPendingActivities = () => {
-    if (!pendingActivities.length) return;
-    result.push({
-      type: 'activity_group',
-      id: `activity-${pendingSourceMessageIds[0] || uuid()}`,
-      activities: pendingActivities,
-      sourceMessageIds: uniqueIds(pendingSourceMessageIds),
-    });
+  const flushPendingAssistantItems = () => {
+    if (!pendingActivities.length && !pendingTexts.length) return;
+
+    const sourceMessageIds = uniqueIds(pendingSourceMessageIds);
+
+    if (!pendingActivities.length) {
+      result.push(...pendingTexts);
+    } else if (!pendingTexts.length) {
+      result.push({
+        type: 'activity_group',
+        id: `activity-${sourceMessageIds[0] || uuid()}`,
+        activities: pendingActivities,
+        sourceMessageIds,
+      });
+    } else {
+      const { message, messageMsgIds } = mergeAssistantTextMessages(pendingTexts);
+      result.push({
+        type: 'assistant_turn',
+        id: `assistant-turn-${sourceMessageIds[0] || message.id}`,
+        message,
+        messageMsgIds,
+        activities: pendingActivities,
+        sourceMessageIds,
+      });
+    }
+
     pendingActivities = [];
+    pendingTexts = [];
     pendingSourceMessageIds = [];
   };
 
@@ -168,26 +308,59 @@ export const buildProcessedMessageList = (list: TMessage[]): ProcessedMessageIte
       continue;
     }
 
-    if (isAssistantTextMessage(item) && pendingActivities.length > 0) {
-      result.push({
-        type: 'assistant_turn',
-        id: `assistant-turn-${pendingSourceMessageIds[0] || item.id}`,
-        message: item,
-        activities: pendingActivities,
-        sourceMessageIds: uniqueIds([...pendingSourceMessageIds, item.id]),
-      });
-      pendingActivities = [];
-      pendingSourceMessageIds = [];
+    if (isAssistantTextMessage(item)) {
+      pendingTexts.push(item);
+      pendingSourceMessageIds.push(item.id);
       continue;
     }
 
-    flushPendingActivities();
+    flushPendingAssistantItems();
     result.push(item);
   }
 
-  flushPendingActivities();
+  flushPendingAssistantItems();
 
   return result;
+};
+
+export const getActiveTaskBoard = (list: TMessage[]): ActiveTaskBoard | null => {
+  const turnStartIndex = getCurrentTurnStartIndex(list);
+
+  for (let index = list.length - 1; index >= turnStartIndex; index -= 1) {
+    const item = list[index];
+    if (item.hidden) {
+      continue;
+    }
+
+    if (item.type === 'plan') {
+      return createTaskBoard(item.content.entries, 'plan', item.id);
+    }
+
+    if (item.type === 'acp_tool_call') {
+      const taskBoard = getTodoWriteBoard(item);
+      if (taskBoard !== undefined) {
+        return taskBoard;
+      }
+    }
+  }
+
+  return null;
+};
+
+export const getCurrentTurnPlanMessageIds = (list: TMessage[]): Set<string> => {
+  const turnStartIndex = getCurrentTurnStartIndex(list);
+  const planMessageIds = new Set<string>();
+
+  for (let index = turnStartIndex; index < list.length; index += 1) {
+    const item = list[index];
+    if (item.hidden || item.type !== 'plan') {
+      continue;
+    }
+
+    planMessageIds.add(item.id);
+  }
+
+  return planMessageIds;
 };
 
 export const getProcessedItemSourceMessageIds = (item: ProcessedMessageItem): string[] => {
@@ -207,25 +380,25 @@ export const getProcessedItemSourceMessageIds = (item: ProcessedMessageItem): st
 export const getProcessedItemMsgIds = (item: ProcessedMessageItem): string[] => {
   const collectIds = (ids: Array<string | undefined>): string[] =>
     uniqueIds(ids.filter((value): value is string => Boolean(value)));
+  const collectActivityMsgIds = (activity: AssistantActivityItem): string[] => {
+    if (activity.type === 'thinking') {
+      return collectIds([activity.msg_id]);
+    }
+    if (activity.type === 'tool_summary') {
+      return collectIds(activity.messages.map((message) => message.msg_id));
+    }
+    return [];
+  };
 
   if ('type' in item) {
     if (item.type === 'tool_summary') {
       return collectIds(item.messages.map((message) => message.msg_id));
     }
     if (item.type === 'assistant_turn') {
-      return collectIds([
-        item.message.msg_id,
-        ...item.activities.flatMap((activity) =>
-          activity.type === 'thinking' ? [activity.msg_id] : activity.messages.map((message) => message.msg_id)
-        ),
-      ]);
+      return collectIds([...item.messageMsgIds, ...item.activities.flatMap(collectActivityMsgIds)]);
     }
     if (item.type === 'activity_group') {
-      return collectIds(
-        item.activities.flatMap((activity) =>
-          activity.type === 'thinking' ? [activity.msg_id] : activity.messages.map((message) => message.msg_id)
-        )
-      );
+      return collectIds(item.activities.flatMap(collectActivityMsgIds));
     }
     if (item.type === 'file_summary') {
       return [];
