@@ -18,7 +18,7 @@
  * 预设助手的主 Agent 类型，用于决定创建哪种类型的对话
  * The primary agent type for preset assistants, used to determine which conversation type to create.
  */
-export type PresetAgentType = 'gemini' | 'claude' | 'codex' | 'codebuddy' | 'opencode' | 'qwen' | 'kiro';
+export type PresetAgentType = 'gemini' | 'claude' | 'codex' | 'codebuddy' | 'droid' | 'opencode' | 'qwen' | 'kiro';
 
 /**
  * 使用 ACP 协议的预设 Agent 类型（需要通过 ACP 后端路由）
@@ -30,6 +30,7 @@ export type PresetAgentType = 'gemini' | 'claude' | 'codex' | 'codebuddy' | 'ope
 export const ACP_ROUTED_PRESET_TYPES: readonly PresetAgentType[] = [
   'claude',
   'codebuddy',
+  'droid',
   'opencode',
   'codex',
   'qwen',
@@ -287,6 +288,7 @@ export interface AcpBackendConfig {
    * 决定选择此预设时创建哪种类型的对话
    * - 'gemini': 创建 Gemini 对话
    * - 'claude': 创建使用 Claude 后端的 ACP 对话
+   * - 'droid': 创建使用 Factory Droid 后端的 ACP 对话
    * - 'codex': 创建 Codex 对话
    * - 任意字符串: 扩展贡献的 ACP 适配器 ID（如 'ext-buddy'）
    * 为向后兼容默认为 'gemini'
@@ -295,6 +297,7 @@ export interface AcpBackendConfig {
    * Determines which conversation type to create when selecting this preset.
    * - 'gemini': Creates a Gemini conversation
    * - 'claude': Creates an ACP conversation with Claude backend
+   * - 'droid': Creates an ACP conversation with Factory Droid backend
    * - 'codex': Creates a Codex conversation
    * - any string: Extension-contributed ACP adapter ID (e.g. 'ext-buddy')
    * Defaults to 'gemini' for backward compatibility.
@@ -873,6 +876,28 @@ export interface AcpModelInfo {
   /** Config option ID (only when source is 'configOption') */
   configOptionId?: string;
 }
+
+export type DroidLoginStatus = 'authenticated' | 'unauthenticated' | 'unavailable' | 'error';
+
+export type DroidStatusInfo = {
+  available: boolean;
+  loginStatus: DroidLoginStatus;
+  cliSource: 'bundled' | 'custom' | 'system';
+  cliPath: string | null;
+  cliVersion: string | null;
+  sdkVersion: string;
+  protocolVersion: string;
+  modelCount: number;
+  error?: string;
+};
+
+export type DroidCliUpdateInfo = {
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  source: 'bundled' | 'custom' | 'system';
+  registry: string | null;
+};
 
 // 所有会话更新的联合类型 / Union type for all session updates
 export type AcpSessionUpdate =

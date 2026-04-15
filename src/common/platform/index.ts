@@ -1,6 +1,7 @@
 import path from 'path';
 import type { IPlatformServices } from './IPlatformServices';
 import { NodePlatformServices } from './NodePlatformServices';
+import { getDefaultLogDir } from '@/common/config/appPathConfig';
 
 let _services: IPlatformServices | null = null;
 
@@ -50,13 +51,7 @@ export function getPlatformServices(): IPlatformServices {
           getDataDir: () => app.getPath('userData'),
           getTempDir: () => app.getPath('temp'),
           getHomeDir: () => app.getPath('home'),
-          getLogsDir: () => {
-            try {
-              return app.getPath('logs');
-            } catch {
-              return path.join(app.getPath('userData'), 'logs');
-            }
-          },
+          getLogsDir: () => getDefaultLogDir(app.getPath('home'), app.isPackaged),
           getAppPath: () => app.getAppPath(),
           isPackaged: () => app.isPackaged,
           getSystemPath: (name) => app.getPath(name),

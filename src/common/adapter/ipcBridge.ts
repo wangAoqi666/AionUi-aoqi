@@ -8,7 +8,15 @@ import type { IConfirmation } from '@/common/chat/chatLib';
 import { bridge } from '@office-ai/platform';
 import type { OpenDialogOptions } from 'electron';
 import type { McpSource } from '../../process/services/mcpServices/McpProtocol';
-import type { AcpBackend, AcpBackendAll, AcpModelInfo, PresetAgentType } from '../types/acpTypes';
+import type { FactoryModel } from '../config/factoryModels';
+import type {
+  AcpBackend,
+  AcpBackendAll,
+  AcpModelInfo,
+  DroidCliUpdateInfo,
+  DroidStatusInfo,
+  PresetAgentType,
+} from '../types/acpTypes';
 import type { SlashCommandItem } from '../chat/slash/types';
 import type { IMcpServer, IProvider, TChatConversation, TProviderWithModel, ICssTheme } from '../config/storage';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/preview';
@@ -22,6 +30,23 @@ import type {
 } from '../update/updateTypes';
 import type { ProtocolDetectionRequest, ProtocolDetectionResponse } from '../utils/protocolDetector';
 import type { SpeechToTextRequest, SpeechToTextResult } from '../types/speech';
+
+export type DroidByokModelProvider = 'anthropic';
+
+export interface IDroidByokModelConfigInput {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  displayName?: string;
+  existingId?: string;
+}
+
+export interface IDroidByokModelConfig extends Omit<IDroidByokModelConfigInput, 'existingId'> {
+  id: string;
+  displayName: string;
+  provider: DroidByokModelProvider;
+  maxOutputTokens: number;
+}
 
 export const shell = {
   openFile: bridge.buildProvider<void, string>('open-file'), // 使用系统默认程序打开文件
@@ -146,6 +171,7 @@ export const application = {
   restart: bridge.buildProvider<void, void>('restart-app'), // 重启应用
   openDevTools: bridge.buildProvider<boolean, void>('open-dev-tools'), // 打开/关闭开发者工具，返回操作后的状态
   isDevToolsOpened: bridge.buildProvider<boolean, void>('is-dev-tools-opened'), // 获取 DevTools 当前状态
+  getVersion: bridge.buildProvider<string, void>('app.get-version'),
   systemInfo: bridge.buildProvider<
     { cacheDir: string; workDir: string; logDir: string; platform: string; arch: string },
     void
@@ -236,6 +262,8 @@ export const fs = {
   >('create-zip-file'), // 创建 zip 文件
   cancelZip: bridge.buildProvider<boolean, { requestId: string }>('cancel-zip-file'), // 取消 zip 创建任务
   getFileMetadata: bridge.buildProvider<IFileMetadata, { path: string }>('get-file-metadata'), // 获取文件元数据
+  getFactoryGlobalPaths: bridge.buildProvider<IFactoryGlobalPaths, void>('factory.get-global-paths'),
+  listFactoryRuleFiles: bridge.buildProvider<IFactoryRuleFile[], void>('factory.list-rule-files'),
   copyFilesToWorkspace: bridge.buildProvider<
     // 返回成功与部分失败的详细状态，便于前端提示用户 / Return details for successful and failed copies for better UI feedback
     IBridgeResponse<{ copiedFiles: string[]; failedFiles?: Array<{ path: string; error: string }> }>,
@@ -481,6 +509,25 @@ export const acpConversation = {
   getModelInfo: bridge.buildProvider<IBridgeResponse<{ modelInfo: AcpModelInfo | null }>, { conversationId: string }>(
     'acp.get-model-info'
   ),
+  // Get the current Factory Droid model catalog from the main process, optionally forcing a fresh CLI probe
+  // 从主进程获取 Factory Droid 模型目录，可选强制重新通过 CLI 刷新
+  getDroidModelCatalog: bridge.buildProvider<IBridgeResponse<{ catalog: FactoryModel[] }>, { refresh?: boolean }>(
+    'acp.get-droid-model-catalog'
+  ),
+  getDroidStatus: bridge.buildProvider<IBridgeResponse<DroidStatusInfo>, void>('acp.get-droid-status'),
+  checkDroidCliUpdate: bridge.buildProvider<IBridgeResponse<DroidCliUpdateInfo>, void>('acp.check-droid-cli-update'),
+  getDroidByokConfig: bridge.buildProvider<IBridgeResponse<{ configs: IDroidByokModelConfig[] }>, void>(
+    'acp.get-droid-byok-config'
+  ),
+  testDroidByokConfig: bridge.buildProvider<
+    IBridgeResponse<{ config: IDroidByokModelConfig }>,
+    IDroidByokModelConfigInput
+  >('acp.test-droid-byok-config'),
+  saveDroidByokConfig: bridge.buildProvider<
+    IBridgeResponse<{ config: IDroidByokModelConfig }>,
+    IDroidByokModelConfigInput
+  >('acp.save-droid-byok-config'),
+  removeDroidByokConfig: bridge.buildProvider<IBridgeResponse, { id: string }>('acp.remove-droid-byok-config'),
   // Probe model info for an ACP backend without creating a visible conversation
   // 预探测 ACP 后端的模型信息，不创建可见会话
   probeModelInfo: bridge.buildProvider<IBridgeResponse<{ modelInfo: AcpModelInfo | null }>, { backend: AcpBackend }>(
@@ -947,6 +994,7 @@ export interface ICreateConversationParams {
     /** Team ownership — conversations with teamId are hidden from the sidebar */
     teamId?: string;
   };
+  channelPluginId?: string;
 }
 interface IResetConversationParams {
   id?: string;
@@ -973,6 +1021,20 @@ export interface IFileMetadata {
   type: string;
   lastModified: number;
   isDirectory?: boolean;
+}
+
+export interface IFactoryGlobalPaths {
+  platform: string;
+  factoryRootDir: string;
+  skillsDir: string;
+  rulesDir: string;
+  memoriesFile: string;
+  agentsFile: string;
+}
+
+export interface IFactoryRuleFile {
+  name: string;
+  path: string;
 }
 
 export interface IResponseMessage {
@@ -1182,6 +1244,9 @@ import type {
 export const channel = {
   // Plugin Management
   getPluginStatus: bridge.buildProvider<IBridgeResponse<IChannelPluginStatus[]>, void>('channel.get-plugin-status'),
+  createPluginInstance: bridge.buildProvider<IBridgeResponse<{ pluginId?: string }>, { platform: string }>(
+    'channel.create-plugin-instance'
+  ),
   enablePlugin: bridge.buildProvider<IBridgeResponse, { pluginId: string; config: Record<string, unknown> }>(
     'channel.enable-plugin'
   ),
@@ -1210,6 +1275,7 @@ export const channel = {
     IBridgeResponse,
     {
       platform: string;
+      pluginId?: string;
       agent: { backend: string; customAgentId?: string; name?: string };
       model?: { id: string; useModel: string };
     }

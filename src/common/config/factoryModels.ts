@@ -13,10 +13,18 @@ export type FactoryModel = {
   name: string;
   reasoningLevels: ReasoningLevel[];
   defaultReasoning: ReasoningLevel;
+  modelProvider?: string;
+  sourceModelId?: string;
+  isCustom?: boolean;
   deprecated?: boolean;
 };
 
 export const FACTORY_REASONING_CONFIG_ID = 'reasoning_effort';
+export const FACTORY_SPEC_MODEL_CONFIG_ID = 'spec_mode_model';
+export const FACTORY_SPEC_REASONING_CONFIG_ID = 'spec_mode_reasoning_effort';
+export const FACTORY_SPEC_MODEL_USE_MAIN_VALUE = '__use_main_model__';
+
+type FactoryModelProvider = 'anthropic' | 'openai' | 'google' | 'factory' | 'other';
 
 const REASONING_LABELS: Record<ReasoningLevel, string> = {
   off: 'Off',
@@ -126,24 +134,137 @@ export const FACTORY_MODELS: FactoryModel[] = [
 ];
 
 export const FACTORY_DEFAULT_MODEL_ID = 'claude-opus-4-6';
+let droidModelCatalog: FactoryModel[] = FACTORY_MODELS;
+const droidModelCatalogListeners = new Set<() => void>();
 
-function getFactoryModelOrDefault(id?: string | null): FactoryModel {
-  return getFactoryModelById(id || '') || FACTORY_MODELS.find((model) => model.id === FACTORY_DEFAULT_MODEL_ID)!;
+function areFactoryCatalogsEqual(left: FactoryModel[], right: FactoryModel[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
-export function getFactoryDroidModelInfo(currentModelId: string = FACTORY_DEFAULT_MODEL_ID): AcpModelInfo {
+function emitDroidModelCatalogChange(): void {
+  droidModelCatalogListeners.forEach((listener) => listener());
+}
+
+function isReasoningLevel(value: string): value is ReasoningLevel {
+  return Object.prototype.hasOwnProperty.call(REASONING_LABELS, value);
+}
+
+function normalizeFactoryModel(model: FactoryModel | null | undefined): FactoryModel | null {
+  if (!model?.id || !model.name) {
+    return null;
+  }
+
+  const reasoningLevels: ReasoningLevel[] = Array.from(new Set(model.reasoningLevels.filter(isReasoningLevel)));
+  const normalizedReasoningLevels: ReasoningLevel[] = reasoningLevels.length > 0 ? reasoningLevels : ['none'];
+  const defaultReasoning = normalizedReasoningLevels.includes(model.defaultReasoning)
+    ? model.defaultReasoning
+    : normalizedReasoningLevels[0];
+
+  return {
+    ...model,
+    modelProvider: typeof model.modelProvider === 'string' ? model.modelProvider : undefined,
+    sourceModelId: typeof model.sourceModelId === 'string' ? model.sourceModelId : undefined,
+    isCustom: model.isCustom === true,
+    reasoningLevels: normalizedReasoningLevels,
+    defaultReasoning,
+  };
+}
+
+function getActiveFactoryCatalog(): FactoryModel[] {
+  return droidModelCatalog.length > 0 ? droidModelCatalog : FACTORY_MODELS;
+}
+
+export function getFactoryModels(): FactoryModel[] {
+  return getActiveFactoryCatalog();
+}
+
+export function subscribeFactoryModelCatalog(listener: () => void): () => void {
+  droidModelCatalogListeners.add(listener);
+  return () => {
+    droidModelCatalogListeners.delete(listener);
+  };
+}
+
+export function setDroidModelCatalog(models?: FactoryModel[] | null): FactoryModel[] {
+  const previousCatalog = getActiveFactoryCatalog();
+  const nextCatalog = (models || [])
+    .map((model) => normalizeFactoryModel(model))
+    .filter((model): model is FactoryModel => Boolean(model));
+
+  droidModelCatalog = nextCatalog.length > 0 ? nextCatalog : FACTORY_MODELS;
+  const activeCatalog = getActiveFactoryCatalog();
+
+  if (!areFactoryCatalogsEqual(previousCatalog, activeCatalog)) {
+    emitDroidModelCatalogChange();
+  }
+
+  return activeCatalog;
+}
+
+export function resetDroidModelCatalog(): void {
+  const previousCatalog = getActiveFactoryCatalog();
+  droidModelCatalog = FACTORY_MODELS;
+  if (!areFactoryCatalogsEqual(previousCatalog, FACTORY_MODELS)) {
+    emitDroidModelCatalogChange();
+  }
+}
+
+export function getFactoryDefaultModelId(): string {
+  const models = getActiveFactoryCatalog();
+  return (
+    models.find((model) => !model.deprecated && model.id === FACTORY_DEFAULT_MODEL_ID)?.id ||
+    models.find((model) => !model.deprecated)?.id ||
+    FACTORY_DEFAULT_MODEL_ID
+  );
+}
+
+function getFactoryModelOrDefault(id?: string | null): FactoryModel {
+  const models = getActiveFactoryCatalog();
+  return getFactoryModelById(id || '') || models.find((model) => model.id === getFactoryDefaultModelId()) || models[0]!;
+}
+
+function getFactoryModelProvider(modelId?: string | null): FactoryModelProvider {
+  if (!modelId) return 'other';
+
+  const catalogModel = getFactoryModelById(modelId);
+  const explicitProvider = catalogModel?.modelProvider;
+  if (explicitProvider === 'anthropic' || explicitProvider === 'openai' || explicitProvider === 'google') {
+    return explicitProvider;
+  }
+  if (explicitProvider === 'factory') {
+    return 'factory';
+  }
+
+  const candidateId = catalogModel?.sourceModelId || modelId;
+  if (candidateId.startsWith('claude-')) return 'anthropic';
+  if (candidateId.startsWith('gpt-')) return 'openai';
+  if (candidateId.startsWith('gemini-')) return 'google';
+  if (candidateId.startsWith('glm-') || candidateId.startsWith('kimi-') || candidateId.startsWith('minimax-')) {
+    return 'factory';
+  }
+  return 'other';
+}
+
+export function isFactoryCustomModel(modelId?: string | null): boolean {
+  if (!modelId) return false;
+  return getFactoryModelById(modelId)?.isCustom === true;
+}
+
+export function getFactoryDroidModelInfo(currentModelId: string = getFactoryDefaultModelId()): AcpModelInfo {
   const currentModel = getFactoryModelOrDefault(currentModelId);
   return {
     currentModelId: currentModel.id,
     currentModelLabel: currentModel.name,
-    availableModels: FACTORY_MODELS.filter((m) => !m.deprecated).map((m) => ({ id: m.id, label: m.name })),
+    availableModels: getActiveFactoryCatalog()
+      .filter((m) => !m.deprecated)
+      .map((m) => ({ id: m.id, label: m.name })),
     canSwitch: true,
     source: 'models',
   };
 }
 
 export function getFactoryModelById(id: string): FactoryModel | undefined {
-  return FACTORY_MODELS.find((m) => m.id === id);
+  return getActiveFactoryCatalog().find((m) => m.id === id);
 }
 
 export function getFactoryReasoningLabel(level: ReasoningLevel): string {
@@ -156,6 +277,46 @@ export function resolveFactoryReasoning(modelId?: string | null, requested?: str
     return requested as ReasoningLevel;
   }
   return model.defaultReasoning;
+}
+
+export function isFactorySpecModelCompatible(
+  mainModelId?: string | null,
+  mainReasoning?: string | null,
+  specModelId?: string | null
+): boolean {
+  if (!specModelId) return false;
+
+  const mainProvider = getFactoryModelProvider(mainModelId);
+  const specProvider = getFactoryModelProvider(specModelId);
+  const resolvedMainReasoning = resolveFactoryReasoning(mainModelId, mainReasoning);
+
+  if (mainProvider === 'openai') {
+    return specProvider === 'openai';
+  }
+
+  if (mainProvider === 'anthropic' && resolvedMainReasoning !== 'off') {
+    return specProvider === 'anthropic';
+  }
+
+  return specProvider !== 'openai';
+}
+
+export function resolveFactorySpecModel(
+  mainModelId?: string | null,
+  mainReasoning?: string | null,
+  requestedSpecModelId?: string | null
+): string | null {
+  if (!requestedSpecModelId) return null;
+  return isFactorySpecModelCompatible(mainModelId, mainReasoning, requestedSpecModelId) ? requestedSpecModelId : null;
+}
+
+export function getCompatibleFactorySpecModels(
+  mainModelId?: string | null,
+  mainReasoning?: string | null
+): FactoryModel[] {
+  return getActiveFactoryCatalog().filter(
+    (model) => !model.deprecated && isFactorySpecModelCompatible(mainModelId, mainReasoning, model.id)
+  );
 }
 
 export function buildFactoryReasoningConfigOption(
@@ -176,4 +337,74 @@ export function buildFactoryReasoningConfigOption(
       name: getFactoryReasoningLabel(level),
     })),
   };
+}
+
+export function buildFactorySpecModelConfigOption(
+  mainModelId?: string | null,
+  mainReasoning?: string | null,
+  currentValue?: string | null
+): AcpSessionConfigOption {
+  const model = getFactoryModelOrDefault(mainModelId);
+  const compatibleModels = getCompatibleFactorySpecModels(model.id, mainReasoning);
+  const resolvedSpecModelId = resolveFactorySpecModel(model.id, mainReasoning, currentValue);
+
+  return {
+    id: FACTORY_SPEC_MODEL_CONFIG_ID,
+    name: 'Spec Model',
+    category: 'spec-model',
+    type: 'select',
+    currentValue: resolvedSpecModelId || FACTORY_SPEC_MODEL_USE_MAIN_VALUE,
+    selectedValue: resolvedSpecModelId || FACTORY_SPEC_MODEL_USE_MAIN_VALUE,
+    options: [
+      {
+        value: FACTORY_SPEC_MODEL_USE_MAIN_VALUE,
+        name: `Use main model (${model.name})`,
+      },
+      ...compatibleModels.map((item) => ({
+        value: item.id,
+        name: item.name,
+      })),
+    ],
+  };
+}
+
+export function buildFactorySpecReasoningConfigOption(
+  specModelId?: string | null,
+  currentValue?: string | null
+): AcpSessionConfigOption | null {
+  if (!specModelId) return null;
+
+  const model = getFactoryModelOrDefault(specModelId);
+  const resolvedValue = resolveFactoryReasoning(model.id, currentValue);
+
+  return {
+    id: FACTORY_SPEC_REASONING_CONFIG_ID,
+    name: 'Spec Reasoning',
+    category: 'spec-reasoning',
+    type: 'select',
+    currentValue: resolvedValue,
+    selectedValue: resolvedValue,
+    options: model.reasoningLevels.map((level) => ({
+      value: level,
+      name: getFactoryReasoningLabel(level),
+    })),
+  };
+}
+
+export function buildFactoryDroidConfigOptions(params: {
+  mainModelId?: string | null;
+  mainReasoning?: string | null;
+  specModelId?: string | null;
+  specReasoning?: string | null;
+}): AcpSessionConfigOption[] {
+  const mainModelId = params.mainModelId || getFactoryDefaultModelId();
+  const resolvedMainReasoning = resolveFactoryReasoning(mainModelId, params.mainReasoning);
+  const resolvedSpecModelId = resolveFactorySpecModel(mainModelId, resolvedMainReasoning, params.specModelId);
+  const specReasoningOption = buildFactorySpecReasoningConfigOption(resolvedSpecModelId, params.specReasoning);
+
+  return [
+    buildFactorySpecModelConfigOption(mainModelId, resolvedMainReasoning, resolvedSpecModelId),
+    ...(specReasoningOption ? [specReasoningOption] : []),
+    buildFactoryReasoningConfigOption(mainModelId, resolvedMainReasoning),
+  ];
 }

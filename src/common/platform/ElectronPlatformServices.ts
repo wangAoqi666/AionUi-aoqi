@@ -1,7 +1,7 @@
 // This is the only file in src/common/platform/ permitted to import from 'electron'.
 import { app, Notification, powerSaveBlocker, utilityProcess, type UtilityProcess } from 'electron';
-import path from 'path';
 import type { IPlatformServices, IWorkerProcess } from './IPlatformServices';
+import { getDefaultLogDir } from '@/common/config/appPathConfig';
 
 class ElectronWorkerProcess implements IWorkerProcess {
   constructor(private readonly up: UtilityProcess) {}
@@ -25,13 +25,7 @@ export class ElectronPlatformServices implements IPlatformServices {
     getDataDir: () => app.getPath('userData'),
     getTempDir: () => app.getPath('temp'),
     getHomeDir: () => app.getPath('home'),
-    getLogsDir: () => {
-      try {
-        return app.getPath('logs');
-      } catch {
-        return path.join(app.getPath('userData'), 'logs');
-      }
-    },
+    getLogsDir: () => getDefaultLogDir(app.getPath('home'), app.isPackaged),
     getAppPath: () => app.getAppPath(),
     isPackaged: () => app.isPackaged,
     getSystemPath: (name: 'desktop' | 'home' | 'downloads') => app.getPath(name),
@@ -47,7 +41,11 @@ export class ElectronPlatformServices implements IPlatformServices {
           cwd: opts.cwd,
           // Propagate DATA_DIR so utility processes can use NodePlatformServices
           // without needing access to app.getPath (unavailable in utility process).
-          env: { DATA_DIR: app.getPath('userData'), ...opts.env },
+          env: {
+            DATA_DIR: app.getPath('userData'),
+            LOGS_DIR: getDefaultLogDir(app.getPath('home'), app.isPackaged),
+            ...opts.env,
+          },
         })
       ),
   };

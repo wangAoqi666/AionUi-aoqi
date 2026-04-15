@@ -6,7 +6,201 @@
 
 import type { AcpBackend, AcpBackendAll, AcpBackendConfig } from '@/common/types/acpTypes';
 import type { SpeechToTextConfig } from '@/common/types/speech';
+import type { FactoryModel } from './factoryModels';
 import { storage } from '@office-ai/platform';
+
+export type DroidRuntimePermissionMode = 'safe-auto' | 'deny-all' | 'custom';
+export type DroidRuntimeOverloadStrategy = 'queue' | 'reject';
+export type DroidChannelPlatform = 'telegram' | 'lark' | 'dingtalk' | 'weixin';
+
+export type DroidChannelRuntimeConfig = {
+  inheritDefaults?: boolean;
+  maxConcurrentStarts?: number;
+  maxConcurrentRuns?: number;
+  maxWarmSessions?: number;
+  warmTtlMs?: number;
+  askReplyTtlMs?: number;
+  maxQueuePerConversation?: number;
+  maxQueuePerPublishedAgent?: number;
+  overloadStrategy?: DroidRuntimeOverloadStrategy;
+  permissionMode?: DroidRuntimePermissionMode;
+  allowExecCommands?: string[];
+  allowEditRoots?: string[];
+  allowMcpTools?: string[];
+};
+
+export type ResolvedDroidChannelRuntimeConfig = Required<Omit<DroidChannelRuntimeConfig, 'inheritDefaults'>>;
+
+export type ChannelPublishInstanceSettings = {
+  workspace?: string;
+  agent?: {
+    backend: AcpBackendAll;
+    customAgentId?: string;
+    name?: string;
+  };
+  defaultModel?: {
+    id: string;
+    useModel: string;
+  };
+  droidRuntime?: DroidChannelRuntimeConfig;
+};
+
+export type ChannelPublishInstanceSettingsMap = Record<string, ChannelPublishInstanceSettings>;
+
+export const CHANNEL_DROID_RUNTIME_PLATFORMS = ['telegram', 'lark', 'dingtalk', 'weixin'] as const;
+
+export const DEFAULT_DROID_CHANNEL_RUNTIME_CONFIG: ResolvedDroidChannelRuntimeConfig = {
+  maxConcurrentStarts: 1,
+  maxConcurrentRuns: 2,
+  maxWarmSessions: 4,
+  warmTtlMs: 15 * 60 * 1000,
+  askReplyTtlMs: 8 * 60 * 1000,
+  maxQueuePerConversation: 10,
+  maxQueuePerPublishedAgent: 40,
+  overloadStrategy: 'queue',
+  permissionMode: 'safe-auto',
+  allowExecCommands: ['pwd', 'ls', 'rg', 'git status', 'git diff', 'bun run test', 'bunx tsc --noEmit'],
+  allowEditRoots: [],
+  allowMcpTools: [],
+};
+
+const sanitizePositiveInteger = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = Math.trunc(value);
+  return normalized > 0 ? normalized : undefined;
+};
+
+const sanitizeStringList = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : [];
+};
+
+export const sanitizeDroidChannelRuntimeConfig = (
+  value?: DroidChannelRuntimeConfig | null
+): DroidChannelRuntimeConfig => {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  return {
+    ...(typeof value.inheritDefaults === 'boolean' ? { inheritDefaults: value.inheritDefaults } : {}),
+    ...(sanitizePositiveInteger(value.maxConcurrentStarts)
+      ? { maxConcurrentStarts: sanitizePositiveInteger(value.maxConcurrentStarts) }
+      : {}),
+    ...(sanitizePositiveInteger(value.maxConcurrentRuns)
+      ? { maxConcurrentRuns: sanitizePositiveInteger(value.maxConcurrentRuns) }
+      : {}),
+    ...(sanitizePositiveInteger(value.maxWarmSessions)
+      ? { maxWarmSessions: sanitizePositiveInteger(value.maxWarmSessions) }
+      : {}),
+    ...(sanitizePositiveInteger(value.warmTtlMs) ? { warmTtlMs: sanitizePositiveInteger(value.warmTtlMs) } : {}),
+    ...(sanitizePositiveInteger(value.askReplyTtlMs)
+      ? { askReplyTtlMs: sanitizePositiveInteger(value.askReplyTtlMs) }
+      : {}),
+    ...(sanitizePositiveInteger(value.maxQueuePerConversation)
+      ? { maxQueuePerConversation: sanitizePositiveInteger(value.maxQueuePerConversation) }
+      : {}),
+    ...(sanitizePositiveInteger(value.maxQueuePerPublishedAgent)
+      ? { maxQueuePerPublishedAgent: sanitizePositiveInteger(value.maxQueuePerPublishedAgent) }
+      : {}),
+    ...(value.overloadStrategy === 'queue' || value.overloadStrategy === 'reject'
+      ? { overloadStrategy: value.overloadStrategy }
+      : {}),
+    ...(value.permissionMode === 'safe-auto' || value.permissionMode === 'deny-all' || value.permissionMode === 'custom'
+      ? { permissionMode: value.permissionMode }
+      : {}),
+    ...(sanitizeStringList(value.allowExecCommands)
+      ? { allowExecCommands: sanitizeStringList(value.allowExecCommands) }
+      : {}),
+    ...(sanitizeStringList(value.allowEditRoots) ? { allowEditRoots: sanitizeStringList(value.allowEditRoots) } : {}),
+    ...(sanitizeStringList(value.allowMcpTools) ? { allowMcpTools: sanitizeStringList(value.allowMcpTools) } : {}),
+  };
+};
+
+export const resolveDroidChannelRuntimeConfig = (
+  defaults?: DroidChannelRuntimeConfig | null,
+  override?: DroidChannelRuntimeConfig | null
+): ResolvedDroidChannelRuntimeConfig => {
+  const normalizedDefaults = sanitizeDroidChannelRuntimeConfig(defaults);
+  const normalizedOverride = sanitizeDroidChannelRuntimeConfig(override);
+  const base =
+    normalizedOverride.inheritDefaults === false
+      ? DEFAULT_DROID_CHANNEL_RUNTIME_CONFIG
+      : { ...DEFAULT_DROID_CHANNEL_RUNTIME_CONFIG, ...normalizedDefaults };
+
+  const { inheritDefaults: _inheritDefaults, ...overrideSettings } = normalizedOverride;
+  return {
+    ...base,
+    ...overrideSettings,
+    allowExecCommands: overrideSettings.allowExecCommands ?? base.allowExecCommands,
+    allowEditRoots: overrideSettings.allowEditRoots ?? base.allowEditRoots,
+    allowMcpTools: overrideSettings.allowMcpTools ?? base.allowMcpTools,
+  };
+};
+
+export const sanitizeChannelPublishInstanceSettings = (
+  value?: ChannelPublishInstanceSettings | null
+): ChannelPublishInstanceSettings => {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const agent =
+    value.agent && typeof value.agent === 'object' && typeof value.agent.backend === 'string'
+      ? {
+          backend: value.agent.backend as AcpBackendAll,
+          ...(typeof value.agent.customAgentId === 'string' && value.agent.customAgentId.trim()
+            ? { customAgentId: value.agent.customAgentId.trim() }
+            : {}),
+          ...(typeof value.agent.name === 'string' && value.agent.name.trim() ? { name: value.agent.name.trim() } : {}),
+        }
+      : undefined;
+
+  const defaultModel =
+    value.defaultModel &&
+    typeof value.defaultModel === 'object' &&
+    typeof value.defaultModel.id === 'string' &&
+    typeof value.defaultModel.useModel === 'string' &&
+    value.defaultModel.id.trim() &&
+    value.defaultModel.useModel.trim()
+      ? {
+          id: value.defaultModel.id.trim(),
+          useModel: value.defaultModel.useModel.trim(),
+        }
+      : undefined;
+
+  const workspace = typeof value.workspace === 'string' && value.workspace.trim() ? value.workspace.trim() : undefined;
+
+  return {
+    ...(workspace ? { workspace } : {}),
+    ...(agent ? { agent } : {}),
+    ...(defaultModel ? { defaultModel } : {}),
+    ...(value.droidRuntime ? { droidRuntime: sanitizeDroidChannelRuntimeConfig(value.droidRuntime) } : {}),
+  };
+};
+
+export const sanitizeChannelPublishInstanceSettingsMap = (value: unknown): ChannelPublishInstanceSettingsMap => {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([pluginId]) => typeof pluginId === 'string' && pluginId.trim())
+      .map(([pluginId, settings]) => [pluginId, sanitizeChannelPublishInstanceSettings(settings)])
+  );
+};
 
 /**
  * @description 聊天相关的存储
@@ -51,6 +245,23 @@ export interface IConfigStorageRefer {
       preferredMode?: string;
       /** Preferred model ID for new conversations / 新会话的默认模型 */
       preferredModelId?: string;
+      /** Dedicated spec-mode model ID for Droid mixed models / SPEC 规划阶段专用模型 */
+      specModeModelId?: string;
+      /** Dedicated spec-mode reasoning effort for Droid mixed models / SPEC 规划阶段专用推理强度 */
+      specModeReasoningEffort?: string;
+      /** @deprecated Use byokModelRefs instead. Kept for backward compatibility migration. */
+      byokModelRef?: {
+        model: string;
+        baseUrl: string;
+        provider: 'anthropic';
+      };
+      /** App-managed Factory Droid BYOK references / 客户端托管的 Factory Droid BYOK 引用 */
+      byokModelRefs?: Array<{
+        id: string;
+        model: string;
+        baseUrl: string;
+        provider: 'anthropic';
+      }>;
       /** LLM prompt timeout in seconds (default: 300) / LLM 请求超时时间（秒，默认 300） */
       promptTimeout?: number;
     };
@@ -62,6 +273,8 @@ export interface IConfigStorageRefer {
   'acp.cachedModels'?: Record<string, import('@/common/types/acpTypes').AcpModelInfo>;
   // Cached config options per ACP backend for Guid page pre-selection
   'acp.cachedConfigOptions'?: Record<string, import('@/common/types/acpTypes').AcpSessionConfigOption[]>;
+  // Runtime-refreshed Factory Droid model catalog
+  factoryDroidCatalog?: FactoryModel[];
   'model.config': IProvider[];
   'mcp.config': IMcpServer[];
   'mcp.agentInstallStatus': Record<string, string[]>;
@@ -121,6 +334,7 @@ export interface IConfigStorageRefer {
     customAgentId?: string;
     name?: string;
   };
+  'assistant.telegram.droidRuntime'?: DroidChannelRuntimeConfig;
   // Lark assistant default model / Lark 助手默认模型
   'assistant.lark.defaultModel'?: {
     id: string;
@@ -132,6 +346,7 @@ export interface IConfigStorageRefer {
     customAgentId?: string;
     name?: string;
   };
+  'assistant.lark.droidRuntime'?: DroidChannelRuntimeConfig;
   // DingTalk assistant default model / DingTalk 助手默认模型
   'assistant.dingtalk.defaultModel'?: {
     id: string;
@@ -143,6 +358,7 @@ export interface IConfigStorageRefer {
     customAgentId?: string;
     name?: string;
   };
+  'assistant.dingtalk.droidRuntime'?: DroidChannelRuntimeConfig;
   // WeChat assistant default model / WeChat 助手默认模型
   'assistant.weixin.defaultModel'?: {
     id: string;
@@ -154,6 +370,9 @@ export interface IConfigStorageRefer {
     customAgentId?: string;
     name?: string;
   };
+  'assistant.weixin.droidRuntime'?: DroidChannelRuntimeConfig;
+  'assistant.droidRuntime.defaults'?: DroidChannelRuntimeConfig;
+  'assistant.channel.publishInstances'?: ChannelPublishInstanceSettingsMap;
   // Skills Market: whether the aionui-skills builtin skill is enabled
   'skillsMarket.enabled'?: boolean;
 }
@@ -185,6 +404,8 @@ interface IChatConversation<T, Extra> {
   source?: ConversationSource;
   /** Channel chat isolation ID (e.g. user:xxx, group:xxx) */
   channelChatId?: string;
+  /** Channel plugin instance ID for multi-instance published channels */
+  channelPluginId?: string;
 }
 
 // Token 使用统计数据类型
@@ -243,6 +464,8 @@ export type TChatConversation =
           acpSessionId?: string;
           /** Conversation ID that owns the ACP session / 拥有该 ACP session 的会话 ID */
           acpSessionConversationId?: string;
+          /** Workspace path that the ACP session was created for / ACP session 创建时绑定的工作区路径 */
+          acpSessionWorkspace?: string;
           /** ACP session 最后更新时间 / Last update time of ACP session */
           acpSessionUpdatedAt?: number;
           /** Last context usage from usage_update */

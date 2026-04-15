@@ -387,6 +387,7 @@ export interface IConfirmation<Option extends any = any> {
   id: string;
   action?: string;
   description: string;
+  descriptionFormat?: 'text' | 'markdown';
   callId: string;
   interaction?: AskUserConfirmationInteraction;
   options: Array<{

@@ -1,5 +1,7 @@
 import type { PresetAgentType } from '@/common/types/acpTypes';
 
+const BUILTIN_ASSISTANT_PRESET_AGENT_TYPE: PresetAgentType = 'droid';
+
 export type AssistantPreset = {
   id: string;
   avatar: string;
@@ -26,7 +28,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'word-creator',
     avatar: '📝',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/word-creator',
     ruleFiles: {
       'en-US': 'word-creator.md',
@@ -58,7 +60,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'ppt-creator',
     avatar: '📊',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/ppt-creator',
     ruleFiles: {
       'en-US': 'ppt-creator.md',
@@ -90,7 +92,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'excel-creator',
     avatar: '📈',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/excel-creator',
     ruleFiles: {
       'en-US': 'excel-creator.md',
@@ -122,7 +124,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'morph-ppt',
     avatar: '✨',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/morph-ppt',
     ruleFiles: {
       'en-US': 'morph-ppt.md',
@@ -154,7 +156,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'pitch-deck-creator',
     avatar: '🎯',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/pitch-deck-creator',
     ruleFiles: {
       'en-US': 'pitch-deck-creator.md',
@@ -187,7 +189,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'dashboard-creator',
     avatar: '📊',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/dashboard-creator',
     ruleFiles: {
       'en-US': 'dashboard-creator.md',
@@ -220,7 +222,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'academic-paper',
     avatar: '📚',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/academic-paper',
     ruleFiles: {
       'en-US': 'academic-paper.md',
@@ -253,7 +255,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'financial-model-creator',
     avatar: '💰',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/financial-model-creator',
     ruleFiles: {
       'en-US': 'financial-model-creator.md',
@@ -286,7 +288,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'star-office-helper',
     avatar: '📺',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/star-office-helper',
     ruleFiles: {
       'en-US': 'star-office-helper.md',
@@ -313,7 +315,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'openclaw-setup',
     avatar: '🦞',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/openclaw-setup',
     ruleFiles: {
       'en-US': 'openclaw-setup.md',
@@ -341,7 +343,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'cowork',
     avatar: 'cowork.svg',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/cowork',
     ruleFiles: {
       'en-US': 'cowork.md',
@@ -373,7 +375,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   // {
   //   id: 'pptx-generator',
   //   avatar: '📊',
-  //   presetAgentType: 'gemini',
+  //   presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
   //   resourceDir: 'src/process/resources/assistant/pptx-generator',
   //   ruleFiles: {
   //     'en-US': 'pptx-generator.md',
@@ -400,7 +402,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   // {
   //   id: 'pdf-to-ppt',
   //   avatar: '📄',
-  //   presetAgentType: 'gemini',
+  //   presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
   //   resourceDir: 'src/process/resources/assistant/pdf-to-ppt',
   //   ruleFiles: {
   //     'en-US': 'pdf-to-ppt.md',
@@ -430,7 +432,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'game-3d',
     avatar: '🎮',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/game-3d',
     ruleFiles: {
       'en-US': 'game-3d.md',
@@ -456,7 +458,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'ui-ux-pro-max',
     avatar: '🎨',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/ui-ux-pro-max',
     ruleFiles: {
       'en-US': 'ui-ux-pro-max.md',
@@ -483,7 +485,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'planning-with-files',
     avatar: '📋',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/planning-with-files',
     ruleFiles: {
       'en-US': 'planning-with-files.md',
@@ -510,7 +512,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'human-3-coach',
     avatar: '🧭',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/human-3-coach',
     ruleFiles: {
       'en-US': 'human-3-coach.md',
@@ -541,7 +543,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'social-job-publisher',
     avatar: '📣',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/social-job-publisher',
     ruleFiles: {
       'en-US': 'social-job-publisher.md',
@@ -576,7 +578,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'moltbook',
     avatar: '🦞',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/moltbook',
     ruleFiles: {
       'en-US': 'moltbook.md',
@@ -607,7 +609,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'beautiful-mermaid',
     avatar: '📈',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/beautiful-mermaid',
     ruleFiles: {
       'en-US': 'beautiful-mermaid.md',
@@ -635,7 +637,7 @@ export const ASSISTANT_PRESETS: AssistantPreset[] = [
   {
     id: 'story-roleplay',
     avatar: '📖',
-    presetAgentType: 'gemini',
+    presetAgentType: BUILTIN_ASSISTANT_PRESET_AGENT_TYPE,
     resourceDir: 'src/process/resources/assistant/story-roleplay',
     ruleFiles: {
       'en-US': 'story-roleplay.md',
