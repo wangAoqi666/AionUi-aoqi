@@ -7,20 +7,32 @@
 import { ipcBridge } from '@/common';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
 import {
-  buildFactoryReasoningConfigOption,
-  FACTORY_DEFAULT_MODEL_ID,
+  buildFactoryDroidConfigOptions,
   FACTORY_REASONING_CONFIG_ID,
+  FACTORY_SPEC_MODEL_CONFIG_ID,
+  FACTORY_SPEC_MODEL_USE_MAIN_VALUE,
+  FACTORY_SPEC_REASONING_CONFIG_ID,
+  getFactoryDefaultModelId,
   getFactoryDroidModelInfo,
+  getFactoryModels,
+  getFactoryModelById,
   resolveFactoryReasoning,
+  resolveFactorySpecModel,
+  subscribeFactoryModelCatalog,
 } from '@/common/config/factoryModels';
 import type { IProvider } from '@/common/config/storage';
 import { ConfigStorage } from '@/common/config/storage';
 import type { AcpSessionConfigOption } from '@/common/types/acpTypes';
 import type { AcpBackend, AcpBackendConfig, AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
 import { getAgentModes } from '@/renderer/utils/model/agentModes';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import useSWR from 'swr';
-import { savePreferredMode, savePreferredModelId, getAgentKey as getAgentKeyUtil } from './agentSelectionUtils';
+import {
+  savePreferredDroidSpecConfig,
+  savePreferredMode,
+  savePreferredModelId,
+  getAgentKey as getAgentKeyUtil,
+} from './agentSelectionUtils';
 import { usePresetAssistantResolver } from './usePresetAssistantResolver';
 import { useAgentAvailability } from './useAgentAvailability';
 import { useCustomAgentsLoader } from './useCustomAgentsLoader';
@@ -69,6 +81,58 @@ type UseGuidAgentSelectionOptions = {
   localeKey: string;
 };
 
+function normalizeDroidPendingConfigOptions(
+  options: Record<string, string>,
+  mainModelId: string
+): Record<string, string> {
+  const next = { ...options };
+
+  if (next[FACTORY_REASONING_CONFIG_ID]) {
+    next[FACTORY_REASONING_CONFIG_ID] = resolveFactoryReasoning(mainModelId, next[FACTORY_REASONING_CONFIG_ID]);
+  }
+
+  const resolvedMainReasoning = resolveFactoryReasoning(mainModelId, next[FACTORY_REASONING_CONFIG_ID]);
+  const resolvedSpecModelId = resolveFactorySpecModel(
+    mainModelId,
+    resolvedMainReasoning,
+    next[FACTORY_SPEC_MODEL_CONFIG_ID]
+  );
+
+  if (resolvedSpecModelId) {
+    next[FACTORY_SPEC_MODEL_CONFIG_ID] = resolvedSpecModelId;
+    if (next[FACTORY_SPEC_REASONING_CONFIG_ID]) {
+      next[FACTORY_SPEC_REASONING_CONFIG_ID] = resolveFactoryReasoning(
+        resolvedSpecModelId,
+        next[FACTORY_SPEC_REASONING_CONFIG_ID]
+      );
+    }
+  } else {
+    delete next[FACTORY_SPEC_MODEL_CONFIG_ID];
+    delete next[FACTORY_SPEC_REASONING_CONFIG_ID];
+  }
+
+  return next;
+}
+
+function haveSamePendingConfigOptions(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
+function resolveValidDroidModelId(preferredModelId?: string | null, cachedModelId?: string | null): string {
+  if (preferredModelId && getFactoryModelById(preferredModelId)) {
+    return preferredModelId;
+  }
+
+  if (cachedModelId && getFactoryModelById(cachedModelId)) {
+    return cachedModelId;
+  }
+
+  return getFactoryDefaultModelId();
+}
+
 /**
  * Hook that manages agent selection, availability, and preset assistant logic.
  */
@@ -77,6 +141,7 @@ export const useGuidAgentSelection = ({
   isGoogleAuth,
   localeKey,
 }: UseGuidAgentSelectionOptions): GuidAgentSelectionResult => {
+  const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
   const [selectedAgentKey, _setSelectedAgentKey] = useState<string>('droid');
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>();
   const [selectedMode, _setSelectedMode] = useState<string>('default');
@@ -89,12 +154,15 @@ export const useGuidAgentSelection = ({
   const [pendingConfigOptions, setPendingConfigOptions] = useState<Record<string, string>>({});
 
   // Wrap setSelectedAgentKey to also save to storage
-  const setSelectedAgentKey = useCallback((key: string) => {
-    _setSelectedAgentKey(key);
-    ConfigStorage.set('guid.lastSelectedAgent', key).catch((error) => {
-      console.error('Failed to save selected agent:', error);
-    });
-  }, []);
+  const setSelectedAgentKey = useCallback(
+    (key: string) => {
+      _setSelectedAgentKey(key);
+      ConfigStorage.set('guid.lastSelectedAgent', key).catch((error) => {
+        console.error('Failed to save selected agent:', error);
+      });
+    },
+    [selectedAcpModel, acpCachedModels.droid?.currentModelId]
+  );
 
   // Wrap setSelectedMode to also save preferred mode to the agent's own config
   const setSelectedMode = useCallback((mode: React.SetStateAction<string>) => {
@@ -109,21 +177,75 @@ export const useGuidAgentSelection = ({
   }, []);
 
   // Update a single pending config option selection (local mode, Guid page)
-  const setPendingConfigOption = useCallback((configId: string, value: string) => {
-    setPendingConfigOptions((prev) => ({ ...prev, [configId]: value }));
-  }, []);
+  const setPendingConfigOption = useCallback(
+    (configId: string, value: string) => {
+      const agentKey = selectedAgentRef.current;
+      const isDroidAgent = agentKey === 'droid';
+      const activeDroidModelId = resolveValidDroidModelId(selectedAcpModel, acpCachedModels.droid?.currentModelId);
+      let nextPendingConfigOptions: Record<string, string> = {};
+
+      setPendingConfigOptions((prev) => {
+        if (!isDroidAgent) {
+          nextPendingConfigOptions = { ...prev, [configId]: value };
+          return nextPendingConfigOptions;
+        }
+
+        const next = { ...prev };
+        if (configId === FACTORY_SPEC_MODEL_CONFIG_ID) {
+          if (value === FACTORY_SPEC_MODEL_USE_MAIN_VALUE) {
+            delete next[FACTORY_SPEC_MODEL_CONFIG_ID];
+            delete next[FACTORY_SPEC_REASONING_CONFIG_ID];
+          } else {
+            next[FACTORY_SPEC_MODEL_CONFIG_ID] = value;
+          }
+        } else if (configId === FACTORY_SPEC_REASONING_CONFIG_ID) {
+          next[FACTORY_SPEC_REASONING_CONFIG_ID] = value;
+        } else {
+          next[configId] = value;
+        }
+
+        nextPendingConfigOptions = normalizeDroidPendingConfigOptions(next, activeDroidModelId);
+        return nextPendingConfigOptions;
+      });
+
+      if (isDroidAgent) {
+        void savePreferredDroidSpecConfig(agentKey, {
+          specModeModelId: nextPendingConfigOptions[FACTORY_SPEC_MODEL_CONFIG_ID],
+          specModeReasoningEffort: nextPendingConfigOptions[FACTORY_SPEC_REASONING_CONFIG_ID],
+        });
+      }
+    },
+    [selectedAcpModel, acpCachedModels.droid?.currentModelId]
+  );
 
   // Wrap setSelectedAcpModel to also save preferred model to the agent's config
-  const setSelectedAcpModel = useCallback((modelId: React.SetStateAction<string | null>) => {
-    _setSelectedAcpModel((prev) => {
-      const newModelId = typeof modelId === 'function' ? modelId(prev) : modelId;
-      const agentKey = selectedAgentRef.current;
-      if (agentKey && agentKey !== 'gemini' && agentKey !== 'custom' && newModelId) {
-        void savePreferredModelId(agentKey, newModelId);
+  const setSelectedAcpModel = useCallback(
+    (modelId: React.SetStateAction<string | null>) => {
+      _setSelectedAcpModel((prev) => {
+        const newModelId = typeof modelId === 'function' ? modelId(prev) : modelId;
+        const agentKey = selectedAgentRef.current;
+        const resolvedModelId =
+          agentKey === 'droid'
+            ? resolveValidDroidModelId(newModelId, acpCachedModels.droid?.currentModelId)
+            : newModelId;
+        if (agentKey && agentKey !== 'gemini' && agentKey !== 'custom' && resolvedModelId) {
+          void savePreferredModelId(agentKey, resolvedModelId);
+        }
+        return resolvedModelId;
+      });
+
+      if (selectedAgentRef.current === 'droid') {
+        const nextModelId =
+          typeof modelId === 'function'
+            ? modelId(resolveValidDroidModelId(selectedAcpModel, acpCachedModels.droid?.currentModelId))
+            : modelId;
+        const effectiveModelId = resolveValidDroidModelId(nextModelId, acpCachedModels.droid?.currentModelId);
+
+        setPendingConfigOptions((prev) => normalizeDroidPendingConfigOptions(prev, effectiveModelId));
       }
-      return newModelId;
-    });
-  }, []);
+    },
+    [selectedAcpModel, acpCachedModels.droid?.currentModelId]
+  );
 
   const availableCustomAgentIds = useMemo(() => {
     const ids = new Set<string>();
@@ -358,16 +480,36 @@ export const useGuidAgentSelection = ({
 
   const currentDroidModelId = useMemo(() => {
     if (currentConfigBackend !== 'droid') return null;
-    return selectedAcpModel || acpCachedModels.droid?.currentModelId || FACTORY_DEFAULT_MODEL_ID;
-  }, [acpCachedModels.droid?.currentModelId, currentConfigBackend, selectedAcpModel]);
+    return resolveValidDroidModelId(selectedAcpModel, acpCachedModels.droid?.currentModelId);
+  }, [acpCachedModels.droid?.currentModelId, currentConfigBackend, factoryCatalog, selectedAcpModel]);
 
   // Load cached ACP config options per backend
   useEffect(() => {
     if (!currentConfigBackend) return;
     if (currentConfigBackend === 'droid') {
-      setCachedConfigOptions([]);
-      setPendingConfigOptions({});
-      return;
+      let isActive = true;
+      ConfigStorage.get('acp.config')
+        .then((config) => {
+          if (!isActive) return;
+          const droidConfig = (config?.droid as Record<string, string | undefined> | undefined) || {};
+          const nextPending: Record<string, string> = {};
+          if (droidConfig.specModeModelId) {
+            nextPending[FACTORY_SPEC_MODEL_CONFIG_ID] = droidConfig.specModeModelId;
+          }
+          if (droidConfig.specModeReasoningEffort) {
+            nextPending[FACTORY_SPEC_REASONING_CONFIG_ID] = droidConfig.specModeReasoningEffort;
+          }
+          setCachedConfigOptions([]);
+          setPendingConfigOptions(nextPending);
+        })
+        .catch(() => {
+          if (!isActive) return;
+          setCachedConfigOptions([]);
+          setPendingConfigOptions({});
+        });
+      return () => {
+        isActive = false;
+      };
     }
     let isActive = true;
     ConfigStorage.get('acp.cachedConfigOptions')
@@ -398,15 +540,40 @@ export const useGuidAgentSelection = ({
         const preferred = (config?.[currentConfigBackend as AcpBackend] as Record<string, unknown>)?.preferredModelId as
           | string
           | undefined;
-        if (preferred) {
-          _setSelectedAcpModel(preferred);
-        } else {
-          const cachedInfo = acpCachedModels[currentConfigBackend];
-          _setSelectedAcpModel(cachedInfo?.currentModelId ?? null);
+        const cachedInfo = acpCachedModels[currentConfigBackend];
+
+        if (currentConfigBackend === 'droid') {
+          const resolvedModelId = resolveValidDroidModelId(preferred, acpCachedModels.droid?.currentModelId);
+          _setSelectedAcpModel(resolvedModelId);
+          if (preferred && preferred !== resolvedModelId) {
+            void savePreferredModelId('droid', resolvedModelId);
+          }
+          return;
+        }
+
+        const resolvedModelId =
+          preferred && cachedInfo?.availableModels?.some((model) => model.id === preferred)
+            ? preferred
+            : (cachedInfo?.currentModelId ?? null);
+
+        _setSelectedAcpModel(resolvedModelId);
+
+        if (
+          preferred &&
+          resolvedModelId &&
+          preferred !== resolvedModelId &&
+          currentConfigBackend !== 'custom' &&
+          currentConfigBackend !== 'gemini'
+        ) {
+          void savePreferredModelId(currentConfigBackend, resolvedModelId);
         }
       })
       .catch(() => {
         if (cancelled) return;
+        if (currentConfigBackend === 'droid') {
+          _setSelectedAcpModel(resolveValidDroidModelId(undefined, acpCachedModels.droid?.currentModelId));
+          return;
+        }
         const cachedInfo = acpCachedModels[currentConfigBackend];
         _setSelectedAcpModel(cachedInfo?.currentModelId ?? null);
       });
@@ -479,18 +646,22 @@ export const useGuidAgentSelection = ({
 
   useEffect(() => {
     if (currentConfigBackend !== 'droid' || !currentDroidModelId) return;
-    setPendingConfigOptions((prev) => {
-      const requested = prev[FACTORY_REASONING_CONFIG_ID];
-      if (!requested) return prev;
-      const resolved = resolveFactoryReasoning(currentDroidModelId, requested);
-      if (resolved === requested) return prev;
-      return { ...prev, [FACTORY_REASONING_CONFIG_ID]: resolved };
+
+    const normalized = normalizeDroidPendingConfigOptions(pendingConfigOptions, currentDroidModelId);
+    if (haveSamePendingConfigOptions(pendingConfigOptions, normalized)) {
+      return;
+    }
+
+    setPendingConfigOptions(normalized);
+    void savePreferredDroidSpecConfig('droid', {
+      specModeModelId: normalized[FACTORY_SPEC_MODEL_CONFIG_ID],
+      specModeReasoningEffort: normalized[FACTORY_SPEC_REASONING_CONFIG_ID],
     });
-  }, [currentConfigBackend, currentDroidModelId]);
+  }, [currentConfigBackend, currentDroidModelId, pendingConfigOptions]);
 
   const currentAcpCachedModelInfo = useMemo(() => {
     if (currentConfigBackend === 'droid') {
-      return getFactoryDroidModelInfo(currentDroidModelId || FACTORY_DEFAULT_MODEL_ID);
+      return getFactoryDroidModelInfo(currentDroidModelId || getFactoryDefaultModelId());
     }
 
     const cached = acpCachedModels[currentConfigBackend];
@@ -509,18 +680,18 @@ export const useGuidAgentSelection = ({
     }
 
     return null;
-  }, [acpCachedModels, currentConfigBackend, currentDroidModelId]);
+  }, [acpCachedModels, currentConfigBackend, currentDroidModelId, factoryCatalog]);
 
   const effectiveCachedConfigOptions = useMemo(() => {
     if (currentConfigBackend !== 'droid') {
       return cachedConfigOptions;
     }
-    return [
-      buildFactoryReasoningConfigOption(
-        currentDroidModelId || FACTORY_DEFAULT_MODEL_ID,
-        pendingConfigOptions[FACTORY_REASONING_CONFIG_ID]
-      ),
-    ];
+    return buildFactoryDroidConfigOptions({
+      mainModelId: currentDroidModelId || getFactoryDefaultModelId(),
+      mainReasoning: pendingConfigOptions[FACTORY_REASONING_CONFIG_ID],
+      specModelId: pendingConfigOptions[FACTORY_SPEC_MODEL_CONFIG_ID],
+      specReasoning: pendingConfigOptions[FACTORY_SPEC_REASONING_CONFIG_ID],
+    });
   }, [cachedConfigOptions, currentConfigBackend, currentDroidModelId, pendingConfigOptions]);
 
   // Auto-switch only for Gemini agent

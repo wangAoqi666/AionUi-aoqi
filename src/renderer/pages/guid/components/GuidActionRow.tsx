@@ -249,6 +249,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           <AcpConfigSelector
             backend={configOptionsBackend}
             initialConfigOptions={cachedConfigOptions}
+            selectedMode={selectedMode}
             onOptionSelect={onConfigOptionSelect}
           />
         </div>

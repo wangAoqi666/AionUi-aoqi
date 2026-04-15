@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { ASSISTANT_PRESETS } from '@/common/config/presets/assistantPresets';
+import { resolveAssistantPresetAgentType } from '@/renderer/hooks/assistant/assistantBackendOptions';
 import type { AcpBackend, AcpBackendConfig } from '../types';
 import { useCallback } from 'react';
 
@@ -116,7 +117,7 @@ export const usePresetAssistantResolver = ({
       if (!agentInfo) return 'gemini';
       if (agentInfo.backend !== 'custom') return agentInfo.backend as string;
       const customAgent = customAgents.find((agent) => agent.id === agentInfo.customAgentId);
-      return customAgent?.presetAgentType || 'gemini';
+      return resolveAssistantPresetAgentType(customAgent);
     },
     [customAgents]
   );

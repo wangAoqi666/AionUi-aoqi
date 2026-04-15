@@ -24,7 +24,7 @@ interface CronJobManagerProps {
 
 /**
  * Cron job manager component for ChatLayout headerExtra
- * Shows a single job per conversation with navigation to task detail
+ * Shows scheduled task status for the current conversation.
  */
 const CronJobManager: React.FC<CronJobManagerProps> = ({ conversationId, cronJobId }) => {
   const { t } = useTranslation();
@@ -47,9 +47,11 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversationId, cronJob
   // For regular conversations, use the existing hook
   const { jobs, loading: listLoading, hasJobs } = useCronJobs(cronJobId ? undefined : conversationId);
 
-  const job = cronJobId ? directJob : (jobs[0] ?? null);
+  const ownerJobs = cronJobId ? (directJob ? [directJob] : []) : jobs;
+  const job = ownerJobs[0] ?? null;
   const loading = cronJobId ? directLoading : listLoading;
   const found = cronJobId ? !!directJob : hasJobs;
+  const isMultiJobOwner = !cronJobId && ownerJobs.length > 1;
 
   // Handle unconfigured state (no jobs)
   if (!found && !loading) {
@@ -86,8 +88,24 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversationId, cronJob
 
   if (loading || !job) return null;
 
-  const { hasError, isPaused } = getJobStatusFlags(job);
-  const tooltipContent = isPaused ? t('cron.status.paused') : hasError ? t('cron.status.error') : job.name;
+  const hasError = ownerJobs.some((entry) => getJobStatusFlags(entry).hasError);
+  const allPaused = ownerJobs.every((entry) => getJobStatusFlags(entry).isPaused);
+  const tooltipContent = isMultiJobOwner
+    ? t('cron.taskCount', { count: ownerJobs.length })
+    : allPaused
+      ? t('cron.status.paused')
+      : hasError
+        ? t('cron.status.error')
+        : job.name;
+  const statusClass = hasError ? 'bg-[#f53f3f]' : allPaused ? 'bg-[#ff7d00]' : 'bg-[#00b42a]';
+  const handleNavigate = () => {
+    if (isMultiJobOwner) {
+      navigate(`/scheduled?conversationId=${conversationId}`);
+      return;
+    }
+
+    navigate(`/scheduled/${job.id}`);
+  };
 
   return (
     <Tooltip content={tooltipContent}>
@@ -95,13 +113,19 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversationId, cronJob
         type='text'
         size='small'
         className='cron-job-manager-button chat-header-cron-pill !h-auto !w-auto !min-w-0 !px-0 !py-0'
-        onClick={() => navigate(`/scheduled/${job.id}`)}
+        onClick={handleNavigate}
       >
         <span className='inline-flex items-center gap-2px rounded-full px-8px py-2px bg-2'>
           <AlarmClock theme='outline' size={16} fill={iconColors.primary} />
-          <span
-            className={`ml-4px w-8px h-8px rounded-full ${hasError ? 'bg-[#f53f3f]' : isPaused ? 'bg-[#ff7d00]' : 'bg-[#00b42a]'}`}
-          />
+          {isMultiJobOwner ? (
+            <span
+              className={`ml-4px min-w-16px rounded-full px-4px text-center text-10px leading-16px text-white ${statusClass}`}
+            >
+              {ownerJobs.length}
+            </span>
+          ) : (
+            <span className={`ml-4px h-8px w-8px rounded-full ${statusClass}`} />
+          )}
         </span>
       </Button>
     </Tooltip>

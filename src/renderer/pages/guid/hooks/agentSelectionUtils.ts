@@ -34,6 +34,41 @@ export async function savePreferredModelId(agentKey: string, modelId: string): P
   }
 }
 
+/** Save Droid mixed-model configuration under acp.config.droid */
+export async function savePreferredDroidSpecConfig(
+  agentKey: string,
+  values: {
+    specModeModelId?: string;
+    specModeReasoningEffort?: string;
+  }
+): Promise<void> {
+  if (agentKey !== 'droid') return;
+
+  try {
+    const config = await ConfigStorage.get('acp.config');
+    const backendConfig = { ...config?.droid };
+
+    if (values.specModeModelId) {
+      backendConfig.specModeModelId = values.specModeModelId;
+    } else {
+      delete backendConfig.specModeModelId;
+    }
+
+    if (values.specModeModelId && values.specModeReasoningEffort) {
+      backendConfig.specModeReasoningEffort = values.specModeReasoningEffort;
+    } else {
+      delete backendConfig.specModeReasoningEffort;
+    }
+
+    await ConfigStorage.set('acp.config', {
+      ...config,
+      droid: backendConfig,
+    });
+  } catch {
+    /* silent */
+  }
+}
+
 /**
  * Get agent key for selection.
  * Returns "custom:uuid" for custom agents, "remote:uuid" for remote agents, backend type for others.

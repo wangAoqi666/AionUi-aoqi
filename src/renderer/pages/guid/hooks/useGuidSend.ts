@@ -120,6 +120,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
     const agentInfo = selectedAgentInfo;
     const isPreset = isPresetAgent;
+    const isBuiltinPresetAssistant =
+      isPreset && (agentInfo?.customAgentId?.startsWith('builtin-') || selectedAgentKey.startsWith('custom:builtin-'));
 
     const { agentType: effectiveAgentType } = getEffectiveAgentType(agentInfo);
 
@@ -127,7 +129,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     const enabledSkills = resolveEnabledSkills(agentInfo);
 
     let finalEffectiveAgentType = effectiveAgentType;
-    if (isPreset && !isMainAgentAvailable(effectiveAgentType)) {
+    if (isPreset && !isBuiltinPresetAssistant && !isMainAgentAvailable(effectiveAgentType)) {
       const fallback = getAvailableFallbackAgent();
       if (fallback && fallback !== effectiveAgentType) {
         finalEffectiveAgentType = fallback;
@@ -392,6 +394,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         console.warn(`${acpBackend} CLI not found, but proceeding to let conversation panel handle it.`);
       }
       const agentBackend = acpBackend || selectedAgent;
+      const presetAssistantId = isPreset ? agentInfo?.customAgentId : acpAgentInfo?.customAgentId;
       const agentConversationParams = buildAgentConversationParams({
         backend: agentBackend,
         name: input,
@@ -399,7 +402,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         workspace: finalWorkspace,
         model: currentModel!,
         cliPath: acpAgentInfo?.cliPath,
-        customAgentId: acpAgentInfo?.customAgentId,
+        customAgentId: presetAssistantId,
         customWorkspace: isCustomWorkspace,
         isPreset,
         presetAgentType: finalEffectiveAgentType,
