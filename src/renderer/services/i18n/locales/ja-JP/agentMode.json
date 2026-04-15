@@ -11,6 +11,7 @@
   "bypassPermissions": "全自動",
   "smart": "スマート",
   "build": "ビルドモード",
+  "spec": "SPEC",
   "permission": "権限",
   "switchMode": "モード切替",
   "switchSuccess": "モードを切り替えました",

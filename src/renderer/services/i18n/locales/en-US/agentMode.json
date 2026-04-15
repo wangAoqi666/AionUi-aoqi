@@ -11,6 +11,7 @@
   "bypassPermissions": "YOLO",
   "smart": "Smart",
   "build": "Build Mode",
+  "spec": "SPEC",
   "permission": "Permission",
   "switchMode": "Switch Mode",
   "switchSuccess": "Mode switched successfully",

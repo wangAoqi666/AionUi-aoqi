@@ -30,6 +30,7 @@
     "noHistory": "チャット履歴はありません",
     "deleteTitle": "削除",
     "deleteConfirm": "このチャットを削除してもよろしいですか？",
+    "deleteWorkspaceGroupConfirm": "このフォルダーグループを削除しますか？配下の {{count}} 件の会話も削除されます。ローカルのフォルダー自体は削除されません。",
     "confirmDelete": "削除",
     "cancelDelete": "キャンセル",
     "editName": "名前を編集",
@@ -143,6 +144,7 @@
     "dragFailed": "ファイルの取り込みに失敗しました。",
     "contextMenu": {
       "open": "開く",
+      "openFolder": "フォルダーを開く",
       "openLocation": "ファイルの場所を開く",
       "preview": "プレビュー",
       "previewFailed": "プレビューに失敗しました",

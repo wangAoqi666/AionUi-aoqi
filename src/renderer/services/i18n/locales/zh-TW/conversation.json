@@ -30,6 +30,7 @@
     "noHistory": "暫無對話記錄",
     "deleteTitle": "刪除",
     "deleteConfirm": "確定要刪除此對話嗎？",
+    "deleteWorkspaceGroupConfirm": "確定要刪除此資料夾分組嗎？其中 {{count}} 個對話也會一併刪除，本地資料夾本身不會被刪除。",
     "confirmDelete": "刪除",
     "cancelDelete": "取消",
     "editName": "編輯名稱",
@@ -143,6 +144,7 @@
     "dragFailed": "拖曳匯入失敗，請重試。",
     "contextMenu": {
       "open": "開啟",
+      "openFolder": "開啟資料夾",
       "openLocation": "開啟檔案所在資料夾",
       "preview": "預覽",
       "previewFailed": "預覽失敗",

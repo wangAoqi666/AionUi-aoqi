@@ -11,6 +11,7 @@
   "bypassPermissions": "全自動",
   "smart": "智能",
   "build": "構建模式",
+  "spec": "SPEC",
   "permission": "權限",
   "switchMode": "切換模式",
   "switchSuccess": "模式切換成功",

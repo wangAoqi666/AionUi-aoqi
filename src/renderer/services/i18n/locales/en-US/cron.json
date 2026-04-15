@@ -23,7 +23,7 @@
     "resume": "Resume",
     "delete": "Delete"
   },
-  "confirmDeleteWithConversations": "Are you sure you want to delete this scheduled task? All conversations from this task will also be deleted.",
+  "confirmDeleteWithConversations": "Are you sure you want to delete this scheduled task?",
   "deleteSuccess": "Task deleted",
   "pauseSuccess": "Task paused",
   "resumeSuccess": "Task resumed",
@@ -82,8 +82,10 @@
       "promptRequired": "Prompt is required",
       "promptPlaceholder": "Instructions for the agent to execute",
       "frequency": "Frequency",
+      "advancedMode": "Advanced schedule",
       "cronExpr": "Cron Expression",
       "cronExprRequired": "Cron expression is required",
+      "cronExprPlaceholder": "For example: */15 * * * *",
       "scheduleDesc": "Schedule Description",
       "scheduleDescRequired": "Schedule description is required",
       "scheduleDescPlaceholder": "e.g., Every Monday at 9:00 AM",
@@ -96,22 +98,51 @@
       "existingConversation": "Ongoing conversation",
       "newConversationHint": "Start fresh on every run",
       "existingConversationHint": "Keep building in one conversation",
-      "executionModeEditHint": "Execution mode cannot be changed after creation. Delete and recreate the task to switch modes."
+      "executionModeEditHint": "Execution mode cannot be changed after creation. Delete and recreate the task to switch modes.",
+      "folder": "Folder",
+      "folderPlaceholder": "Choose a folder",
+      "folderHint": "Choose where this scheduled task should live.",
+      "chooseFolder": "Choose folder",
+      "folderRequired": "Choose a folder or owner conversation first",
+      "ownerConversation": "Owner conversation",
+      "autoCreateConversation": "Create a dedicated owner conversation",
+      "ownerConversationHint": "If you do not select one, Agent Factory will create a dedicated owner conversation in the chosen folder.",
+      "ownerConversationSelectedHint": "This scheduled task will be grouped under the selected conversation.",
+      "intervalMinutes": "Repeat every N minutes",
+      "intervalHours": "Repeat every N hours",
+      "minuteOfHour": "Minute within the hour",
+      "runAt": "Run at",
+      "dayOfWeek": "Day of week",
+      "schedulePreview": "Schedule preview"
     },
     "freq": {
       "manual": "Manual",
+      "everyMinute": "Every minute",
       "hourly": "Hourly",
       "daily": "Daily",
       "weekdays": "Weekdays",
       "weekly": "Weekly",
+      "advanced": "Advanced schedule",
       "custom": "Custom cron..."
+    },
+    "advancedMode": {
+      "minuteInterval": "Every N minutes",
+      "hourInterval": "Every N hours",
+      "daily": "Daily at a fixed time",
+      "weekly": "Weekly at a fixed time",
+      "cronExpr": "Custom cron expression"
     },
     "scheduleDesc": {
       "manual": "Manual",
+      "everyMinute": "Every minute",
+      "everyMinutes": "Every {{count}} minutes",
       "hourly": "Every hour",
+      "hourlyAtMinute": "Every hour at minute {{minute}}",
+      "everyHoursAtMinute": "Every {{count}} hours at minute {{minute}}",
       "dailyAt": "Every day at {{time}}",
       "weekdaysAt": "Weekdays at {{time}}",
-      "weeklyAt": "Every {{day}} at {{time}}"
+      "weeklyAt": "Every {{day}} at {{time}}",
+      "customCron": "Custom cron: {{expr}}"
     }
   },
   "trigger": {

@@ -26,6 +26,7 @@
     "noHistory": "No chat history",
     "deleteTitle": "Delete",
     "deleteConfirm": "Are you sure you want to delete this chat?",
+    "deleteWorkspaceGroupConfirm": "Delete this folder group? Its {{count}} conversation(s) will also be removed. The local folder itself will not be deleted.",
     "confirmDelete": "Delete",
     "cancelDelete": "Cancel",
     "editName": "Edit Name",
@@ -139,6 +140,7 @@
     "dragFailed": "Failed to import dropped files.",
     "contextMenu": {
       "open": "Open",
+      "openFolder": "Open folder",
       "openLocation": "Show in folder",
       "preview": "Preview",
       "previewFailed": "Failed to preview",

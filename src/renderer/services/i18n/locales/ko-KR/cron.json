@@ -24,7 +24,7 @@
     "delete": "삭제",
     "runNow": "지금 실행"
   },
-  "confirmDeleteWithConversations": "이 예약 작업을 삭제하시겠습니까? 이 작업의 모든 대화도 삭제됩니다.",
+  "confirmDeleteWithConversations": "이 예약 작업을 삭제하시겠습니까?",
   "deleteSuccess": "작업이 삭제되었습니다",
   "pauseSuccess": "작업이 일시 중지되었습니다",
   "resumeSuccess": "작업이 재개되었습니다",
@@ -83,8 +83,10 @@
       "promptRequired": "프롬프트는 필수입니다",
       "promptPlaceholder": "에이전트가 실행할 지시사항",
       "frequency": "빈도",
+      "advancedMode": "고급 일정",
       "cronExpr": "Cron 표현식",
       "cronExprRequired": "Cron 표현식은 필수입니다",
+      "cronExprPlaceholder": "예: */15 * * * *",
       "scheduleDesc": "일정 설명",
       "scheduleDescRequired": "일정 설명은 필수입니다",
       "scheduleDescPlaceholder": "예: 매주 월요일 오전 9:00",
@@ -97,22 +99,51 @@
       "existingConversation": "동일 대화",
       "newConversationHint": "매번 새 대화로 시작합니다",
       "existingConversationHint": "같은 대화에서 계속 실행합니다",
-      "executionModeEditHint": "생성 후에는 실행 모드를 변경할 수 없습니다. 모드를 전환하려면 작업을 삭제한 후 다시 만드세요."
+      "executionModeEditHint": "생성 후에는 실행 모드를 변경할 수 없습니다. 모드를 전환하려면 작업을 삭제한 후 다시 만드세요.",
+      "folder": "폴더",
+      "folderPlaceholder": "폴더 선택",
+      "folderHint": "이 예약 작업이 속할 폴더를 선택하세요.",
+      "chooseFolder": "폴더 선택",
+      "folderRequired": "먼저 폴더나 소유 대화를 선택하세요",
+      "ownerConversation": "소유 대화",
+      "autoCreateConversation": "전용 소유 대화 만들기",
+      "ownerConversationHint": "선택하지 않으면 智能体工厂가 선택한 폴더에 전용 소유 대화를 자동으로 만듭니다.",
+      "ownerConversationSelectedHint": "이 예약 작업은 선택한 대화 아래에 정리됩니다.",
+      "intervalMinutes": "몇 분마다 실행할지",
+      "intervalHours": "몇 시간마다 실행할지",
+      "minuteOfHour": "매시 몇 분에 실행할지",
+      "runAt": "실행 시간",
+      "dayOfWeek": "요일",
+      "schedulePreview": "일정 미리보기"
     },
     "freq": {
       "manual": "수동",
+      "everyMinute": "매분",
       "hourly": "매시간",
       "daily": "매일",
       "weekdays": "평일",
       "weekly": "매주",
+      "advanced": "고급 일정",
       "custom": "사용자 정의 Cron..."
+    },
+    "advancedMode": {
+      "minuteInterval": "N분마다",
+      "hourInterval": "N시간마다",
+      "daily": "매일 지정 시간",
+      "weekly": "매주 지정 시간",
+      "cronExpr": "사용자 정의 Cron"
     },
     "scheduleDesc": {
       "manual": "수동",
+      "everyMinute": "매분 실행",
+      "everyMinutes": "{{count}}분마다 실행",
       "hourly": "매시간 실행",
+      "hourlyAtMinute": "매시간 {{minute}}분에 실행",
+      "everyHoursAtMinute": "{{count}}시간마다 {{minute}}분에 실행",
       "dailyAt": "매일 {{time}}에 실행",
       "weekdaysAt": "평일 {{time}}에 실행",
-      "weeklyAt": "매주 {{day}} {{time}}에 실행"
+      "weeklyAt": "매주 {{day}} {{time}}에 실행",
+      "customCron": "사용자 정의 Cron: {{expr}}"
     }
   },
   "trigger": {

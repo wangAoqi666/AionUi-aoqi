@@ -24,7 +24,7 @@
     "delete": "削除",
     "runNow": "今すぐ実行"
   },
-  "confirmDeleteWithConversations": "このスケジュールタスクを削除しますか？このタスクのすべての会話も削除されます。",
+  "confirmDeleteWithConversations": "このスケジュールタスクを削除しますか？",
   "deleteSuccess": "タスクを削除しました",
   "pauseSuccess": "タスクを一時停止しました",
   "resumeSuccess": "タスクを再開しました",
@@ -95,8 +95,10 @@
       "promptRequired": "プロンプトは必須です",
       "promptPlaceholder": "エージェントが実行する指示",
       "frequency": "頻度",
+      "advancedMode": "詳細スケジュール",
       "cronExpr": "Cron 式",
       "cronExprRequired": "Cron 式は必須です",
+      "cronExprPlaceholder": "例：*/15 * * * *",
       "scheduleDesc": "スケジュール説明",
       "scheduleDescRequired": "スケジュール説明は必須です",
       "scheduleDescPlaceholder": "例：毎週月曜日 午前9:00",
@@ -109,22 +111,51 @@
       "existingConversation": "同じ会話",
       "newConversationHint": "毎回新しい会話から始めます",
       "existingConversationHint": "同じ会話で続きを実行します",
-      "executionModeEditHint": "作成後に実行モードは変更できません。モードを切り替えるには、タスクを削除して再作成してください。"
+      "executionModeEditHint": "作成後に実行モードは変更できません。モードを切り替えるには、タスクを削除して再作成してください。",
+      "folder": "フォルダー",
+      "folderPlaceholder": "フォルダーを選択",
+      "folderHint": "この定期タスクを配置するフォルダーを選択します。",
+      "chooseFolder": "フォルダーを選択",
+      "folderRequired": "先にフォルダーまたは所有会話を選択してください",
+      "ownerConversation": "所有会話",
+      "autoCreateConversation": "専用の所有会話を作成",
+      "ownerConversationHint": "選択しない場合、智能体工厂 が選択したフォルダーに専用の所有会話を自動作成します。",
+      "ownerConversationSelectedHint": "この定期タスクは選択した会話の下に整理されます。",
+      "intervalMinutes": "何分ごとに実行するか",
+      "intervalHours": "何時間ごとに実行するか",
+      "minuteOfHour": "毎時何分に実行するか",
+      "runAt": "実行時刻",
+      "dayOfWeek": "曜日",
+      "schedulePreview": "スケジュールのプレビュー"
     },
     "freq": {
       "manual": "手動",
+      "everyMinute": "毎分",
       "hourly": "毎時",
       "daily": "毎日",
       "weekdays": "平日",
       "weekly": "毎週",
+      "advanced": "詳細スケジュール",
       "custom": "カスタム Cron..."
+    },
+    "advancedMode": {
+      "minuteInterval": "N分ごと",
+      "hourInterval": "N時間ごと",
+      "daily": "毎日定時",
+      "weekly": "毎週定時",
+      "cronExpr": "カスタム Cron"
     },
     "scheduleDesc": {
       "manual": "手動",
+      "everyMinute": "毎分実行",
+      "everyMinutes": "{{count}}分ごとに実行",
       "hourly": "毎時実行",
+      "hourlyAtMinute": "毎時 {{minute}} 分に実行",
+      "everyHoursAtMinute": "{{count}}時間ごとに {{minute}} 分で実行",
       "dailyAt": "毎日 {{time}} に実行",
       "weekdaysAt": "平日 {{time}} に実行",
-      "weeklyAt": "毎週{{day}} {{time}} に実行"
+      "weeklyAt": "毎週{{day}} {{time}} に実行",
+      "customCron": "カスタム Cron：{{expr}}"
     }
   },
   "trigger": {

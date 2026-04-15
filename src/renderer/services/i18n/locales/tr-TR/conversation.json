@@ -30,6 +30,7 @@
     "noHistory": "Sohbet geçmişi yok",
     "deleteTitle": "Sil",
     "deleteConfirm": "Bu sohbeti silmek istediğinizden emin misiniz?",
+    "deleteWorkspaceGroupConfirm": "Bu klasör grubunu silmek istiyor musunuz? İçindeki {{count}} sohbet de silinecek, ancak yerel klasörün kendisi silinmeyecek.",
     "confirmDelete": "Sil",
     "cancelDelete": "İptal",
     "editName": "İsmi Düzenle",
@@ -136,6 +137,7 @@
     "dragFailed": "Bırakılan dosyalar içe aktarılamadı.",
     "contextMenu": {
       "open": "Aç",
+      "openFolder": "Klasörü aç",
       "openLocation": "Klasörde göster",
       "preview": "Önizleme",
       "previewFailed": "Önizleme başarısız",

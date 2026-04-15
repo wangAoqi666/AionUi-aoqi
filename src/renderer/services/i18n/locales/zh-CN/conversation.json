@@ -26,6 +26,7 @@
     "noHistory": "暂无对话历史",
     "deleteTitle": "删除",
     "deleteConfirm": "确定删除该对话吗？",
+    "deleteWorkspaceGroupConfirm": "确定删除该文件夹分组吗？其中 {{count}} 个对话也会一并删除，本地文件夹不会被删除。",
     "confirmDelete": "删除",
     "cancelDelete": "取消",
     "editName": "编辑名称",
@@ -139,6 +140,7 @@
     "dragFailed": "拖拽导入失败，请重试。",
     "contextMenu": {
       "open": "打开",
+      "openFolder": "打开文件夹",
       "openLocation": "打开文件所在目录",
       "preview": "预览",
       "previewFailed": "预览失败",

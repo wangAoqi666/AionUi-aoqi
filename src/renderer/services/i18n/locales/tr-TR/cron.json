@@ -24,7 +24,7 @@
     "delete": "Delete",
     "runNow": "Şimdi Çalıştır"
   },
-  "confirmDeleteWithConversations": "Bu zamanlanmış görevi silmek istediğinizden emin misiniz? Bu görevdeki tüm konuşmalar da silinecektir.",
+  "confirmDeleteWithConversations": "Bu zamanlanmış görevi silmek istediğinizden emin misiniz?",
   "deleteSuccess": "Task deleted",
   "pauseSuccess": "Task paused",
   "resumeSuccess": "Task resumed",
@@ -95,8 +95,10 @@
       "promptRequired": "Komut gereklidir",
       "promptPlaceholder": "Ajanın yürüteceği talimatlar",
       "frequency": "Sıklık",
+      "advancedMode": "Gelişmiş zamanlama",
       "cronExpr": "Cron İfadesi",
       "cronExprRequired": "Cron ifadesi gereklidir",
+      "cronExprPlaceholder": "Örn: */15 * * * *",
       "scheduleDesc": "Zamanlama Açıklaması",
       "scheduleDescRequired": "Zamanlama açıklaması gereklidir",
       "scheduleDescPlaceholder": "Örn: Her Pazartesi saat 09:00",
@@ -109,22 +111,51 @@
       "existingConversation": "Aynı konuşma",
       "newConversationHint": "Her çalıştırma yeni bir başlangıç yapar",
       "existingConversationHint": "Aynı konuşmada devam eder",
-      "executionModeEditHint": "Oluşturulduktan sonra çalıştırma modu değiştirilemez. Mod değiştirmek için görevi silip yeniden oluşturun."
+      "executionModeEditHint": "Oluşturulduktan sonra çalıştırma modu değiştirilemez. Mod değiştirmek için görevi silip yeniden oluşturun.",
+      "folder": "Klasör",
+      "folderPlaceholder": "Bir klasör seçin",
+      "folderHint": "Bu zamanlanmış görevin yer alacağı klasörü seçin.",
+      "chooseFolder": "Klasör seç",
+      "folderRequired": "Önce bir klasör veya sahip konuşma seçin",
+      "ownerConversation": "Sahip konuşma",
+      "autoCreateConversation": "Özel bir sahip konuşma oluştur",
+      "ownerConversationHint": "Seçmezseniz Agent Factory seçilen klasörde özel bir sahip konuşma oluşturur.",
+      "ownerConversationSelectedHint": "Bu zamanlanmış görev seçilen konuşma altında gruplanacaktır.",
+      "intervalMinutes": "Kaç dakikada bir",
+      "intervalHours": "Kaç saatte bir",
+      "minuteOfHour": "Saatin kaçıncı dakikasında",
+      "runAt": "Çalışma saati",
+      "dayOfWeek": "Haftanın günü",
+      "schedulePreview": "Zamanlama önizlemesi"
     },
     "freq": {
       "manual": "Manuel",
+      "everyMinute": "Her dakika",
       "hourly": "Saatlik",
       "daily": "Günlük",
       "weekdays": "Hafta içi",
       "weekly": "Haftalık",
+      "advanced": "Gelişmiş zamanlama",
       "custom": "Özel Cron..."
+    },
+    "advancedMode": {
+      "minuteInterval": "Her N dakika",
+      "hourInterval": "Her N saat",
+      "daily": "Her gün sabit saatte",
+      "weekly": "Her hafta sabit saatte",
+      "cronExpr": "Özel cron ifadesi"
     },
     "scheduleDesc": {
       "manual": "Manuel",
+      "everyMinute": "Her dakika çalıştır",
+      "everyMinutes": "Her {{count}} dakikada bir çalıştır",
       "hourly": "Her saat çalıştır",
+      "hourlyAtMinute": "Her saat {{minute}}. dakikada çalıştır",
+      "everyHoursAtMinute": "Her {{count}} saatte bir {{minute}}. dakikada çalıştır",
       "dailyAt": "Her gün {{time}}'de çalıştır",
       "weekdaysAt": "Hafta içi {{time}}'de çalıştır",
-      "weeklyAt": "Her {{day}} {{time}}'de çalıştır"
+      "weeklyAt": "Her {{day}} {{time}}'de çalıştır",
+      "customCron": "Özel cron: {{expr}}"
     }
   },
   "trigger": {

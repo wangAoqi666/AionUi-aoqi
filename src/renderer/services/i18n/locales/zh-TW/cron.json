@@ -24,7 +24,7 @@
     "delete": "刪除",
     "runNow": "立即執行"
   },
-  "confirmDeleteWithConversations": "確定要刪除此定時任務嗎？該任務下的所有對話也將被刪除。",
+  "confirmDeleteWithConversations": "確定要刪除此定時任務嗎？",
   "deleteSuccess": "任務已刪除",
   "pauseSuccess": "任務已暫停",
   "resumeSuccess": "任務已恢復",
@@ -83,8 +83,10 @@
       "promptRequired": "請輸入執行指令",
       "promptPlaceholder": "Agent 觸發時執行的指令",
       "frequency": "頻率",
+      "advancedMode": "進階排程",
       "cronExpr": "Cron 運算式",
       "cronExprRequired": "請輸入 Cron 運算式",
+      "cronExprPlaceholder": "例如：*/15 * * * *",
       "scheduleDesc": "排程描述",
       "scheduleDescRequired": "請輸入排程描述",
       "scheduleDescPlaceholder": "例如：每週一上午 9:00",
@@ -97,22 +99,51 @@
       "existingConversation": "持續對話",
       "newConversationHint": "每次都從新對話開始",
       "existingConversationHint": "在同一對話中持續執行",
-      "executionModeEditHint": "建立後無法更改執行模式，如需切換請刪除任務後重新建立。"
+      "executionModeEditHint": "建立後無法更改執行模式，如需切換請刪除任務後重新建立。",
+      "folder": "資料夾",
+      "folderPlaceholder": "選擇一個資料夾",
+      "folderHint": "選擇這個定時任務歸屬的資料夾。",
+      "chooseFolder": "選擇資料夾",
+      "folderRequired": "請先選擇資料夾或歸屬會話",
+      "ownerConversation": "歸屬會話",
+      "autoCreateConversation": "建立專屬歸屬會話",
+      "ownerConversationHint": "如果不選擇，智能體工廠會在所選資料夾中自動建立一個專屬歸屬會話。",
+      "ownerConversationSelectedHint": "這個定時任務會歸類到所選會話下。",
+      "intervalMinutes": "每隔幾分鐘",
+      "intervalHours": "每隔幾小時",
+      "minuteOfHour": "在每小時的第幾分鐘",
+      "runAt": "執行時間",
+      "dayOfWeek": "星期",
+      "schedulePreview": "排程預覽"
     },
     "freq": {
       "manual": "手動觸發",
+      "everyMinute": "每分鐘",
       "hourly": "每小時",
       "daily": "每天",
       "weekdays": "工作日",
       "weekly": "每週",
+      "advanced": "進階排程",
       "custom": "自訂 Cron..."
+    },
+    "advancedMode": {
+      "minuteInterval": "每 N 分鐘",
+      "hourInterval": "每 N 小時",
+      "daily": "每天定時",
+      "weekly": "每週定時",
+      "cronExpr": "自訂 Cron"
     },
     "scheduleDesc": {
       "manual": "手動觸發",
+      "everyMinute": "每分鐘執行",
+      "everyMinutes": "每 {{count}} 分鐘執行",
       "hourly": "每小時執行",
+      "hourlyAtMinute": "每小時第 {{minute}} 分執行",
+      "everyHoursAtMinute": "每 {{count}} 小時，在第 {{minute}} 分執行",
       "dailyAt": "每天 {{time}} 執行",
       "weekdaysAt": "工作日 {{time}} 執行",
-      "weeklyAt": "每週{{day}} {{time}} 執行"
+      "weeklyAt": "每週{{day}} {{time}} 執行",
+      "customCron": "自訂 Cron：{{expr}}"
     }
   },
   "trigger": {
