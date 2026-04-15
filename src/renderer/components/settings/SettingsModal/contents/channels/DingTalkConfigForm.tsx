@@ -6,15 +6,26 @@
 
 import type { IChannelPairingRequest, IChannelPluginStatus, IChannelUser } from '@process/channels/types';
 import { acpConversation, channel } from '@/common/adapter/ipcBridge';
-import { ConfigStorage } from '@/common/config/storage';
+import DroidChannelRuntimeSettings from '@/renderer/components/settings/DroidChannelRuntimeSettings';
+import {
+  DEFAULT_CHANNEL_CONVERSATION_AGENT,
+  getChannelConversationAgentKey,
+  resolveChannelConversationAgentSelection,
+  type ChannelConversationAgentOption,
+} from '@/renderer/components/settings/channelConversationAgentOptions';
+import { useOptionalConversationHistoryContext } from '@/renderer/hooks/context/ConversationHistoryContext';
 import { openExternalUrl } from '@/renderer/utils/platform';
 import GeminiModelSelector from '@/renderer/pages/conversation/platforms/gemini/GeminiModelSelector';
-import type { GeminiModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection';
-import type { AcpBackendAll } from '@/common/types/acpTypes';
-import { Button, Dropdown, Empty, Input, Menu, Message, Spin, Tooltip } from '@arco-design/web-react';
+import {
+  buildPublishedWorkspaceOptions,
+  rememberPublishedWorkspace,
+} from '@/renderer/utils/workspace/publishedWorkspaceOptions';
+import { Button, Dropdown, Empty, Input, Menu, Message, Select, Spin, Tooltip } from '@arco-design/web-react';
 import { CheckOne, CloseOne, Copy, Delete, Down, Refresh } from '@icon-park/react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { loadChannelInstanceSettings, updateChannelInstanceSettings } from './channelInstanceSettings';
+import { useChannelInstanceModelSelection } from './useChannelInstanceModelSelection';
 
 /**
  * Preference row component
@@ -52,15 +63,27 @@ const SectionHeader: React.FC<{ title: string; action?: React.ReactNode }> = ({ 
 );
 
 interface DingTalkConfigFormProps {
+  pluginId: string;
   pluginStatus: IChannelPluginStatus | null;
-  modelSelection: GeminiModelSelection;
   onStatusChange: (status: IChannelPluginStatus | null) => void;
 }
 
-const DINGTALK_DEV_DOCS_URL = '#';
+const DINGTALK_DEV_DOCS_URL =
+  'https://open.dingtalk.com/document/orgapp/obtain-the-appkey-and-appsecret-of-the-micro-application';
 
-const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, modelSelection, onStatusChange }) => {
+const getErrorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const formatTime = (timestamp: number): string => new Date(timestamp).toLocaleString();
+
+const getRemainingTime = (expiresAt: number): string => {
+  const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000 / 60));
+  return `${remaining} min`;
+};
+
+const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginId, pluginStatus, onStatusChange }) => {
   const { t } = useTranslation();
+  const conversationHistory = useOptionalConversationHistoryContext();
+  const modelSelection = useChannelInstanceModelSelection(pluginId, 'dingtalk');
 
   // DingTalk credentials
   const [clientId, setClientId] = useState('');
@@ -73,13 +96,21 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
   const [usersLoading, setUsersLoading] = useState(false);
   const [pendingPairings, setPendingPairings] = useState<IChannelPairingRequest[]>([]);
   const [authorizedUsers, setAuthorizedUsers] = useState<IChannelUser[]>([]);
+  const [instanceWorkspace, setInstanceWorkspace] = useState('');
 
   // Agent selection
-  const [availableAgents, setAvailableAgents] = useState<
-    Array<{ backend: AcpBackendAll; name: string; customAgentId?: string; isPreset?: boolean }>
-  >([]);
-  const [selectedAgent, setSelectedAgent] = useState<{ backend: AcpBackendAll; name?: string; customAgentId?: string }>(
-    { backend: 'gemini' }
+  const [availableAgents, setAvailableAgents] = useState<ChannelConversationAgentOption[]>([
+    DEFAULT_CHANNEL_CONVERSATION_AGENT,
+  ]);
+  const [selectedAgent, setSelectedAgent] = useState<ChannelConversationAgentOption>(
+    DEFAULT_CHANNEL_CONVERSATION_AGENT
+  );
+  const workspaceOptions = useMemo(
+    () =>
+      buildPublishedWorkspaceOptions(conversationHistory?.conversations ?? [], t, {
+        includePaths: instanceWorkspace ? [instanceWorkspace] : [],
+      }),
+    [conversationHistory?.conversations, instanceWorkspace, t]
   );
 
   // Load pending pairings
@@ -88,14 +119,14 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     try {
       const result = await channel.getPendingPairings.invoke();
       if (result.success && result.data) {
-        setPendingPairings(result.data.filter((p) => p.platformType === 'dingtalk'));
+        setPendingPairings(result.data.filter((p) => p.platformType === 'dingtalk' && p.pluginId === pluginId));
       }
     } catch (error) {
       console.error('[DingTalkConfig] Failed to load pending pairings:', error);
     } finally {
       setPairingLoading(false);
     }
-  }, []);
+  }, [pluginId]);
 
   // Load authorized users
   const loadAuthorizedUsers = useCallback(async () => {
@@ -103,14 +134,14 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     try {
       const result = await channel.getAuthorizedUsers.invoke();
       if (result.success && result.data) {
-        setAuthorizedUsers(result.data.filter((u) => u.platformType === 'dingtalk'));
+        setAuthorizedUsers(result.data.filter((u) => u.platformType === 'dingtalk' && u.pluginId === pluginId));
       }
     } catch (error) {
       console.error('[DingTalkConfig] Failed to load authorized users:', error);
     } finally {
       setUsersLoading(false);
     }
-  }, []);
+  }, [pluginId]);
 
   // Initial load
   useEffect(() => {
@@ -118,36 +149,47 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     void loadAuthorizedUsers();
   }, [loadPendingPairings, loadAuthorizedUsers]);
 
+  useEffect(() => {
+    const loadWorkspace = async () => {
+      const settings = await loadChannelInstanceSettings(pluginId, 'dingtalk');
+      setInstanceWorkspace(settings.workspace || '');
+    };
+
+    void loadWorkspace();
+  }, [pluginId]);
+
   // Load available agents + saved selection
   useEffect(() => {
     const loadAgentsAndSelection = async () => {
       try {
         const [agentsResp, saved] = await Promise.all([
           acpConversation.getAvailableAgents.invoke(),
-          ConfigStorage.get('assistant.dingtalk.agent'),
+          loadChannelInstanceSettings(pluginId, 'dingtalk').then((settings) => settings.agent),
         ]);
 
-        if (agentsResp.success && agentsResp.data) {
-          const list = agentsResp.data
-            .filter((a) => !a.isPreset)
-            .map((a) => ({
-              backend: a.backend,
-              name: a.name,
-              customAgentId: a.customAgentId,
-              isPreset: a.isPreset,
-              isExtension: a.isExtension,
-            }));
-          setAvailableAgents(list);
-        }
+        const resolved = resolveChannelConversationAgentSelection(
+          saved,
+          agentsResp.success && agentsResp.data
+            ? agentsResp.data.map((agent) => ({
+                backend: agent.backend,
+                name: agent.name,
+                customAgentId: agent.customAgentId,
+                isPreset: agent.isPreset,
+                isExtension: agent.isExtension,
+              }))
+            : undefined
+        );
+        setAvailableAgents(resolved.availableAgents);
+        setSelectedAgent(resolved.selectedAgent);
 
-        if (saved && typeof saved === 'object' && 'backend' in saved && typeof (saved as any).backend === 'string') {
-          setSelectedAgent({
-            backend: (saved as any).backend as AcpBackendAll,
-            customAgentId: (saved as any).customAgentId,
-            name: (saved as any).name,
-          });
-        } else if (typeof saved === 'string') {
-          setSelectedAgent({ backend: saved as AcpBackendAll });
+        if (resolved.shouldPersistSelection) {
+          await updateChannelInstanceSettings(pluginId, (current) => ({
+            ...current,
+            agent: resolved.selectedAgent,
+          }));
+          await channel.syncChannelSettings
+            .invoke({ platform: 'dingtalk', pluginId, agent: resolved.selectedAgent })
+            .catch((err) => console.warn('[DingTalkConfig] syncChannelSettings failed:', err));
         }
       } catch (error) {
         console.error('[DingTalkConfig] Failed to load agents:', error);
@@ -155,15 +197,20 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     };
 
     void loadAgentsAndSelection();
-  }, []);
+  }, [pluginId]);
 
-  const persistSelectedAgent = async (agent: { backend: AcpBackendAll; customAgentId?: string; name?: string }) => {
+  const persistSelectedAgent = async (agent: ChannelConversationAgentOption, showSuccessMessage = true) => {
     try {
-      await ConfigStorage.set('assistant.dingtalk.agent', agent);
+      await updateChannelInstanceSettings(pluginId, (current) => ({
+        ...current,
+        agent,
+      }));
       await channel.syncChannelSettings
-        .invoke({ platform: 'dingtalk', agent })
+        .invoke({ platform: 'dingtalk', pluginId, agent })
         .catch((err) => console.warn('[DingTalkConfig] syncChannelSettings failed:', err));
-      Message.success(t('settings.assistant.agentSwitched', 'Agent switched successfully'));
+      if (showSuccessMessage) {
+        Message.success(t('settings.assistant.agentSwitched', 'Agent switched successfully'));
+      }
     } catch (error) {
       console.error('[DingTalkConfig] Failed to save agent:', error);
       Message.error(t('common.saveFailed', 'Failed to save'));
@@ -173,7 +220,7 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
   // Listen for pairing requests
   useEffect(() => {
     const unsubscribe = channel.pairingRequested.on((request) => {
-      if (request.platformType !== 'dingtalk') return;
+      if (request.platformType !== 'dingtalk' || request.pluginId !== pluginId) return;
       setPendingPairings((prev) => {
         const exists = prev.some((p) => p.code === request.code);
         if (exists) return prev;
@@ -181,12 +228,12 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
       });
     });
     return () => unsubscribe();
-  }, []);
+  }, [pluginId]);
 
   // Listen for user authorization
   useEffect(() => {
     const unsubscribe = channel.userAuthorized.on((user) => {
-      if (user.platformType !== 'dingtalk') return;
+      if (user.pluginId !== pluginId || user.platformType !== 'dingtalk') return;
       setAuthorizedUsers((prev) => {
         const exists = prev.some((u) => u.id === user.id);
         if (exists) return prev;
@@ -195,7 +242,7 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
       setPendingPairings((prev) => prev.filter((p) => p.platformUserId !== user.platformUserId));
     });
     return () => unsubscribe();
-  }, []);
+  }, [pluginId]);
 
   // Test DingTalk connection
   const handleTestConnection = async () => {
@@ -210,7 +257,7 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     setCredentialsTested(false);
     try {
       const result = await channel.testPlugin.invoke({
-        pluginId: 'dingtalk_default',
+        pluginId,
         token: '',
         extraConfig: {
           appId: clientId.trim(),
@@ -226,9 +273,9 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
         setCredentialsTested(false);
         Message.error(result.data?.error || t('settings.dingtalk.connectionFailed', 'Connection failed'));
       }
-    } catch (error: any) {
+    } catch (error) {
       setCredentialsTested(false);
-      Message.error(error.message || t('settings.dingtalk.connectionFailed', 'Connection failed'));
+      Message.error(getErrorMessage(error) || t('settings.dingtalk.connectionFailed', 'Connection failed'));
     } finally {
       setTestLoading(false);
     }
@@ -238,7 +285,7 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
   const handleAutoEnable = async () => {
     try {
       const result = await channel.enablePlugin.invoke({
-        pluginId: 'dingtalk_default',
+        pluginId,
         config: {
           clientId: clientId.trim(),
           clientSecret: clientSecret.trim(),
@@ -249,17 +296,29 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
         Message.success(t('settings.dingtalk.pluginEnabled', 'DingTalk bot enabled'));
         const statusResult = await channel.getPluginStatus.invoke();
         if (statusResult.success && statusResult.data) {
-          const dingtalkPlugin = statusResult.data.find((p) => p.type === 'dingtalk');
+          const dingtalkPlugin = statusResult.data.find((p) => p.id === pluginId);
           onStatusChange(dingtalkPlugin || null);
         }
       } else {
         console.error('[DingTalkConfig] enablePlugin failed:', result.msg);
         Message.error(result.msg || t('settings.dingtalk.enableFailed', 'Failed to enable DingTalk plugin'));
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('[DingTalkConfig] Auto-enable failed:', error);
-      Message.error(error.message || t('settings.dingtalk.enableFailed', 'Failed to enable DingTalk plugin'));
+      Message.error(getErrorMessage(error) || t('settings.dingtalk.enableFailed', 'Failed to enable DingTalk plugin'));
     }
+  };
+
+  const handleWorkspaceChange = (value?: string | number) => {
+    const nextWorkspace = typeof value === 'string' ? value.trim() : '';
+    setInstanceWorkspace(nextWorkspace);
+    if (nextWorkspace) {
+      rememberPublishedWorkspace(nextWorkspace);
+    }
+    void updateChannelInstanceSettings(pluginId, (current) => ({
+      ...current,
+      workspace: nextWorkspace || undefined,
+    }));
   };
 
   // Reset credentials tested state when credentials change
@@ -278,8 +337,8 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
       } else {
         Message.error(result.msg || t('settings.assistant.approveFailed', 'Failed to approve pairing'));
       }
-    } catch (error: any) {
-      Message.error(error.message);
+    } catch (error) {
+      Message.error(getErrorMessage(error));
     }
   };
 
@@ -293,8 +352,8 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
       } else {
         Message.error(result.msg || t('settings.assistant.rejectFailed', 'Failed to reject pairing'));
       }
-    } catch (error: any) {
-      Message.error(error.message);
+    } catch (error) {
+      Message.error(getErrorMessage(error));
     }
   };
 
@@ -308,8 +367,8 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
       } else {
         Message.error(result.msg || t('settings.assistant.revokeFailed', 'Failed to revoke user'));
       }
-    } catch (error: any) {
-      Message.error(error.message);
+    } catch (error) {
+      Message.error(getErrorMessage(error));
     }
   };
 
@@ -319,21 +378,10 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
     Message.success(t('common.copySuccess', 'Copied'));
   };
 
-  // Format timestamp
-  const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
-  // Calculate remaining time
-  const getRemainingTime = (expiresAt: number) => {
-    const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000 / 60));
-    return `${remaining} min`;
-  };
-
   const hasExistingUsers = authorizedUsers.length > 0;
   const isGeminiAgent = selectedAgent.backend === 'gemini';
-  const agentOptions: Array<{ backend: AcpBackendAll; name: string; customAgentId?: string; isExtension?: boolean }> =
-    availableAgents.length > 0 ? availableAgents : [{ backend: 'gemini', name: 'Gemini CLI' }];
+  const agentOptions = availableAgents.length > 0 ? availableAgents : [DEFAULT_CHANNEL_CONVERSATION_AGENT];
+  const isAgentSwitchDisabled = agentOptions.length <= 1;
 
   return (
     <div className='flex flex-col gap-24px'>
@@ -474,6 +522,37 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
         </div>
       )}
 
+      <PreferenceRow
+        label={t('settings.channels.workspace', 'Published Workspace')}
+        description={t(
+          'settings.channels.workspaceDesc',
+          'Messages routed through this DingTalk instance will share this workspace context.'
+        )}
+      >
+        <div className='flex flex-col items-end gap-4px'>
+          <Select
+            value={instanceWorkspace || undefined}
+            onChange={(value) => handleWorkspaceChange(typeof value === 'string' ? value : undefined)}
+            allowClear
+            showSearch
+            disabled={workspaceOptions.length === 0}
+            placeholder={t('settings.channels.workspacePlaceholder', 'Select a workspace')}
+            style={{ width: 240 }}
+          >
+            {workspaceOptions.map((workspace) => (
+              <Select.Option key={workspace.path} value={workspace.path}>
+                {workspace.displayName}
+              </Select.Option>
+            ))}
+          </Select>
+          <div className='max-w-240px break-all text-right text-11px leading-16px text-t-tertiary'>
+            {instanceWorkspace
+              ? instanceWorkspace
+              : t('settings.channels.workspaceEmptyState', 'Open or create a workspace in the sidebar first.')}
+          </div>
+        </div>
+      </PreferenceRow>
+
       {/* Agent Selection */}
       <div className='flex flex-col gap-8px'>
         <PreferenceRow
@@ -484,22 +563,14 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
             trigger='click'
             position='br'
             droplist={
-              <Menu
-                selectedKeys={[
-                  selectedAgent.customAgentId
-                    ? `${selectedAgent.backend}|${selectedAgent.customAgentId}`
-                    : selectedAgent.backend,
-                ]}
-              >
+              <Menu selectedKeys={[getChannelConversationAgentKey(selectedAgent)]}>
                 {agentOptions.map((a) => {
-                  const key = a.customAgentId ? `${a.backend}|${a.customAgentId}` : a.backend;
+                  const key = getChannelConversationAgentKey(a);
                   return (
                     <Menu.Item
                       key={key}
                       onClick={() => {
-                        const currentKey = selectedAgent.customAgentId
-                          ? `${selectedAgent.backend}|${selectedAgent.customAgentId}`
-                          : selectedAgent.backend;
+                        const currentKey = getChannelConversationAgentKey(selectedAgent);
                         if (key === currentKey) {
                           return;
                         }
@@ -515,15 +586,15 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
               </Menu>
             }
           >
-            <Button type='secondary' className='min-w-160px flex items-center justify-between gap-8px'>
+            <Button
+              type='secondary'
+              disabled={isAgentSwitchDisabled}
+              className='min-w-160px flex items-center justify-between gap-8px'
+            >
               <span className='truncate'>
                 {selectedAgent.name ||
                   availableAgents.find(
-                    (a) =>
-                      (a.customAgentId ? `${a.backend}|${a.customAgentId}` : a.backend) ===
-                      (selectedAgent.customAgentId
-                        ? `${selectedAgent.backend}|${selectedAgent.customAgentId}`
-                        : selectedAgent.backend)
+                    (a) => getChannelConversationAgentKey(a) === getChannelConversationAgentKey(selectedAgent)
                   )?.name ||
                   selectedAgent.backend}
               </span>
@@ -547,6 +618,10 @@ const DingTalkConfigForm: React.FC<DingTalkConfigFormProps> = ({ pluginStatus, m
           variant='settings'
         />
       </PreferenceRow>
+
+      {selectedAgent.backend === 'droid' && (
+        <DroidChannelRuntimeSettings mode='override' platform='dingtalk' pluginId={pluginId} />
+      )}
 
       {/* Connection Status */}
       {pluginStatus?.enabled && authorizedUsers.length === 0 && (

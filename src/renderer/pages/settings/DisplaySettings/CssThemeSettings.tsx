@@ -513,6 +513,7 @@ const CssThemeSettings: React.FC = () => {
           const previewPalette =
             themePreviewPalettes.get(theme.id) ||
             fallbackThemePreviewPaletteByMode[currentTheme === 'dark' ? 'dark' : 'light'];
+          const isDefaultTheme = theme.id === DEFAULT_THEME_ID;
           const cardStyle = theme.cover
             ? {
                 backgroundImage: `url(${theme.cover})`,
@@ -531,7 +532,13 @@ const CssThemeSettings: React.FC = () => {
               onMouseEnter={() => setHoveredThemeId(theme.id)}
               onMouseLeave={() => setHoveredThemeId(null)}
             >
-              {!theme.cover && <ThemeLayoutPreview palette={previewPalette} />}
+              {isDefaultTheme ? (
+                <div className='absolute inset-0 flex items-center justify-center text-28px font-600 text-t-primary'>
+                  {t('settings.cssTheme.default')}
+                </div>
+              ) : !theme.cover ? (
+                <ThemeLayoutPreview palette={previewPalette} />
+              ) : null}
 
               {/* 底部渐变遮罩与名称、编辑按钮 / Bottom gradient overlay with name and edit button */}
               <div className='absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-between p-8px'>

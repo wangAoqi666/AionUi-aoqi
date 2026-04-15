@@ -8,13 +8,16 @@ import {
   Communication,
   Computer,
   Earth,
+  FileText,
   Gemini,
   Info,
   LinkCloud,
+  MessageSearch,
   Puzzle,
   Robot,
   System,
   Toolkit,
+  Write,
 } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -53,6 +56,24 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       label: t('settings.skillsHub.title', { defaultValue: 'Skills Hub' }),
       icon: <Puzzle theme='outline' size='16' />,
       path: 'skills-hub',
+    },
+    rules: {
+      id: 'rules',
+      label: t('settings.rules', { defaultValue: 'Rules' }),
+      icon: <FileText theme='outline' size='16' />,
+      path: 'rules',
+    },
+    memory: {
+      id: 'memory',
+      label: t('settings.memory', { defaultValue: 'Memory' }),
+      icon: <MessageSearch theme='outline' size='16' />,
+      path: 'memory',
+    },
+    'agents-md': {
+      id: 'agents-md',
+      label: t('settings.agentsMd', { defaultValue: 'AGENTS.md' }),
+      icon: <Write theme='outline' size='16' />,
+      path: 'agents-md',
     },
     tools: { id: 'tools', label: t('settings.tools'), icon: <Toolkit theme='outline' size='16' />, path: 'tools' },
     display: {

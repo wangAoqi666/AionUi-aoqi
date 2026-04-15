@@ -5,225 +5,587 @@
  */
 
 import { ipcBridge } from '@/common';
-import { ConfigStorage } from '@/common/config/storage';
-import type { AcpBackendConfig } from '@/common/types/acpTypes';
-import AionModal from '@/renderer/components/base/AionModal';
-import { Button, Typography } from '@arco-design/web-react';
-import { Home, Plus } from '@icon-park/react';
-import React, { useCallback, useState } from 'react';
+import type { DroidCliUpdateInfo, DroidStatusInfo } from '@/common/types/acpTypes';
+import DroidLogo from '@/renderer/assets/logos/brand/droid.svg';
+import { Alert, Badge, Button, Message, Spin, Typography } from '@arco-design/web-react';
+import { Refresh, Setting } from '@icon-park/react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
-import AgentCard from './AgentCard';
-import { AgentHubModal } from './AgentHubModal';
-import InlineAgentEditor from './InlineAgentEditor';
+
+const CLI_UPDATE_CHECK_TIMEOUT_MS = 8000;
+const STATUS_CACHE_TTL_MS = 60 * 1000;
+const CLI_UPDATE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+type TimedCache<T> = {
+  data: T;
+  timestamp: number;
+};
+
+let localAgentsStatusCache: TimedCache<DroidStatusInfo> | null = null;
+let localAgentsCliUpdateCache: TimedCache<DroidCliUpdateInfo> | null = null;
+
+function readCache<T>(cache: TimedCache<T> | null, ttlMs: number): T | null {
+  if (!cache) {
+    return null;
+  }
+
+  return Date.now() - cache.timestamp <= ttlMs ? cache.data : null;
+}
+
+export function resetLocalAgentsCache(): void {
+  localAgentsStatusCache = null;
+  localAgentsCliUpdateCache = null;
+}
+
+function getBadgeStatus(loginStatus: DroidStatusInfo['loginStatus']): 'success' | 'warning' | 'error' | 'processing' {
+  switch (loginStatus) {
+    case 'authenticated':
+      return 'success';
+    case 'unauthenticated':
+      return 'warning';
+    case 'unavailable':
+    case 'error':
+      return 'error';
+    default:
+      return 'processing';
+  }
+}
+
+function getStatusLabel(
+  t: ReturnType<typeof useTranslation>['t'],
+  loginStatus: DroidStatusInfo['loginStatus']
+): string {
+  switch (loginStatus) {
+    case 'authenticated':
+      return t('settings.agentManagement.statusAuthenticated');
+    case 'unauthenticated':
+      return t('settings.agentManagement.statusUnauthenticated');
+    case 'unavailable':
+      return t('settings.agentManagement.statusUnavailable');
+    case 'error':
+    default:
+      return t('settings.agentManagement.statusError');
+  }
+}
+
+function getCliSourceLabel(t: ReturnType<typeof useTranslation>['t'], cliSource: DroidStatusInfo['cliSource']): string {
+  switch (cliSource) {
+    case 'bundled':
+      return t('settings.agentManagement.cliSourceBundled');
+    case 'custom':
+      return t('settings.agentManagement.cliSourceCustom');
+    case 'system':
+    default:
+      return t('settings.agentManagement.cliSourceSystem');
+  }
+}
+
+function getRuntimeLabel(
+  t: ReturnType<typeof useTranslation>['t'],
+  available: boolean | undefined,
+  isLoading: boolean,
+  hasError: boolean
+): string {
+  if (isLoading) {
+    return t('settings.agentManagement.runtimeChecking');
+  }
+
+  if (hasError) {
+    return t('settings.agentManagement.statusError');
+  }
+
+  return available ? t('settings.agentManagement.runtimeAvailable') : t('settings.agentManagement.runtimeUnavailable');
+}
+
+function getLoginLabel(
+  t: ReturnType<typeof useTranslation>['t'],
+  status: DroidStatusInfo['loginStatus'] | undefined,
+  available: boolean | undefined,
+  isLoading: boolean
+): string {
+  if (isLoading) {
+    return t('settings.agentManagement.runtimeChecking');
+  }
+
+  if (!available) {
+    return t('settings.agentManagement.loginStatusWaitingRuntime');
+  }
+
+  return getStatusLabel(t, status || 'error');
+}
+
+function getCardToneClass(tone: 'success' | 'warning' | 'error' | 'processing' | 'neutral'): string {
+  switch (tone) {
+    case 'success':
+      return 'border-success-3 bg-success-1';
+    case 'warning':
+      return 'border-warning-3 bg-warning-1';
+    case 'error':
+      return 'border-danger-3 bg-danger-1';
+    case 'processing':
+      return 'border-primary-3 bg-primary-1';
+    default:
+      return 'border-border-2 bg-aou-1';
+  }
+}
+
+function getRuntimeTone(
+  available: boolean | undefined,
+  isLoading: boolean,
+  hasError: boolean
+): 'success' | 'warning' | 'error' | 'processing' {
+  if (isLoading) {
+    return 'processing';
+  }
+
+  if (hasError) {
+    return 'error';
+  }
+
+  return available ? 'success' : 'warning';
+}
+
+function getLoginTone(
+  status: DroidStatusInfo['loginStatus'] | undefined,
+  available: boolean | undefined,
+  isLoading: boolean
+): 'success' | 'warning' | 'error' | 'processing' | 'neutral' {
+  if (isLoading) {
+    return 'processing';
+  }
+
+  if (!available) {
+    return 'neutral';
+  }
+
+  return getBadgeStatus(status || 'error');
+}
+
+function getUpdateRecommendation(
+  t: ReturnType<typeof useTranslation>['t'],
+  source: DroidCliUpdateInfo['source'] | DroidStatusInfo['cliSource'] | undefined
+): string | null {
+  switch (source) {
+    case 'bundled':
+      return t('settings.agentManagement.cliUpdateBundledAction');
+    case 'custom':
+      return t('settings.agentManagement.cliUpdateCustomAction');
+    case 'system':
+      return t('settings.agentManagement.cliUpdateSystemAction');
+    default:
+      return null;
+  }
+}
+
+function getCliUpdateAlert(
+  t: ReturnType<typeof useTranslation>['t'],
+  info: DroidCliUpdateInfo | null,
+  error: string | null
+): { type: 'success' | 'warning' | 'error' | 'info'; title: string; details: string[] } | null {
+  if (error) {
+    return {
+      type: 'error',
+      title: error,
+      details: [],
+    };
+  }
+
+  if (!info) {
+    return null;
+  }
+
+  const details = [
+    info.currentVersion
+      ? `${t('settings.agentManagement.currentCliVersion')}: ${info.currentVersion}`
+      : t('settings.agentManagement.cliUpdateLocalMissing'),
+    info.latestVersion ? `${t('settings.agentManagement.latestCliVersion')}: ${info.latestVersion}` : null,
+    info.registry ? `${t('settings.agentManagement.registrySource')}: ${info.registry}` : null,
+    getUpdateRecommendation(t, info.source),
+  ].filter((item): item is string => Boolean(item));
+
+  if (info.updateAvailable && info.currentVersion && info.latestVersion) {
+    return {
+      type: 'warning',
+      title: t('settings.agentManagement.cliUpdateAvailable', {
+        current: info.currentVersion,
+        latest: info.latestVersion,
+      }),
+      details,
+    };
+  }
+
+  if (info.currentVersion && info.latestVersion) {
+    return {
+      type: 'success',
+      title: t('settings.agentManagement.cliUpdateUpToDate', {
+        version: info.latestVersion,
+      }),
+      details,
+    };
+  }
+
+  return {
+    type: 'info',
+    title: t('settings.agentManagement.cliUpdateUnavailable'),
+    details,
+  };
+}
+
+const InfoCard: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  helper?: React.ReactNode;
+  tone?: 'success' | 'warning' | 'error' | 'processing' | 'neutral';
+  valueClassName?: string;
+  className?: string;
+}> = ({ label, value, helper, tone = 'neutral', valueClassName = '', className = '' }) => {
+  return (
+    <div
+      className={`flex min-h-0 flex-col gap-10px rounded-16px border border-solid px-16px py-14px ${getCardToneClass(tone)} ${className}`}
+    >
+      <Typography.Text className='text-12px text-t-secondary'>{label}</Typography.Text>
+      <div className={valueClassName}>{value}</div>
+      {helper ? <div className='text-12px leading-18px text-t-secondary'>{helper}</div> : null}
+    </div>
+  );
+};
 
 const LocalAgents: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [hubModalVisible, setHubModalVisible] = useState(false);
+  const droidName = t('settings.droidByok.factoryDroid');
+  const hasAutoCheckedRef = useRef(false);
+  const cachedStatus = readCache(localAgentsStatusCache, STATUS_CACHE_TTL_MS);
+  const cachedCliUpdate = readCache(localAgentsCliUpdateCache, CLI_UPDATE_CACHE_TTL_MS);
+  const [cliUpdateChecking, setCliUpdateChecking] = useState(false);
+  const [cliUpdateInfo, setCliUpdateInfo] = useState<DroidCliUpdateInfo | null>(() => cachedCliUpdate);
+  const [cliUpdateError, setCliUpdateError] = useState<string | null>(null);
+  const { data, error, isLoading, isValidating, mutate } = useSWR(
+    'acp.droid.status.settings',
+    async () => {
+      const result = await ipcBridge.acpConversation.getDroidStatus.invoke();
+      if (!result.success || !result.data) {
+        throw new Error(result.msg || t('settings.agentManagement.statusLoadFailed'));
+      }
 
-  // Detected agents (include built-in backends and extension-contributed agents, exclude user custom and remote)
-  const { data: detectedAgents } = useSWR('acp.agents.available.settings', async () => {
-    const result = await ipcBridge.acpConversation.getAvailableAgents.invoke();
-    if (result.success && result.data) {
-      return result.data.filter(
-        (agent) => agent.backend !== 'remote' && (agent.backend !== 'custom' || agent.isExtension)
-      );
+      return result.data;
+    },
+    {
+      fallbackData: cachedStatus || undefined,
+      revalidateOnFocus: false,
+      onSuccess: (status) => {
+        localAgentsStatusCache = {
+          data: status,
+          timestamp: Date.now(),
+        };
+      },
     }
-    return [];
-  });
-
-  // Custom agents
-  const { data: customAgents, mutate: mutateCustomAgents } = useSWR('acp.customAgents.settings', async () => {
-    const agents = await ConfigStorage.get('acp.customAgents');
-    return ((agents || []) as AcpBackendConfig[]).filter((a) => !a.isPreset);
-  });
-
-  const [editorVisible, setEditorVisible] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<AcpBackendConfig | null>(null);
-
-  const handleSaveCustomAgent = useCallback(
-    async (agent: AcpBackendConfig) => {
-      const current = (await ConfigStorage.get('acp.customAgents')) || [];
-      const existingIndex = (current as AcpBackendConfig[]).findIndex((a) => a.id === agent.id);
-      const updatedAgents =
-        existingIndex >= 0
-          ? (current as AcpBackendConfig[]).map((a, i) => (i === existingIndex ? agent : a))
-          : [...(current as AcpBackendConfig[]), agent];
-      await ConfigStorage.set('acp.customAgents', updatedAgents);
-      await mutateCustomAgents();
-      setEditorVisible(false);
-      setEditingAgent(null);
-    },
-    [mutateCustomAgents]
   );
 
-  const handleDeleteCustomAgent = useCallback(
-    async (agentId: string) => {
-      const current = (await ConfigStorage.get('acp.customAgents')) || [];
-      const agents = (current as AcpBackendConfig[]).filter((a) => a.id !== agentId || a.isPreset);
-      await ConfigStorage.set('acp.customAgents', agents);
-      await mutateCustomAgents();
-    },
-    [mutateCustomAgents]
+  const detailsMessage = error instanceof Error ? error.message : data?.error;
+  const bundledCliHint = data?.cliSource === 'bundled' ? t('settings.agentManagement.bundledRuntimeHint') : null;
+  const runtimeTone = getRuntimeTone(data?.available, isLoading, Boolean(error));
+  const loginTone = getLoginTone(data?.loginStatus, data?.available, isLoading);
+  const runtimeLabel = getRuntimeLabel(t, data?.available, isLoading, Boolean(error));
+  const loginLabel = getLoginLabel(t, data?.loginStatus, data?.available, isLoading);
+  const cliUpdateAlert = useMemo(
+    () => getCliUpdateAlert(t, cliUpdateInfo, cliUpdateError),
+    [cliUpdateError, cliUpdateInfo, t]
   );
 
-  const handleToggleCustomAgent = useCallback(
-    async (agentId: string, enabled: boolean) => {
-      const current = (await ConfigStorage.get('acp.customAgents')) || [];
-      const updatedAgents = (current as AcpBackendConfig[]).map((a) =>
-        a.id === agentId && !a.isPreset ? { ...a, enabled } : a
-      );
-      if (updatedAgents.some((a) => a.id === agentId && !a.isPreset)) {
-        await ConfigStorage.set('acp.customAgents', updatedAgents);
-        await mutateCustomAgents();
+  const runCliUpdateCheck = useCallback(
+    async ({
+      background = false,
+      silentOnLatest = false,
+      suppressErrorToast = false,
+      suppressErrorState = false,
+      persistNonUpdateResult = true,
+    }: {
+      background?: boolean;
+      silentOnLatest?: boolean;
+      suppressErrorToast?: boolean;
+      suppressErrorState?: boolean;
+      persistNonUpdateResult?: boolean;
+    } = {}) => {
+      if (!background) {
+        setCliUpdateChecking(true);
+      }
+      setCliUpdateError(null);
+
+      try {
+        const result = await new Promise<
+          Awaited<ReturnType<typeof ipcBridge.acpConversation.checkDroidCliUpdate.invoke>>
+        >((resolve, reject) => {
+          const timeoutId = window.setTimeout(() => {
+            reject(new Error(t('settings.agentManagement.cliUpdateCheckTimeout')));
+          }, CLI_UPDATE_CHECK_TIMEOUT_MS);
+
+          void ipcBridge.acpConversation.checkDroidCliUpdate
+            .invoke()
+            .then(resolve)
+            .catch(reject)
+            .finally(() => window.clearTimeout(timeoutId));
+        });
+
+        if (!result.success || !result.data) {
+          throw new Error(result.msg || t('settings.agentManagement.cliUpdateCheckFailed'));
+        }
+
+        if (result.data.updateAvailable || persistNonUpdateResult) {
+          localAgentsCliUpdateCache = {
+            data: result.data,
+            timestamp: Date.now(),
+          };
+        } else {
+          localAgentsCliUpdateCache = null;
+        }
+        setCliUpdateInfo(result.data.updateAvailable || persistNonUpdateResult ? result.data : null);
+        const alert = getCliUpdateAlert(t, result.data, null);
+        if (alert) {
+          if (alert.type === 'warning') {
+            Message.warning(alert.title);
+          } else if (!silentOnLatest) {
+            if (alert.type === 'success') {
+              Message.success(alert.title);
+            } else {
+              Message.info(alert.title);
+            }
+          }
+        }
+      } catch (checkError) {
+        const message =
+          checkError instanceof Error ? checkError.message : t('settings.agentManagement.cliUpdateCheckFailed');
+        if (!suppressErrorState) {
+          setCliUpdateInfo(null);
+          setCliUpdateError(message);
+        }
+        if (!suppressErrorToast) {
+          Message.error(message);
+        }
+      } finally {
+        if (!background) {
+          setCliUpdateChecking(false);
+        }
       }
     },
-    [mutateCustomAgents]
+    [t]
   );
 
-  // Aion CLI and Gemini CLI first among detected agents
-  const aionrsAgent = detectedAgents?.find((a) => a.backend === 'aionrs');
-  const geminiAgent = detectedAgents?.find((a) => a.backend === 'gemini');
-  const otherDetected = detectedAgents?.filter((a) => a.backend !== 'gemini' && a.backend !== 'aionrs') ?? [];
+  useEffect(() => {
+    if (hasAutoCheckedRef.current || cachedCliUpdate || isLoading || error || !data?.available || !data.cliVersion) {
+      return;
+    }
 
-  const openCustomAgentEditor = useCallback(() => {
-    setEditingAgent(null);
-    setEditorVisible(true);
-  }, []);
+    hasAutoCheckedRef.current = true;
+    void runCliUpdateCheck({
+      background: true,
+      silentOnLatest: true,
+      suppressErrorToast: true,
+      suppressErrorState: true,
+      persistNonUpdateResult: false,
+    });
+  }, [data?.available, data?.cliVersion, error, isLoading, runCliUpdateCheck]);
+
+  const handleCheckCliUpdate = async () => {
+    await runCliUpdateCheck();
+  };
 
   return (
-    <div className='flex flex-col gap-8px py-16px'>
-      <div className='px-16px text-12px text-t-secondary'>
-        <span>{t('settings.agentManagement.localAgentsDescription')} </span>
-        <Button
-          type='text'
-          size='mini'
-          className='!h-auto !p-0 !align-baseline !text-12px !font-normal !text-primary-6 hover:!text-primary-7 hover:!underline underline-offset-2'
-          onClick={openCustomAgentEditor}
-        >
-          {t('settings.agentManagement.detectCustomAgent')}
-        </Button>
-      </div>
-
-      {process.env.NODE_ENV === 'development' && (
-        <div className='px-16px mt-8px'>
-          <div className='flex flex-col gap-14px rounded-16px border border-solid border-[rgba(var(--primary-6),0.18)] bg-[rgba(var(--primary-6),0.06)] p-16px md:flex-row md:items-center md:justify-between'>
-            <div className='flex items-center gap-12px'>
-              <div className='flex h-40px w-40px items-center justify-center leading-none rounded-12px border border-solid border-[rgba(var(--primary-6),0.12)] bg-[rgba(var(--primary-6),0.10)] text-primary-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]'>
-                <Home theme='outline' size='20' strokeWidth={2} className='block' />
+    <div className='flex flex-col gap-16px px-16px py-16px'>
+      <div className='flex flex-col gap-16px rounded-20px border border-solid border-border-2 bg-2 p-16px md:p-20px'>
+        <div className='rounded-18px border border-solid border-border-2 bg-aou-1 px-18px py-18px md:px-20px md:py-20px'>
+          <div className='flex flex-col gap-18px xl:flex-row xl:items-start xl:justify-between'>
+            <div className='min-w-0 flex-1'>
+              <div className='flex min-w-0 items-start gap-14px'>
+                <div className='flex h-56px w-56px shrink-0 items-center justify-center rounded-16px border border-solid border-border-2 bg-2 p-10px'>
+                  <img src={DroidLogo} alt={droidName} className='h-full w-full object-contain' />
+                </div>
+                <div className='min-w-0 flex-1'>
+                  <Typography.Text className='block text-20px font-600 text-t-primary'>{droidName}</Typography.Text>
+                  <Typography.Text className='mt-6px block text-12px leading-18px text-t-secondary'>
+                    {t('settings.agentManagement.factoryDroidCardDescription')}
+                  </Typography.Text>
+                </div>
               </div>
-              <div className='min-w-0'>
-                <Typography.Text className='mb-4px block text-15px font-medium text-t-primary'>
-                  {t('settings.agentManagement.installFromMarket')}
-                </Typography.Text>
-                <Typography.Text className='block text-12px leading-18px text-t-secondary'>
-                  {t('settings.agentManagement.discoverMoreAgents')}
-                </Typography.Text>
+
+              <div className='mt-16px flex flex-wrap gap-8px'>
+                <span
+                  className={`inline-flex items-center rounded-full border border-solid px-10px py-5px text-12px font-500 ${getCardToneClass(runtimeTone)}`}
+                >
+                  {runtimeLabel}
+                </span>
+                <span
+                  className={`inline-flex items-center rounded-full border border-solid px-10px py-5px text-12px font-500 ${getCardToneClass(loginTone)}`}
+                >
+                  {loginLabel}
+                </span>
+                <span className='inline-flex items-center rounded-full border border-solid border-border-2 bg-2 px-10px py-5px text-12px font-500 text-t-primary'>
+                  {getCliSourceLabel(t, data?.cliSource || 'system')}
+                </span>
               </div>
             </div>
 
-            <Button
-              type='primary'
-              size='small'
-              icon={<Plus size='14' />}
-              className='!rounded-10px md:!min-w-144px'
-              onClick={() => setHubModalVisible(true)}
-            >
-              {t('settings.agentManagement.installFromMarket')}
-            </Button>
+            <div className='grid gap-12px sm:grid-cols-3 xl:min-w-360px xl:max-w-420px xl:flex-1'>
+              <InfoCard
+                label={t('settings.agentManagement.cliVersion')}
+                value={
+                  <Typography.Text className='text-20px font-600 leading-none text-t-primary'>
+                    {data?.cliVersion || '-'}
+                  </Typography.Text>
+                }
+                helper={data?.cliPath || '-'}
+              />
+              <InfoCard
+                label={t('settings.agentManagement.sdkVersion')}
+                value={
+                  <Typography.Text className='text-20px font-600 leading-none text-t-primary'>
+                    {data?.sdkVersion || '-'}
+                  </Typography.Text>
+                }
+              />
+              <InfoCard
+                label={t('settings.agentManagement.protocolVersion')}
+                value={
+                  <Typography.Text className='text-20px font-600 leading-none text-t-primary'>
+                    {data?.protocolVersion || '-'}
+                  </Typography.Text>
+                }
+              />
+            </div>
+          </div>
+
+          <div className='mt-16px grid gap-12px md:grid-cols-3'>
+            <InfoCard
+              label={t('settings.agentManagement.runtimeStatus')}
+              tone={runtimeTone}
+              value={
+                isLoading ? (
+                  <Spin />
+                ) : (
+                  <Typography.Text className='text-22px font-600 text-t-primary'>{runtimeLabel}</Typography.Text>
+                )
+              }
+              helper={detailsMessage || bundledCliHint || data?.cliPath || '-'}
+            />
+            <InfoCard
+              label={t('settings.agentManagement.loginStatus')}
+              tone={loginTone}
+              value={
+                isLoading ? (
+                  <Spin />
+                ) : (
+                  <Badge
+                    status={data?.available ? getBadgeStatus(data?.loginStatus || 'error') : 'default'}
+                    text={loginLabel}
+                  />
+                )
+              }
+              helper={
+                data?.available
+                  ? getCliSourceLabel(t, data?.cliSource || 'system')
+                  : t('settings.agentManagement.loginStatusWaitingRuntime')
+              }
+            />
+            <InfoCard
+              label={t('settings.agentManagement.modelCount')}
+              value={
+                <Typography.Text className='text-28px font-600 leading-none text-t-primary'>
+                  {data?.available ? (data?.modelCount ?? 0) : '--'}
+                </Typography.Text>
+              }
+              helper={data?.available ? t('settings.agentManagement.statusAuthenticated') : runtimeLabel}
+            />
           </div>
         </div>
-      )}
 
-      {/* Detected Agents section */}
-      <div className='px-16px mt-8px'>
-        <Typography.Text className='text-12px font-medium text-t-secondary mb-4px block'>
-          {t('settings.agentManagement.detected')}
-        </Typography.Text>
-      </div>
-      <div className='grid grid-cols-2 gap-10px px-16px md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'>
-        {aionrsAgent && (
-          <AgentCard
-            type='detected'
-            agent={aionrsAgent}
-            settingsDisabled={false}
-            onSettings={() => navigate('/settings/aionrs')}
-            variant='grid'
-          />
-        )}
-        {geminiAgent && (
-          <AgentCard
-            type='detected'
-            agent={geminiAgent}
-            settingsDisabled={false}
-            onSettings={() => navigate('/settings/gemini')}
-            variant='grid'
-          />
-        )}
-        {otherDetected.map((agent) => (
-          <AgentCard key={agent.backend} type='detected' agent={agent} variant='grid' />
-        ))}
-      </div>
-      {(!detectedAgents || detectedAgents.length === 0) && (
-        <Typography.Text type='secondary' className='block px-16px py-16px text-center text-12px'>
-          {t('settings.agentManagement.localAgentsEmpty')}
-        </Typography.Text>
-      )}
+        <div className='grid gap-16px xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]'>
+          <div className='rounded-18px border border-solid border-border-2 bg-aou-1 px-18px py-18px md:px-20px md:py-20px'>
+            <div className='flex flex-col gap-14px'>
+              <div>
+                <Typography.Text className='text-16px font-600 text-t-primary'>
+                  {t('settings.agentManagement.runtimeDetails')}
+                </Typography.Text>
+              </div>
 
-      {/* Custom Agents section */}
-      {(editorVisible || (customAgents && customAgents.length > 0)) && (
-        <div className='px-16px mt-16px'>
-          <Typography.Text className='text-12px font-medium text-t-secondary mb-4px block'>
-            {t('settings.agentManagement.customAgents', { defaultValue: 'Custom Agents' })}
-          </Typography.Text>
+              <div className='grid gap-10px'>
+                <InfoCard
+                  label={t('settings.agentManagement.cliSource')}
+                  value={
+                    <Typography.Text className='text-18px font-600 text-t-primary'>
+                      {getCliSourceLabel(t, data?.cliSource || 'system')}
+                    </Typography.Text>
+                  }
+                />
+                <InfoCard
+                  label={t('settings.agentManagement.cliPath')}
+                  value={
+                    <Typography.Text className='break-all text-14px leading-22px text-t-primary'>
+                      {data?.cliPath || '-'}
+                    </Typography.Text>
+                  }
+                />
+              </div>
+
+              {detailsMessage ? <Alert type='error' content={detailsMessage} /> : null}
+              {!detailsMessage && bundledCliHint ? <Alert type='info' content={bundledCliHint} /> : null}
+            </div>
+          </div>
+
+          <div className='rounded-18px border border-solid border-border-2 bg-aou-1 px-18px py-18px md:px-20px md:py-20px'>
+            <div className='flex h-full flex-col gap-14px'>
+              <Typography.Text className='text-16px font-600 text-t-primary'>
+                {t('settings.agentManagement.actionCenter')}
+              </Typography.Text>
+
+              <div className='flex flex-col gap-10px'>
+                <Button
+                  type='primary'
+                  icon={<Refresh theme='outline' size='14' />}
+                  loading={isValidating && !isLoading}
+                  onClick={() => void mutate()}
+                >
+                  {t('settings.agentManagement.refreshStatus')}
+                </Button>
+                <Button
+                  type='secondary'
+                  icon={<Refresh theme='outline' size='14' />}
+                  loading={cliUpdateChecking}
+                  onClick={() => void handleCheckCliUpdate()}
+                >
+                  {t('settings.agentManagement.checkCliUpdate')}
+                </Button>
+                <Button
+                  type='outline'
+                  icon={<Setting theme='outline' size='14' />}
+                  onClick={() => navigate('/settings/model')}
+                >
+                  {t('settings.agentManagement.openModelSettings')}
+                </Button>
+              </div>
+
+              {cliUpdateAlert ? (
+                <Alert
+                  type={cliUpdateAlert.type}
+                  content={
+                    <div className='flex flex-col gap-6px'>
+                      <Typography.Text className='text-13px font-600 text-t-primary'>
+                        {cliUpdateAlert.title}
+                      </Typography.Text>
+                      {cliUpdateAlert.details.map((item) => (
+                        <Typography.Text key={item} className='text-12px leading-18px text-t-secondary'>
+                          {item}
+                        </Typography.Text>
+                      ))}
+                    </div>
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
         </div>
-      )}
-
-      <AionModal
-        visible={editorVisible}
-        onCancel={() => {
-          setEditorVisible(false);
-          setEditingAgent(null);
-        }}
-        header={{
-          title: editingAgent
-            ? t('settings.agentManagement.editCustomAgent')
-            : t('settings.agentManagement.detectCustomAgent'),
-          showClose: true,
-        }}
-        footer={null}
-        style={{ maxWidth: '92vw', borderRadius: 16 }}
-        contentStyle={{ background: 'var(--bg-1)', borderRadius: 16, padding: '20px 24px 16px', overflow: 'auto' }}
-      >
-        <InlineAgentEditor
-          agent={editingAgent}
-          onSave={(agent) => void handleSaveCustomAgent(agent)}
-          onCancel={() => {
-            setEditorVisible(false);
-            setEditingAgent(null);
-          }}
-        />
-      </AionModal>
-
-      <div className='flex flex-col gap-4px px-0'>
-        {customAgents?.map((agent) => (
-          <AgentCard
-            key={agent.id}
-            type='custom'
-            agent={agent}
-            onEdit={() => {
-              setEditingAgent(agent);
-              setEditorVisible(true);
-            }}
-            onDelete={() => void handleDeleteCustomAgent(agent.id)}
-            onToggle={(enabled) => void handleToggleCustomAgent(agent.id, enabled)}
-          />
-        ))}
       </div>
-
-      <AgentHubModal visible={hubModalVisible} onCancel={() => setHubModalVisible(false)} />
     </div>
   );
 };

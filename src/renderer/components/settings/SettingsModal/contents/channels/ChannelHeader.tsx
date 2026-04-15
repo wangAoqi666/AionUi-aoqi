@@ -31,7 +31,7 @@ const ChannelHeader: React.FC<ChannelHeaderProps> = ({ channel, onToggleEnabled 
     discord: { src: ChannelDiscordLogo, alt: 'Discord' },
     weixin: { src: ChannelWeixinLogo, alt: 'WeChat' },
   };
-  const builtinLogo = channelLogoMap[channel.id];
+  const builtinLogo = channelLogoMap[channel.logoType || channel.id];
   // Extension channels may provide a custom icon via ChannelConfig
   // Resolve aion-asset:// or file:// URLs for the current environment
   const logoSrc = builtinLogo?.src || resolveExtensionAssetUrl(channel.icon);

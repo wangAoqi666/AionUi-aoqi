@@ -1,5 +1,6 @@
 import { ipcBridge } from '@/common';
 import type { IConfirmation } from '@/common/chat/chatLib';
+import MarkdownView from '@/renderer/components/Markdown';
 import { Divider, Typography } from '@arco-design/web-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -121,6 +122,7 @@ const TeamConfirmOverlay: React.FC<{
   if (!confirmations.length) return null;
 
   const confirmation = confirmations[0];
+  const isAskUserConfirmation = confirmation.interaction?.type === 'ask_user';
   const $t = (key: string, params?: Record<string, string>) => t(key, { ...params, defaultValue: key });
   const submitConfirmation = (currentConfirmation: StoredConfirmation, data: unknown) => {
     setConfirmations((prev) => prev.filter((p) => p.id !== currentConfirmation.id));
@@ -138,28 +140,36 @@ const TeamConfirmOverlay: React.FC<{
       style={{ zIndex: 1000, pointerEvents: 'none' }}
     >
       <div
-        className='relative p-16px bg-white flex flex-col overflow-hidden rd-20px max-w-800px max-h-[calc(100vh-200px)] w-full box-border mx-20px'
+        className='relative p-16px bg-white flex flex-col overflow-hidden rd-20px max-w-800px max-h-[calc(100vh-120px)] w-full box-border mx-20px'
         style={{
           boxShadow: '0px 2px 20px 0px rgba(74, 88, 250, 0.1)',
           pointerEvents: 'auto',
         }}
       >
-        <div className='flex-1 overflow-y-auto min-h-0'>
+        <div className={isAskUserConfirmation ? 'shrink-0' : 'flex-1 overflow-y-auto min-h-0'}>
           <Typography.Ellipsis className='text-16px font-bold color-[rgba(29,33,41,1)]' rows={2} expandable>
             {$t(confirmation.title) || 'Choose an action'}
           </Typography.Ellipsis>
           <Divider className={'!my-10px'} />
-          <Typography.Ellipsis className='text-14px color-[rgba(29,33,41,1)]' rows={5} expandable>
-            {$t(confirmation.description)}
-          </Typography.Ellipsis>
+          {confirmation.descriptionFormat === 'markdown' ? (
+            <div className='rounded-8px border border-[var(--border-base)] bg-[var(--bg-2)] p-12px max-h-360px overflow-auto'>
+              <MarkdownView className='text-13px'>{confirmation.description}</MarkdownView>
+            </div>
+          ) : (
+            <Typography.Ellipsis className='text-14px color-[rgba(29,33,41,1)]' rows={5} expandable>
+              {$t(confirmation.description)}
+            </Typography.Ellipsis>
+          )}
         </div>
         {confirmation.interaction?.type === 'ask_user' ? (
-          <AskUserConfirmCard
-            confirmation={confirmation}
-            onSubmit={(result: AskUserAnswerResult) => {
-              submitConfirmation(confirmation, result);
-            }}
-          />
+          <div className='min-h-0 flex-1 overflow-y-auto pr-4px'>
+            <AskUserConfirmCard
+              confirmation={confirmation}
+              onSubmit={(result: AskUserAnswerResult) => {
+                submitConfirmation(confirmation, result);
+              }}
+            />
+          </div>
         ) : (
           <div className='shrink-0'>
             {confirmation.options.map((option, index) => {

@@ -51,9 +51,11 @@ const AcpConfigSelector: React.FC<{
   compact?: boolean;
   /** Cached config options for immediate render (from DB or ConfigStorage) */
   initialConfigOptions?: unknown[];
+  /** Current session mode so Droid spec-only controls can be hidden outside spec mode */
+  selectedMode?: string;
   /** Local mode callback when user selects an option (Guid page) */
   onOptionSelect?: (configId: string, value: string) => void;
-}> = ({ conversationId, backend, compact = false, initialConfigOptions, onOptionSelect }) => {
+}> = ({ conversationId, backend, compact: _compact = false, initialConfigOptions, selectedMode, onOptionSelect }) => {
   const { t } = useTranslation();
   const [configOptions, setConfigOptions] = useState<AcpSessionConfigOption[]>(
     () => (Array.isArray(initialConfigOptions) ? initialConfigOptions : []) as AcpSessionConfigOption[]
@@ -61,47 +63,39 @@ const AcpConfigSelector: React.FC<{
 
   // Skip entirely for unsupported backends
   const isSupported = backend && CONFIG_OPTION_SUPPORTED_BACKENDS.has(backend);
-  const isConversationMode = Boolean(conversationId);
 
-  // Fetch config options on mount (conversation mode only)
-  useEffect(() => {
-    if (!isSupported || !conversationId) return;
-    let cancelled = false;
-    ipcBridge.acpConversation.getConfigOptions
+  const refreshConfigOptions = useCallback(() => {
+    if (!isSupported || !conversationId) {
+      return Promise.resolve();
+    }
+
+    return ipcBridge.acpConversation.getConfigOptions
       .invoke({ conversationId })
       .then((result) => {
-        if (cancelled) return;
         if (result.success && result.data?.configOptions) {
           setConfigOptions(result.data.configOptions);
           cacheConfigOptions(backend, result.data.configOptions);
         }
       })
       .catch(() => {});
+  }, [backend, conversationId, isSupported]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId, isSupported, backend]);
+  // Fetch config options on mount (conversation mode only)
+  useEffect(() => {
+    void refreshConfigOptions();
+  }, [refreshConfigOptions]);
 
   // Listen for config_option_update events from responseStream (conversation mode only)
   useEffect(() => {
     if (!isSupported || !conversationId) return;
     const handler = (message: IResponseMessage) => {
       if (message.conversation_id !== conversationId) return;
-      if (message.type === 'acp_model_info') {
-        ipcBridge.acpConversation.getConfigOptions
-          .invoke({ conversationId })
-          .then((result) => {
-            if (result.success && result.data?.configOptions) {
-              setConfigOptions(result.data.configOptions);
-              cacheConfigOptions(backend, result.data.configOptions);
-            }
-          })
-          .catch(() => {});
+      if (message.type === 'acp_model_info' || message.type === 'start') {
+        void refreshConfigOptions();
       }
     };
     return ipcBridge.acpConversation.responseStream.on(handler);
-  }, [conversationId, isSupported, backend]);
+  }, [conversationId, isSupported, refreshConfigOptions]);
 
   // Sync when initialConfigOptions prop changes (e.g. agent switch on Guid page)
   useEffect(() => {
@@ -150,13 +144,15 @@ const AcpConfigSelector: React.FC<{
 
   // Filter: only show select-type options,
   // exclude mode/model (handled by AgentModeSelector / AcpModelSelector)
+  const shouldShowDroidSpecOptions = backend !== 'droid' || selectedMode === 'spec';
   const selectOptions = configOptions.filter(
     (opt) =>
       opt.type === 'select' &&
       opt.options &&
       opt.options.length > 0 &&
       opt.category !== 'mode' &&
-      opt.category !== 'model'
+      opt.category !== 'model' &&
+      (shouldShowDroidSpecOptions || (opt.category !== 'spec-model' && opt.category !== 'spec-reasoning'))
   );
 
   // Don't render if no options available
@@ -166,17 +162,19 @@ const AcpConfigSelector: React.FC<{
     <>
       {selectOptions.map((option) => {
         const currentValue = option.currentValue || option.selectedValue;
+        const optionTitle = t(`acp.config.${option.id}`, { defaultValue: option.name || 'Options' });
         const currentLabel =
           option.options?.find((o) => o.value === currentValue)?.name ||
           currentValue ||
           t('acp.config.default', { defaultValue: 'Default' });
+        const buttonLabel = backend === 'droid' ? `${optionTitle} · ${currentLabel}` : currentLabel;
         const hasMultipleChoices = (option.options?.length || 0) > 1;
 
         if (!hasMultipleChoices) {
           return (
             <Button key={option.id} className='sendbox-model-btn agent-mode-compact-pill' shape='round' size='small'>
               <span className='flex items-center gap-6px min-w-0 leading-none'>
-                <MarqueePillLabel>{currentLabel}</MarqueePillLabel>
+                <MarqueePillLabel>{buttonLabel}</MarqueePillLabel>
               </span>
             </Button>
           );
@@ -188,7 +186,7 @@ const AcpConfigSelector: React.FC<{
             trigger='click'
             droplist={
               <Menu>
-                <Menu.ItemGroup title={t(`acp.config.${option.id}`, { defaultValue: option.name || 'Options' })}>
+                <Menu.ItemGroup title={optionTitle}>
                   {option.options?.map((choice) => (
                     <Menu.Item
                       key={choice.value}
@@ -209,7 +207,7 @@ const AcpConfigSelector: React.FC<{
           >
             <Button className='sendbox-model-btn agent-mode-compact-pill' shape='round' size='small'>
               <span className='flex items-center gap-6px min-w-0 leading-none'>
-                <MarqueePillLabel>{currentLabel}</MarqueePillLabel>
+                <MarqueePillLabel>{buttonLabel}</MarqueePillLabel>
                 <Down size={12} className='text-t-tertiary shrink-0' />
               </span>
             </Button>

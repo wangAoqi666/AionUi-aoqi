@@ -5,13 +5,19 @@
  */
 
 import { Divider, Typography, Button, Switch } from '@arco-design/web-react';
-import { Right } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import classNames from 'classnames';
 import { useSettingsViewMode } from '../settingsViewContext';
+import { ipcBridge } from '@/common';
 import { isElectronDesktop, openExternalUrl } from '@/renderer/utils/platform';
 import packageJson from '../../../../../../package.json';
+
+const openAboutUpdateModal = () => {
+  // 使用 window 自定义事件在渲染进程内部通信（buildEmitter 只支持主进程->渲染进程）
+  // Use window custom event for renderer-side communication (buildEmitter only works main->renderer)
+  window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'about' } }));
+};
 
 const AboutModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -19,11 +25,31 @@ const AboutModalContent: React.FC = () => {
   const isPageMode = viewMode === 'page';
   const isElectron = isElectronDesktop();
 
+  const [appVersion, setAppVersion] = useState(packageJson.version);
   const [includePrerelease, setIncludePrerelease] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('update.includePrerelease');
     setIncludePrerelease(saved === 'true');
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    ipcBridge.application.getVersion
+      .invoke()
+      .then((version) => {
+        if (!cancelled && version) {
+          setAppVersion(version);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to get app version:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handlePrereleaseChange = (val: boolean) => {
@@ -37,12 +63,6 @@ const AboutModalContent: React.FC = () => {
     } catch (error) {
       console.log('Failed to open link:', error);
     }
-  };
-
-  const checkUpdate = () => {
-    // 使用 window 自定义事件在渲染进程内部通信（buildEmitter 只支持主进程->渲染进程）
-    // Use window custom event for renderer-side communication (buildEmitter only works main->renderer)
-    window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'about' } }));
   };
 
   const linkItems: { title: string; url: string; icon: React.ReactNode }[] = [];
@@ -63,15 +83,13 @@ const AboutModalContent: React.FC = () => {
               智能体工厂
             </Typography.Title>
             <div className='flex items-center justify-center gap-8px mb-16px'>
-              <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>
-                v{packageJson.version}
-              </span>
+              <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>v{appVersion}</span>
             </div>
 
             {/* Check Update Section */}
             {isElectron && (
               <div className='flex flex-col items-center gap-12px w-full max-w-300px bg-fill-2 p-16px rounded-lg'>
-                <Button type='primary' long onClick={checkUpdate}>
+                <Button type='primary' long onClick={openAboutUpdateModal}>
                   {t('settings.checkForUpdates')}
                 </Button>
                 <div className='flex items-center justify-between w-full'>

@@ -2,6 +2,7 @@ import { ipcBridge } from '@/common';
 import { ConfigStorage } from '@/common/config/storage';
 import type { Message } from '@arco-design/web-react';
 import type { AcpBackendConfig } from '@/common/types/acpTypes';
+import { resolveAssistantPresetAgentType } from './assistantBackendOptions';
 import {
   hasBuiltinSkills,
   isExtensionAssistant as isExtensionAssistantUtil,
@@ -97,7 +98,7 @@ export const useAssistantEditor = ({
     setEditName(assistant.name || '');
     setEditDescription(assistant.description || '');
     setEditAvatar(assistant.avatar || '');
-    setEditAgent(assistant.presetAgentType || 'gemini');
+    setEditAgent(resolveAssistantPresetAgentType(assistant));
     setPendingSkills([]);
     setDeletePendingSkillName(null);
     setDeleteCustomSkillName(null);
@@ -175,7 +176,7 @@ export const useAssistantEditor = ({
     setEditName(`${assistant.nameI18n?.[localeKey] || assistant.name} (Copy)`);
     setEditDescription(assistant.descriptionI18n?.[localeKey] || assistant.description || '');
     setEditAvatar(assistant.avatar || '\u{1F916}');
-    setEditAgent(assistant.presetAgentType || 'gemini');
+    setEditAgent(resolveAssistantPresetAgentType(assistant));
     setPromptViewMode('edit');
     setEditVisible(true);
 

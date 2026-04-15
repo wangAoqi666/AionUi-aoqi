@@ -5,14 +5,10 @@
  */
 
 import type { IChannelPluginStatus } from '@process/channels/types';
-import type { IProvider, TProviderWithModel } from '@/common/config/storage';
 import { channel, webui, type IWebUIStatus } from '@/common/adapter/ipcBridge';
-import { ConfigStorage } from '@/common/config/storage';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
-import { useModelProviderList } from '@/renderer/hooks/agent/useModelProviderList';
-import type { GeminiModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection';
-import { useGeminiModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection';
-import { Input, InputNumber, Message, Select, Switch } from '@arco-design/web-react';
+import DroidChannelRuntimeSettings from '@/renderer/components/settings/DroidChannelRuntimeSettings';
+import { Button, Input, InputNumber, Message, Select, Switch } from '@arco-design/web-react';
 import { CheckOne } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -23,12 +19,6 @@ import DingTalkConfigForm from './DingTalkConfigForm';
 import LarkConfigForm from './LarkConfigForm';
 import TelegramConfigForm from './TelegramConfigForm';
 import WeixinConfigForm from './WeixinConfigForm';
-
-type ChannelModelConfigKey =
-  | 'assistant.telegram.defaultModel'
-  | 'assistant.lark.defaultModel'
-  | 'assistant.dingtalk.defaultModel'
-  | 'assistant.weixin.defaultModel';
 
 type ExtensionFieldType = 'text' | 'password' | 'select' | 'number' | 'boolean';
 
@@ -44,119 +34,26 @@ type ExtensionFieldSchema = {
 type ExtensionFieldValues = Record<string, Record<string, string | number | boolean>>;
 
 const BUILTIN_CHANNEL_TYPES = new Set(['telegram', 'lark', 'dingtalk', 'weixin', 'slack', 'discord']);
+const BUILTIN_INSTANCEABLE_PLATFORMS = ['telegram', 'lark', 'dingtalk', 'weixin'] as const;
+type BuiltinInstanceablePlatform = (typeof BUILTIN_INSTANCEABLE_PLATFORMS)[number];
 
-/**
- * Internal hook: wraps useGeminiModelSelection with ConfigStorage persistence
- * for a specific channel config key (e.g. 'assistant.telegram.defaultModel').
- *
- * Restoration is done by resolving the saved model reference into a full
- * TProviderWithModel and passing it as `initialModel` — this avoids triggering
- * the onSelectModel callback (and its toast) on mount.
- */
-const useChannelModelSelection = (configKey: ChannelModelConfigKey): GeminiModelSelection => {
-  const { t } = useTranslation();
-
-  // Resolve persisted model into a full TProviderWithModel for initialModel.
-  // useModelProviderList is SWR-backed so the duplicate call inside
-  // useGeminiModelSelection is deduplicated automatically.
-  const { providers } = useModelProviderList();
-  const [resolvedInitialModel, setResolvedInitialModel] = useState<TProviderWithModel | undefined>(undefined);
-  const [restored, setRestored] = useState(false);
-  const retryCountRef = useRef(0);
-
-  // Cap retries to prevent infinite re-runs when a saved provider ID is stale
-  // (e.g. provider deleted, or agent switched to a non-gemini backend like iflow).
-  // The Google Auth provider typically loads within 1-2 SWR cycles, so 5 is generous.
-  const MAX_RESTORE_RETRIES = 5;
-
-  useEffect(() => {
-    if (restored || providers.length === 0) return;
-
-    const restore = async () => {
-      try {
-        const saved = (await ConfigStorage.get(configKey)) as { id: string; useModel: string } | undefined;
-        if (!saved?.id || !saved?.useModel) {
-          // Nothing saved — mark restored so we don't keep retrying
-          setRestored(true);
-          return;
-        }
-
-        const provider = providers.find((p) => p.id === saved.id);
-        if (!provider) {
-          retryCountRef.current += 1;
-          if (retryCountRef.current >= MAX_RESTORE_RETRIES) {
-            // Provider is permanently missing — give up to avoid infinite retries
-            setRestored(true);
-          }
-          // The Google Auth provider may load after API-key providers;
-          // leaving restored=false lets this effect re-run when providers update.
-          return;
-        }
-
-        // Google Auth provider's model array only contains top-level modes
-        // ('auto', 'auto-gemini-2.5', 'manual'), but sub-model values like
-        // 'gemini-2.5-flash' are also valid — skip strict membership check.
-        const isGoogleAuth = provider.platform?.toLowerCase().includes('gemini-with-google-auth');
-        if (isGoogleAuth || provider.model?.includes(saved.useModel)) {
-          setResolvedInitialModel({
-            ...provider,
-            useModel: saved.useModel,
-          } as TProviderWithModel);
-        }
-        setRestored(true);
-      } catch (error) {
-        console.error(`[ChannelSettings] Failed to restore model for ${configKey}:`, error);
-        setRestored(true);
-      }
-    };
-
-    void restore();
-  }, [configKey, providers, restored]);
-
-  // Only called on explicit user selection — not during restoration
-  const onSelectModel = useCallback(
-    async (provider: IProvider, modelName: string) => {
-      try {
-        const modelRef = { id: provider.id, useModel: modelName };
-        await ConfigStorage.set(configKey, modelRef);
-
-        // Derive platform from configKey and sync to channel system
-        const platform = configKey.replace('assistant.', '').replace('.defaultModel', '') as
-          | 'telegram'
-          | 'lark'
-          | 'dingtalk'
-          | 'weixin';
-        const agentKey = `assistant.${platform}.agent` as const;
-        const currentAgent = await ConfigStorage.get(agentKey);
-        await channel.syncChannelSettings
-          .invoke({
-            platform,
-            agent: (currentAgent as {
-              backend: string;
-              customAgentId?: string;
-              name?: string;
-            }) || {
-              backend: 'gemini',
-            },
-            model: modelRef,
-          })
-          .catch((err) => console.warn(`[ChannelSettings] syncChannelSettings failed for ${platform}:`, err));
-
-        Message.success(t('settings.assistant.modelSwitched', 'Model switched successfully'));
-        return true;
-      } catch (error) {
-        console.error(`[ChannelSettings] Failed to save model for ${configKey}:`, error);
-        Message.error(t('settings.assistant.modelSaveFailed', 'Failed to save model'));
-        return false;
-      }
-    },
-    [configKey, t]
-  );
-
-  return useGeminiModelSelection({
-    initialModel: resolvedInitialModel,
-    onSelectModel,
-  });
+const CHANNEL_COPY: Record<BuiltinInstanceablePlatform, { title: string; desc: string }> = {
+  telegram: {
+    title: 'Telegram',
+    desc: 'Chat with 智能体工厂 assistant via Telegram',
+  },
+  lark: {
+    title: 'Lark / Feishu',
+    desc: 'Chat with 智能体工厂 assistant via Lark or Feishu',
+  },
+  dingtalk: {
+    title: 'DingTalk',
+    desc: 'Chat with 智能体工厂 assistant via DingTalk',
+  },
+  weixin: {
+    title: 'WeChat',
+    desc: 'Chat with 智能体工厂 assistant via WeChat',
+  },
 };
 
 /**
@@ -168,75 +65,48 @@ const ChannelModalContent: React.FC = () => {
   const isPageMode = viewMode === 'page';
 
   // Plugin state
-  const [pluginStatus, setPluginStatus] = useState<IChannelPluginStatus | null>(null);
-  const [larkPluginStatus, setLarkPluginStatus] = useState<IChannelPluginStatus | null>(null);
-  const [dingtalkPluginStatus, setDingtalkPluginStatus] = useState<IChannelPluginStatus | null>(null);
-  const [weixinPluginStatus, setWeixinPluginStatus] = useState<IChannelPluginStatus | null>(null);
-  const [enableLoading, setEnableLoading] = useState(false);
-  const [larkEnableLoading, setLarkEnableLoading] = useState(false);
-  const [dingtalkEnableLoading, setDingtalkEnableLoading] = useState(false);
-  const [weixinEnableLoading, setWeixinEnableLoading] = useState(false);
-  const [extensionStatuses, setExtensionStatuses] = useState<Record<string, IChannelPluginStatus>>({});
+  const [pluginStatuses, setPluginStatuses] = useState<Record<string, IChannelPluginStatus>>({});
+  const [pluginLoadingMap, setPluginLoadingMap] = useState<Record<string, boolean>>({});
+  const [createLoadingMap, setCreateLoadingMap] = useState<Record<string, boolean>>({});
   const [extensionLoadingMap, setExtensionLoadingMap] = useState<Record<string, boolean>>({});
   const [extensionFieldValues, setExtensionFieldValues] = useState<ExtensionFieldValues>({});
   const [webuiStatus, setWebuiStatus] = useState<IWebUIStatus | null>(null);
 
-  // Track the token entered in TelegramConfigForm so the toggle handler can use it
-  const telegramTokenRef = React.useRef<string>('');
+  // Track the token entered in each TelegramConfigForm so the toggle handler can use it
+  const telegramTokenRef = useRef<Record<string, string>>({});
 
   // Collapse state - true means collapsed (closed), false means expanded (open)
-  const [collapseKeys, setCollapseKeys] = useState<Record<string, boolean>>({
-    telegram: true, // Default to collapsed
-    slack: true,
-    discord: true,
-    lark: true,
-    dingtalk: true,
-    weixin: true,
-  });
-
-  // Model selection state — uses unified hook with ConfigStorage persistence
-  const telegramModelSelection = useChannelModelSelection('assistant.telegram.defaultModel');
-  const larkModelSelection = useChannelModelSelection('assistant.lark.defaultModel');
-  const dingtalkModelSelection = useChannelModelSelection('assistant.dingtalk.defaultModel');
-  const weixinModelSelection = useChannelModelSelection('assistant.weixin.defaultModel');
+  const [collapseKeys, setCollapseKeys] = useState<Record<string, boolean>>({});
 
   // Load plugin status
   const loadPluginStatus = useCallback(async () => {
     try {
       const result = await channel.getPluginStatus.invoke();
       if (result.success && result.data) {
-        const telegramPlugin = result.data.find((p) => p.type === 'telegram');
-        const larkPlugin = result.data.find((p) => p.type === 'lark');
-        const dingtalkPlugin = result.data.find((p) => p.type === 'dingtalk');
-        const weixinPlugin = result.data.find((p) => p.type === 'weixin');
-        const extensionPlugins = result.data.filter((p) => !BUILTIN_CHANNEL_TYPES.has(p.type));
-
-        setPluginStatus(telegramPlugin || null);
-        setLarkPluginStatus(larkPlugin || null);
-        setDingtalkPluginStatus(dingtalkPlugin || null);
-        setWeixinPluginStatus(weixinPlugin || null);
-        setExtensionStatuses(() => {
-          const next: Record<string, IChannelPluginStatus> = {};
-          for (const plugin of extensionPlugins) {
-            next[plugin.type] = plugin;
-          }
-          return next;
-        });
-
+        setPluginStatuses(Object.fromEntries(result.data.map((status) => [status.id, status])));
         setExtensionFieldValues((prev) => {
           const next: ExtensionFieldValues = { ...prev };
-          for (const plugin of extensionPlugins) {
+          for (const plugin of result.data.filter((status) => status.isExtension)) {
             const fields = [
               ...(plugin.extensionMeta?.credentialFields || []),
               ...(plugin.extensionMeta?.configFields || []),
             ] as ExtensionFieldSchema[];
-            if (!next[plugin.type]) {
-              next[plugin.type] = {};
+            if (!next[plugin.id]) {
+              next[plugin.id] = {};
             }
             for (const field of fields) {
-              if (next[plugin.type][field.key] === undefined && field.default !== undefined) {
-                next[plugin.type][field.key] = field.default;
+              if (next[plugin.id][field.key] === undefined && field.default !== undefined) {
+                next[plugin.id][field.key] = field.default;
               }
+            }
+          }
+          return next;
+        });
+        setCollapseKeys((prev) => {
+          const next = { ...prev };
+          for (const status of result.data) {
+            if (next[status.id] === undefined) {
+              next[status.id] = true;
             }
           }
           return next;
@@ -266,26 +136,62 @@ const ChannelModalContent: React.FC = () => {
     void loadWebuiStatus();
   }, []);
 
+  const updatePluginStatus = useCallback((pluginId: string, nextStatus: IChannelPluginStatus | null) => {
+    setPluginStatuses((prev) => {
+      if (nextStatus) {
+        return {
+          ...prev,
+          [pluginId]: nextStatus,
+        };
+      }
+
+      const existing = prev[pluginId];
+      if (!existing) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [pluginId]: {
+          ...existing,
+          enabled: false,
+          connected: false,
+          status: 'stopped',
+          error: undefined,
+        },
+      };
+    });
+  }, []);
+
   // Listen for plugin status changes
   useEffect(() => {
     const unsubscribe = channel.pluginStatusChanged.on(({ status }) => {
-      if (status.type === 'telegram') {
-        setPluginStatus(status);
-      } else if (status.type === 'lark') {
-        setLarkPluginStatus(status);
-      } else if (status.type === 'dingtalk') {
-        setDingtalkPluginStatus(status);
-      } else if (status.type === 'weixin') {
-        setWeixinPluginStatus(status);
-      } else if (!BUILTIN_CHANNEL_TYPES.has(status.type)) {
-        setExtensionStatuses((prev) => ({
-          ...prev,
-          [status.type]: {
-            ...prev[status.type],
-            ...status,
-            extensionMeta: status.extensionMeta || prev[status.type]?.extensionMeta,
-          },
-        }));
+      setPluginStatuses((prev) => ({
+        ...prev,
+        [status.id]: {
+          ...prev[status.id],
+          ...status,
+          extensionMeta: status.extensionMeta || prev[status.id]?.extensionMeta,
+        },
+      }));
+      setCollapseKeys((prev) =>
+        prev[status.id] === undefined
+          ? {
+              ...prev,
+              [status.id]: true,
+            }
+          : prev
+      );
+      if (!BUILTIN_CHANNEL_TYPES.has(status.type)) {
+        setExtensionFieldValues((prev) => {
+          if (prev[status.id]) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [status.id]: {},
+          };
+        });
       }
     });
     return () => unsubscribe();
@@ -299,189 +205,191 @@ const ChannelModalContent: React.FC = () => {
     }));
   };
 
-  // Enable/Disable plugin
-  const handleTogglePlugin = async (enabled: boolean) => {
-    setEnableLoading(true);
-    try {
-      if (enabled) {
-        // Check if we have a token - either saved in database or entered in the form
-        const pendingToken = telegramTokenRef.current.trim();
-        if (!pluginStatus?.hasToken && !pendingToken) {
-          Message.warning(t('settings.assistant.tokenRequired', 'Please enter a bot token first'));
-          setEnableLoading(false);
+  const handleToggleBuiltinPlugin = useCallback(
+    async (pluginId: string, enabled: boolean) => {
+      const status = pluginStatuses[pluginId];
+      if (!status) {
+        return;
+      }
+
+      setPluginLoadingMap((prev) => ({ ...prev, [pluginId]: true }));
+      try {
+        if (enabled) {
+          let result:
+            | {
+                success: boolean;
+                msg?: string;
+              }
+            | undefined;
+
+          if (status.type === 'telegram') {
+            const pendingToken = telegramTokenRef.current[pluginId]?.trim() || '';
+            if (!status.hasToken && !pendingToken) {
+              Message.warning(t('settings.assistant.tokenRequired', 'Please enter a bot token first'));
+              return;
+            }
+            result = await channel.enablePlugin.invoke({
+              pluginId,
+              config: pendingToken ? { token: pendingToken } : {},
+            });
+          } else if (status.type === 'lark') {
+            if (!status.hasToken) {
+              Message.warning(t('settings.lark.credentialsRequired', 'Please configure Lark credentials first'));
+              return;
+            }
+            result = await channel.enablePlugin.invoke({
+              pluginId,
+              config: {},
+            });
+          } else if (status.type === 'dingtalk') {
+            if (!status.hasToken) {
+              Message.warning(
+                t('settings.dingtalk.credentialsRequired', 'Please configure DingTalk credentials first')
+              );
+              return;
+            }
+            result = await channel.enablePlugin.invoke({
+              pluginId,
+              config: {},
+            });
+          } else if (status.type === 'weixin') {
+            if (!status.hasToken) {
+              Message.warning(t('settings.weixin.loginRequired', 'Please login with WeChat QR code first'));
+              return;
+            }
+            result = await channel.enablePlugin.invoke({
+              pluginId,
+              config: {},
+            });
+          }
+
+          if (result?.success) {
+            const messageKey =
+              status.type === 'telegram'
+                ? t('settings.assistant.pluginEnabled', 'Telegram bot enabled')
+                : status.type === 'lark'
+                  ? t('settings.lark.pluginEnabled', 'Lark bot enabled')
+                  : status.type === 'dingtalk'
+                    ? t('settings.dingtalk.pluginEnabled', 'DingTalk bot enabled')
+                    : t('settings.weixin.pluginEnabled', 'WeChat channel enabled');
+            Message.success(messageKey);
+            await loadPluginStatus();
+          } else {
+            const errorMessage =
+              result?.msg ||
+              (status.type === 'telegram'
+                ? t('settings.assistant.enableFailed', 'Failed to enable plugin')
+                : status.type === 'lark'
+                  ? t('settings.lark.enableFailed', 'Failed to enable Lark plugin')
+                  : status.type === 'dingtalk'
+                    ? t('settings.dingtalk.enableFailed', 'Failed to enable DingTalk plugin')
+                    : t('settings.weixin.enableFailed', 'Failed to enable WeChat plugin'));
+            Message.error(errorMessage);
+          }
           return;
         }
 
-        const result = await channel.enablePlugin.invoke({
-          pluginId: 'telegram_default',
-          config: pendingToken ? { token: pendingToken } : {},
-        });
-
-        if (result.success) {
-          Message.success(t('settings.assistant.pluginEnabled', 'Telegram bot enabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.assistant.enableFailed', 'Failed to enable plugin'));
-        }
-      } else {
         const result = await channel.disablePlugin.invoke({
-          pluginId: 'telegram_default',
+          pluginId,
         });
 
         if (result.success) {
-          Message.success(t('settings.assistant.pluginDisabled', 'Telegram bot disabled'));
+          const messageKey =
+            status.type === 'telegram'
+              ? t('settings.assistant.pluginDisabled', 'Telegram bot disabled')
+              : status.type === 'lark'
+                ? t('settings.lark.pluginDisabled', 'Lark bot disabled')
+                : status.type === 'dingtalk'
+                  ? t('settings.dingtalk.pluginDisabled', 'DingTalk bot disabled')
+                  : t('settings.weixin.pluginDisabled', 'WeChat channel disabled');
+          Message.success(messageKey);
           await loadPluginStatus();
         } else {
-          Message.error(result.msg || t('settings.assistant.disableFailed', 'Failed to disable plugin'));
+          const errorMessage =
+            result.msg ||
+            (status.type === 'telegram'
+              ? t('settings.assistant.disableFailed', 'Failed to disable plugin')
+              : status.type === 'lark'
+                ? t('settings.assistant.disableFailed', 'Failed to disable plugin')
+                : status.type === 'dingtalk'
+                  ? t('settings.dingtalk.disableFailed', 'Failed to disable DingTalk plugin')
+                  : t('settings.weixin.disableFailed', 'Failed to disable WeChat plugin'));
+          Message.error(errorMessage);
         }
+      } catch (error: any) {
+        Message.error(error.message || String(error));
+      } finally {
+        setPluginLoadingMap((prev) => ({ ...prev, [pluginId]: false }));
       }
-    } catch (error: any) {
-      Message.error(error.message);
-    } finally {
-      setEnableLoading(false);
-    }
-  };
+    },
+    [loadPluginStatus, pluginStatuses, t]
+  );
 
-  // Enable/Disable Lark plugin
-  const handleToggleLarkPlugin = async (enabled: boolean) => {
-    setLarkEnableLoading(true);
-    try {
-      if (enabled) {
-        // Check if we have credentials - already saved in database
-        if (!larkPluginStatus?.hasToken) {
-          Message.warning(t('settings.lark.credentialsRequired', 'Please configure Lark credentials first'));
-          setLarkEnableLoading(false);
-          return;
-        }
-
-        const result = await channel.enablePlugin.invoke({
-          pluginId: 'lark_default',
-          config: {},
-        });
-
+  const handleCreatePluginInstance = useCallback(
+    async (platform: BuiltinInstanceablePlatform) => {
+      setCreateLoadingMap((prev) => ({
+        ...prev,
+        [platform]: true,
+      }));
+      try {
+        const result = await channel.createPluginInstance.invoke({ platform });
         if (result.success) {
-          Message.success(t('settings.lark.pluginEnabled', 'Lark bot enabled'));
+          const createdPluginId =
+            result.data && typeof result.data === 'object' && 'pluginId' in result.data
+              ? String((result.data as { pluginId?: unknown }).pluginId || '')
+              : '';
           await loadPluginStatus();
+          if (createdPluginId) {
+            setCollapseKeys((prev) => ({
+              ...prev,
+              [createdPluginId]: false,
+            }));
+          }
+          Message.success(
+            t('settings.channels.instanceCreated', {
+              defaultValue: 'Created {{channel}} instance',
+              channel: CHANNEL_COPY[platform].title,
+            })
+          );
         } else {
-          Message.error(result.msg || t('settings.lark.enableFailed', 'Failed to enable Lark plugin'));
+          Message.error(
+            result.msg ||
+              t('settings.channels.instanceCreateFailed', {
+                defaultValue: 'Failed to create channel instance',
+              })
+          );
         }
-      } else {
-        const result = await channel.disablePlugin.invoke({
-          pluginId: 'lark_default',
-        });
-
-        if (result.success) {
-          Message.success(t('settings.lark.pluginDisabled', 'Lark bot disabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.assistant.disableFailed', 'Failed to disable plugin'));
-        }
+      } catch (error: any) {
+        Message.error(error.message || String(error));
+      } finally {
+        setCreateLoadingMap((prev) => ({
+          ...prev,
+          [platform]: false,
+        }));
       }
-    } catch (error: any) {
-      Message.error(error.message);
-    } finally {
-      setLarkEnableLoading(false);
-    }
-  };
+    },
+    [loadPluginStatus, t]
+  );
 
-  // Enable/Disable DingTalk plugin
-  const handleToggleDingtalkPlugin = async (enabled: boolean) => {
-    setDingtalkEnableLoading(true);
-    try {
-      if (enabled) {
-        if (!dingtalkPluginStatus?.hasToken) {
-          Message.warning(t('settings.dingtalk.credentialsRequired', 'Please configure DingTalk credentials first'));
-          setDingtalkEnableLoading(false);
-          return;
-        }
-
-        const result = await channel.enablePlugin.invoke({
-          pluginId: 'dingtalk_default',
-          config: {},
-        });
-
-        if (result.success) {
-          Message.success(t('settings.dingtalk.pluginEnabled', 'DingTalk bot enabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.dingtalk.enableFailed', 'Failed to enable DingTalk plugin'));
-        }
-      } else {
-        const result = await channel.disablePlugin.invoke({
-          pluginId: 'dingtalk_default',
-        });
-
-        if (result.success) {
-          Message.success(t('settings.dingtalk.pluginDisabled', 'DingTalk bot disabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.dingtalk.disableFailed', 'Failed to disable DingTalk plugin'));
-        }
-      }
-    } catch (error: any) {
-      Message.error(error.message);
-    } finally {
-      setDingtalkEnableLoading(false);
-    }
-  };
-
-  // Enable/Disable WeChat plugin
-  const handleToggleWeixinPlugin = async (enabled: boolean) => {
-    setWeixinEnableLoading(true);
-    try {
-      if (enabled) {
-        if (!weixinPluginStatus?.hasToken) {
-          Message.warning(t('settings.weixin.loginRequired', 'Please login with WeChat QR code first'));
-          setWeixinEnableLoading(false);
-          return;
-        }
-        const result = await channel.enablePlugin.invoke({
-          pluginId: 'weixin_default',
-          config: {},
-        });
-        if (result.success) {
-          Message.success(t('settings.weixin.pluginEnabled', 'WeChat channel enabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.weixin.enableFailed', 'Failed to enable WeChat plugin'));
-        }
-      } else {
-        const result = await channel.disablePlugin.invoke({
-          pluginId: 'weixin_default',
-        });
-        if (result.success) {
-          Message.success(t('settings.weixin.pluginDisabled', 'WeChat channel disabled'));
-          await loadPluginStatus();
-        } else {
-          Message.error(result.msg || t('settings.weixin.disableFailed', 'Failed to disable WeChat plugin'));
-        }
-      }
-    } catch (error: any) {
-      Message.error(error.message);
-    } finally {
-      setWeixinEnableLoading(false);
-    }
-  };
-
-  const updateExtensionFieldValue = useCallback((pluginType: string, key: string, value: string | number | boolean) => {
+  const updateExtensionFieldValue = useCallback((pluginId: string, key: string, value: string | number | boolean) => {
     setExtensionFieldValues((prev) => ({
       ...prev,
-      [pluginType]: {
-        ...prev[pluginType],
+      [pluginId]: {
+        ...prev[pluginId],
         [key]: value,
       },
     }));
   }, []);
 
   const handleToggleExtensionPlugin = useCallback(
-    async (pluginType: string, enabled: boolean) => {
-      const status = extensionStatuses[pluginType];
+    async (pluginId: string, enabled: boolean) => {
+      const status = pluginStatuses[pluginId];
       if (!status) return;
 
-      setExtensionLoadingMap((prev) => ({ ...prev, [pluginType]: true }));
+      setExtensionLoadingMap((prev) => ({ ...prev, [pluginId]: true }));
       try {
         if (enabled) {
-          const fieldValues = extensionFieldValues[pluginType] || {};
+          const fieldValues = extensionFieldValues[pluginId] || {};
           const credentialFields = (status.extensionMeta?.credentialFields || []) as ExtensionFieldSchema[];
           const missingField = credentialFields.find((field) => {
             if (!field.required) return false;
@@ -501,7 +409,7 @@ const ChannelModalContent: React.FC = () => {
           }
 
           const result = await channel.enablePlugin.invoke({
-            pluginId: status.id || pluginType,
+            pluginId,
             config: fieldValues,
           });
 
@@ -522,7 +430,7 @@ const ChannelModalContent: React.FC = () => {
           }
         } else {
           const result = await channel.disablePlugin.invoke({
-            pluginId: status.id || pluginType,
+            pluginId,
           });
           if (result.success) {
             Message.success(
@@ -543,20 +451,21 @@ const ChannelModalContent: React.FC = () => {
       } catch (error: any) {
         Message.error(error.message || String(error));
       } finally {
-        setExtensionLoadingMap((prev) => ({ ...prev, [pluginType]: false }));
+        setExtensionLoadingMap((prev) => ({ ...prev, [pluginId]: false }));
       }
     },
-    [extensionStatuses, extensionFieldValues, t, loadPluginStatus]
+    [extensionFieldValues, loadPluginStatus, pluginStatuses, t]
   );
 
   const renderExtensionConfigForm = useCallback(
     (status: IChannelPluginStatus) => {
+      const pluginId = status.id;
       const pluginType = status.type;
       const fields = [
         ...((status.extensionMeta?.credentialFields || []) as ExtensionFieldSchema[]),
         ...((status.extensionMeta?.configFields || []) as ExtensionFieldSchema[]),
       ];
-      const values = extensionFieldValues[pluginType] || {};
+      const values = extensionFieldValues[pluginId] || {};
       const callbackPath = '/ext-wecom-bot/webhook';
       const localCallbackUrl = webuiStatus?.localUrl
         ? `${webuiStatus.localUrl}${callbackPath}`
@@ -600,11 +509,11 @@ const ChannelModalContent: React.FC = () => {
 
             if (field.type === 'boolean') {
               return (
-                <div key={`${pluginType}-${field.key}`} className='flex items-center justify-between'>
+                <div key={`${pluginId}-${field.key}`} className='flex items-center justify-between'>
                   <span className='text-13px text-t-primary'>{label}</span>
                   <Switch
                     checked={Boolean(rawValue)}
-                    onChange={(checked) => updateExtensionFieldValue(pluginType, field.key, checked)}
+                    onChange={(checked) => updateExtensionFieldValue(pluginId, field.key, checked)}
                   />
                 </div>
               );
@@ -612,11 +521,11 @@ const ChannelModalContent: React.FC = () => {
 
             if (field.type === 'number') {
               return (
-                <div key={`${pluginType}-${field.key}`} className='space-y-6px'>
+                <div key={`${pluginId}-${field.key}`} className='space-y-6px'>
                   <div className='text-13px text-t-primary'>{label}</div>
                   <InputNumber
                     value={typeof rawValue === 'number' ? rawValue : undefined}
-                    onChange={(value) => updateExtensionFieldValue(pluginType, field.key, Number(value || 0))}
+                    onChange={(value) => updateExtensionFieldValue(pluginId, field.key, Number(value || 0))}
                     className='w-full'
                   />
                 </div>
@@ -625,7 +534,7 @@ const ChannelModalContent: React.FC = () => {
 
             if (field.type === 'select') {
               return (
-                <div key={`${pluginType}-${field.key}`} className='space-y-6px'>
+                <div key={`${pluginId}-${field.key}`} className='space-y-6px'>
                   <div className='text-13px text-t-primary'>{label}</div>
                   <Select
                     value={typeof rawValue === 'string' ? rawValue : undefined}
@@ -633,7 +542,7 @@ const ChannelModalContent: React.FC = () => {
                       label: option,
                       value: option,
                     }))}
-                    onChange={(value) => updateExtensionFieldValue(pluginType, field.key, String(value))}
+                    onChange={(value) => updateExtensionFieldValue(pluginId, field.key, String(value))}
                     placeholder={t('settings.channels.extension.selectPlaceholder', { defaultValue: 'Please select' })}
                     allowClear
                   />
@@ -642,11 +551,11 @@ const ChannelModalContent: React.FC = () => {
             }
 
             return (
-              <div key={`${pluginType}-${field.key}`} className='space-y-6px'>
+              <div key={`${pluginId}-${field.key}`} className='space-y-6px'>
                 <div className='text-13px text-t-primary'>{label}</div>
                 <Input
                   value={typeof rawValue === 'string' ? rawValue : ''}
-                  onChange={(value) => updateExtensionFieldValue(pluginType, field.key, value)}
+                  onChange={(value) => updateExtensionFieldValue(pluginId, field.key, value)}
                   placeholder={field.label}
                   type={field.type === 'password' ? 'password' : 'text'}
                 />
@@ -659,88 +568,127 @@ const ChannelModalContent: React.FC = () => {
     [extensionFieldValues, t, updateExtensionFieldValue, webuiStatus]
   );
 
+  const getBuiltinTitle = useCallback(
+    (platform: BuiltinInstanceablePlatform) =>
+      platform === 'telegram'
+        ? t('settings.channels.telegramTitle', CHANNEL_COPY.telegram.title)
+        : platform === 'lark'
+          ? t('settings.channels.larkTitle', CHANNEL_COPY.lark.title)
+          : platform === 'dingtalk'
+            ? t('settings.channels.dingtalkTitle', CHANNEL_COPY.dingtalk.title)
+            : t('settings.channels.weixinTitle', CHANNEL_COPY.weixin.title),
+    [t]
+  );
+
+  const getBuiltinDescription = useCallback(
+    (platform: BuiltinInstanceablePlatform) =>
+      platform === 'telegram'
+        ? t('settings.channels.telegramDesc', CHANNEL_COPY.telegram.desc)
+        : platform === 'lark'
+          ? t('settings.channels.larkDesc', CHANNEL_COPY.lark.desc)
+          : platform === 'dingtalk'
+            ? t('settings.channels.dingtalkDesc', CHANNEL_COPY.dingtalk.desc)
+            : t('settings.channels.weixinDesc', CHANNEL_COPY.weixin.desc),
+    [t]
+  );
+
+  const renderBuiltinConfigForm = useCallback(
+    (status: IChannelPluginStatus) => {
+      if (status.type === 'telegram') {
+        return (
+          <TelegramConfigForm
+            pluginId={status.id}
+            pluginStatus={status}
+            onStatusChange={(nextStatus) => updatePluginStatus(status.id, nextStatus)}
+            onTokenChange={(token) => {
+              telegramTokenRef.current[status.id] = token;
+            }}
+          />
+        );
+      }
+
+      if (status.type === 'lark') {
+        return (
+          <LarkConfigForm
+            pluginId={status.id}
+            pluginStatus={status}
+            onStatusChange={(nextStatus) => updatePluginStatus(status.id, nextStatus)}
+          />
+        );
+      }
+
+      if (status.type === 'dingtalk') {
+        return (
+          <DingTalkConfigForm
+            pluginId={status.id}
+            pluginStatus={status}
+            onStatusChange={(nextStatus) => updatePluginStatus(status.id, nextStatus)}
+          />
+        );
+      }
+
+      if (status.type === 'weixin') {
+        return (
+          <WeixinConfigForm
+            pluginId={status.id}
+            pluginStatus={status}
+            onStatusChange={(nextStatus) => updatePluginStatus(status.id, nextStatus)}
+          />
+        );
+      }
+
+      return null;
+    },
+    [updatePluginStatus]
+  );
+
   // Build channel configurations
   const channels: ChannelConfig[] = useMemo(() => {
-    const telegramChannel: ChannelConfig = {
-      id: 'telegram',
-      title: t('settings.channels.telegramTitle', 'Telegram'),
-      description: t('settings.channels.telegramDesc', 'Chat with 智能体工厂 assistant via Telegram'),
-      status: 'active',
-      enabled: pluginStatus?.enabled || false,
-      disabled: enableLoading,
-      isConnected: pluginStatus?.connected || false,
-      botUsername: pluginStatus?.botUsername,
-      defaultModel: telegramModelSelection.currentModel?.useModel,
-      content: (
-        <TelegramConfigForm
-          pluginStatus={pluginStatus}
-          modelSelection={telegramModelSelection}
-          onStatusChange={setPluginStatus}
-          onTokenChange={(token) => {
-            telegramTokenRef.current = token;
-          }}
-        />
-      ),
-    };
+    const allStatuses = Object.values(pluginStatuses);
+    const builtinChannels: ChannelConfig[] = BUILTIN_INSTANCEABLE_PLATFORMS.flatMap((platform) =>
+      allStatuses
+        .filter((status) => status.type === platform)
+        .toSorted((left, right) => {
+          const leftDefault = left.id === `${platform}_default`;
+          const rightDefault = right.id === `${platform}_default`;
+          if (leftDefault !== rightDefault) {
+            return leftDefault ? -1 : 1;
+          }
+          return left.name.localeCompare(right.name);
+        })
+        .map((status) => {
+          const isDefaultInstance = status.id === `${platform}_default`;
+          return {
+            id: status.id,
+            logoType: platform,
+            title: isDefaultInstance
+              ? getBuiltinTitle(platform)
+              : status.name ||
+                t('settings.channels.instanceFallbackTitle', {
+                  defaultValue: '{{channel}} instance',
+                  channel: getBuiltinTitle(platform),
+                }),
+            description: isDefaultInstance
+              ? getBuiltinDescription(platform)
+              : t('settings.channels.instanceDesc', {
+                  defaultValue: 'Published instance: {{name}}',
+                  name: status.name || status.id,
+                }),
+            status: 'active' as const,
+            enabled: status.enabled || false,
+            disabled: pluginLoadingMap[status.id] || false,
+            isConnected: status.connected || false,
+            botUsername: status.type === 'telegram' ? status.botUsername : undefined,
+            content: renderBuiltinConfigForm(status),
+          };
+        })
+    );
 
-    const larkChannel: ChannelConfig = {
-      id: 'lark',
-      title: t('settings.channels.larkTitle', 'Lark / Feishu'),
-      description: t('settings.channels.larkDesc', 'Chat with 智能体工厂 assistant via Lark or Feishu'),
-      status: 'active',
-      enabled: larkPluginStatus?.enabled || false,
-      disabled: larkEnableLoading,
-      isConnected: larkPluginStatus?.connected || false,
-      defaultModel: larkModelSelection.currentModel?.useModel,
-      content: (
-        <LarkConfigForm
-          pluginStatus={larkPluginStatus}
-          modelSelection={larkModelSelection}
-          onStatusChange={setLarkPluginStatus}
-        />
-      ),
-    };
-
-    const dingtalkChannel: ChannelConfig = {
-      id: 'dingtalk',
-      title: t('settings.channels.dingtalkTitle', 'DingTalk'),
-      description: t('settings.channels.dingtalkDesc', 'Chat with 智能体工厂 assistant via DingTalk'),
-      status: 'active',
-      enabled: dingtalkPluginStatus?.enabled || false,
-      disabled: dingtalkEnableLoading,
-      isConnected: dingtalkPluginStatus?.connected || false,
-      defaultModel: dingtalkModelSelection.currentModel?.useModel,
-      content: (
-        <DingTalkConfigForm
-          pluginStatus={dingtalkPluginStatus}
-          modelSelection={dingtalkModelSelection}
-          onStatusChange={setDingtalkPluginStatus}
-        />
-      ),
-    };
-
-    const weixinChannel: ChannelConfig = {
-      id: 'weixin',
-      title: t('settings.channels.weixinTitle', 'WeChat'),
-      description: t('settings.channels.weixinDesc', 'Chat with 智能体工厂 assistant via WeChat'),
-      status: 'active',
-      enabled: weixinPluginStatus?.enabled || false,
-      disabled: weixinEnableLoading,
-      isConnected: weixinPluginStatus?.connected || false,
-      defaultModel: weixinModelSelection.currentModel?.useModel,
-      content: (
-        <WeixinConfigForm
-          pluginStatus={weixinPluginStatus}
-          modelSelection={weixinModelSelection}
-          onStatusChange={setWeixinPluginStatus}
-        />
-      ),
-    };
-
-    const extensionChannels: ChannelConfig[] = Object.values(extensionStatuses)
+    const extensionChannels: ChannelConfig[] = allStatuses
+      .filter((status) => status.isExtension)
       .toSorted((a, b) => a.name.localeCompare(b.name))
       .map((status) => ({
-        id: status.type,
+        id: status.id,
         title: status.name,
         description:
           status.extensionMeta?.description ||
@@ -749,7 +697,7 @@ const ChannelModalContent: React.FC = () => {
           }),
         status: 'active',
         enabled: status.enabled || false,
-        disabled: extensionLoadingMap[status.type] || false,
+        disabled: extensionLoadingMap[status.id] || false,
         isConnected: status.connected || false,
         icon: status.extensionMeta?.icon,
         isExtension: true,
@@ -790,41 +738,37 @@ const ChannelModalContent: React.FC = () => {
       },
     ].filter((channel) => !extensionTypeSet.has(String(channel.id).toLowerCase()));
 
-    return [telegramChannel, larkChannel, dingtalkChannel, weixinChannel, ...extensionChannels, ...comingSoonChannels];
+    return [...builtinChannels, ...extensionChannels, ...comingSoonChannels];
   }, [
-    pluginStatus,
-    larkPluginStatus,
-    dingtalkPluginStatus,
-    extensionStatuses,
     extensionLoadingMap,
-    telegramModelSelection,
-    larkModelSelection,
-    dingtalkModelSelection,
-    enableLoading,
-    larkEnableLoading,
-    dingtalkEnableLoading,
-    weixinPluginStatus,
-    weixinEnableLoading,
-    weixinModelSelection,
+    getBuiltinDescription,
+    getBuiltinTitle,
+    pluginLoadingMap,
+    pluginStatuses,
     renderExtensionConfigForm,
+    renderBuiltinConfigForm,
     t,
   ]);
 
   // Get toggle handler for each channel
   const getToggleHandler = (channelId: string) => {
-    if (channelId === 'telegram') return handleTogglePlugin;
-    if (channelId === 'lark') return handleToggleLarkPlugin;
-    if (channelId === 'dingtalk') return handleToggleDingtalkPlugin;
-    if (channelId === 'weixin') return handleToggleWeixinPlugin;
-    if (extensionStatuses[channelId]) {
+    const status = pluginStatuses[channelId];
+    if (!status) {
+      return undefined;
+    }
+
+    if (status.isExtension) {
       return (enabled: boolean) => {
         void handleToggleExtensionPlugin(channelId, enabled);
       };
     }
-    return undefined;
+
+    return (enabled: boolean) => {
+      void handleToggleBuiltinPlugin(channelId, enabled);
+    };
   };
   const channelGuideText = t('settings.webui.featureChannelsDesc', {
-    defaultValue: 'Connect Telegram, Lark, and DingTalk to interact with 智能体工厂 from IM apps.',
+    defaultValue: 'Publish one or more channel instances per platform and route each instance to its own workspace.',
   });
   const channelSetupSteps = [
     t('settings.channels.selectFirst', {
@@ -832,6 +776,9 @@ const ChannelModalContent: React.FC = () => {
     }),
     t('settings.channels.enableAfterConfig', {
       defaultValue: 'Enable it and start chatting with your AI agent.',
+    }),
+    t('settings.channels.createExtraInstances', {
+      defaultValue: 'Create extra instances when you want multiple workspaces on the same platform.',
     }),
   ];
 
@@ -852,14 +799,32 @@ const ChannelModalContent: React.FC = () => {
               </div>
             ))}
           </div>
+          <div className='flex flex-wrap gap-8px'>
+            {BUILTIN_INSTANCEABLE_PLATFORMS.map((platform) => (
+              <Button
+                key={platform}
+                size='mini'
+                loading={Boolean(createLoadingMap[platform])}
+                onClick={() => {
+                  void handleCreatePluginInstance(platform);
+                }}
+              >
+                {t('settings.channels.addInstance', {
+                  defaultValue: 'Add {{channel}} instance',
+                  channel: getBuiltinTitle(platform),
+                })}
+              </Button>
+            ))}
+          </div>
         </div>
 
         <div className='space-y-12px mt-12px'>
+          <DroidChannelRuntimeSettings mode='defaults' />
           {channels.map((channelConfig) => (
             <ChannelItem
               key={channelConfig.id}
               channel={channelConfig}
-              isCollapsed={collapseKeys[channelConfig.id] || false}
+              isCollapsed={collapseKeys[channelConfig.id] ?? true}
               onToggleCollapse={() => handleToggleCollapse(channelConfig.id)}
               onToggleEnabled={getToggleHandler(channelConfig.id)}
             />

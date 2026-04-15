@@ -18,6 +18,8 @@ export interface ChannelConfig {
   isConnected?: boolean;
   botUsername?: string;
   defaultModel?: string;
+  /** Built-in channel type to use for logo selection when id is a plugin instance id */
+  logoType?: string;
   /** Icon URL for the channel (resolved for current runtime) */
   icon?: string;
   /** Whether this channel comes from an extension (shows blue 'ext' badge) */

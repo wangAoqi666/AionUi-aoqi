@@ -5,18 +5,21 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { IResponseMessage } from '@/common/adapter/ipcBridge';
+import type { IDroidByokModelConfig, IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { IProvider } from '@/common/config/storage';
 import {
-  FACTORY_MODELS,
-  FACTORY_DEFAULT_MODEL_ID,
+  getFactoryDefaultModelId,
+  getFactoryModels,
   getFactoryReasoningLabel,
+  isFactoryCustomModel,
+  setDroidModelCatalog,
+  subscribeFactoryModelCatalog,
   type FactoryModel,
 } from '@/common/config/factoryModels';
 import { uuid } from '@/common/utils';
 import { Button, Divider, Message, Popconfirm, Collapse, Tag, Switch, Tooltip } from '@arco-design/web-react';
-import { DeleteFour, Info, Minus, Plus, Write, Heartbeat, Star } from '@icon-park/react';
-import React, { useEffect, useState } from 'react';
+import { DeleteFour, Minus, Plus, Write, Heartbeat, Star } from '@icon-park/react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import AddModelModal from '@/renderer/pages/settings/components/AddModelModal';
@@ -24,6 +27,7 @@ import AddPlatformModal from '@/renderer/pages/settings/components/AddPlatformMo
 import { isNewApiPlatform, NEW_API_PROTOCOL_OPTIONS } from '@/renderer/utils/model/modelPlatforms';
 import EditModeModal from '@/renderer/pages/settings/components/EditModeModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import FactoryDroidByokModal from '@/renderer/components/settings/FactoryDroidByokModal';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { classifyHealthCheckMessage } from './healthCheckUtils';
@@ -119,14 +123,72 @@ const getReasoningTagColor = (level: string): string => {
   }
 };
 
-const FactoryDroidModelSection: React.FC = () => {
+type FactoryDroidCustomDisplayModel = FactoryModel & {
+  fallbackOnly?: boolean;
+  managedConfig?: IDroidByokModelConfig;
+};
+
+const buildManagedByokFallbackModel = (config: IDroidByokModelConfig): FactoryDroidCustomDisplayModel => ({
+  id: `managed-byok:${config.id}`,
+  name: config.displayName,
+  sourceModelId: config.model,
+  modelProvider: config.provider,
+  isCustom: true,
+  reasoningLevels: ['none'],
+  defaultReasoning: 'none',
+  fallbackOnly: true,
+  managedConfig: config,
+});
+
+const matchesManagedByokModel = (
+  model: FactoryModel | FactoryDroidCustomDisplayModel,
+  config: IDroidByokModelConfig
+): boolean => {
+  return (
+    model.isCustom === true &&
+    model.modelProvider === config.provider &&
+    model.name === config.displayName &&
+    (model.sourceModelId === config.model || model.id === config.model)
+  );
+};
+
+const resolveFactoryDroidDisplayModels = (
+  factoryModels: FactoryModel[],
+  byokConfigs: IDroidByokModelConfig[]
+): FactoryDroidCustomDisplayModel[] => {
+  const catalogCustomModels: FactoryDroidCustomDisplayModel[] = factoryModels
+    .filter((model) => model.isCustom || isFactoryCustomModel(model.id))
+    .map((model) => {
+      const matchingConfigs = byokConfigs.filter((config) => matchesManagedByokModel(model, config));
+      return matchingConfigs.length === 1 ? { ...model, managedConfig: matchingConfigs[0] } : { ...model };
+    });
+  const matchedConfigIds = new Set(
+    catalogCustomModels
+      .map((model) => model.managedConfig?.id)
+      .filter((configId): configId is string => Boolean(configId))
+  );
+
+  return [
+    ...byokConfigs
+      .filter((config) => !matchedConfigIds.has(config.id))
+      .map((config) => buildManagedByokFallbackModel(config)),
+    ...catalogCustomModels,
+  ];
+};
+
+const FactoryDroidBuiltInSection: React.FC = () => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
+  const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
+  const factoryModels = factoryCatalog.filter((model) => !model.deprecated);
+  const builtInModels = factoryModels.filter((model) => !(model.isCustom || isFactoryCustomModel(model.id)));
+  const defaultFactoryModelId = getFactoryDefaultModelId();
 
   return (
     <div className='mb-16px'>
       <Collapse
-        activeKey={expanded ? ['factory'] : []}
-        onChange={(_, keys) => setExpanded(keys.includes('factory'))}
+        activeKey={expanded ? ['factory-built-in'] : []}
+        onChange={(_, keys) => setExpanded(keys.includes('factory-built-in'))}
         bordered
         expandIconPosition='left'
         className={`[&_.arco-collapse-item]:!border-0 [&_.arco-collapse-item]:!rounded-12px [&_.arco-collapse-item]:!overflow-hidden [&_.arco-collapse-item]:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!bg-[var(--fill-0)] [&_.arco-collapse-item-header]:!pl-36px [&_.arco-collapse-item-header]:!pr-12px [&_.arco-collapse-item-header]:!py-8px [&_.arco-collapse-item-header]:transition-colors [&_.arco-collapse-item-header]:hover:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!gap-8px [&_.arco-collapse-item-header-title]:!min-w-0 [&_.arco-collapse-item-header-icon]:!text-2 [&_.arco-collapse-item-header:hover_.arco-collapse-item-header-icon]:!text-1 [&_.arco-collapse-item-content]:!bg-fill-1 [&_.arco-collapse-item-content-box]:!px-10px [&_.arco-collapse-item-content-box]:!py-8px [&_.arco-collapse-item-content]:!border-t [&_.arco-collapse-item-content]:!border-[var(--color-border-2)] ${
@@ -136,47 +198,144 @@ const FactoryDroidModelSection: React.FC = () => {
         }`}
       >
         <Collapse.Item
-          name='factory'
+          name='factory-built-in'
           header={
             <div className='flex items-center justify-between w-full min-h-32px gap-8px min-w-0'>
               <span
                 className={`text-14px font-500 truncate min-w-0 transition-colors ${expanded ? 'text-t-primary' : 'text-2 group-hover:text-1'}`}
               >
-                Factory Droid
+                {t('settings.droidByok.factoryDroid')}
               </span>
               <div className='flex items-center gap-8px shrink-0' onClick={(e) => e.stopPropagation()}>
                 <Tag size='small' color='arcoblue'>
-                  Built-in
+                  {t('settings.builtin')}
                 </Tag>
                 <span className='text-12px text-t-secondary'>
-                  {FACTORY_MODELS.filter((m) => !m.deprecated).length} models
+                  {builtInModels.length} {t('settings.modelCount')}
                 </span>
               </div>
             </div>
           }
         >
-          {FACTORY_MODELS.filter((m) => !m.deprecated).map(
-            (model: FactoryModel, index: number, arr: FactoryModel[]) => (
-              <div key={model.id}>
+          {builtInModels.map((model, index) => (
+            <div key={`${model.id}-${model.name}`}>
+              <div className='flex items-center justify-between px-8px py-10px transition-colors hover:bg-[var(--fill-0)]'>
+                <div className='flex items-center gap-8px min-w-0'>
+                  {model.id === defaultFactoryModelId && (
+                    <Tooltip content={t('common.defaultModel')}>
+                      <Star theme='filled' size='14' fill='rgb(var(--primary-6))' className='shrink-0' />
+                    </Tooltip>
+                  )}
+                  <span className='text-13px text-t-primary font-500 shrink-0'>{model.name}</span>
+                  <span className='text-11px text-t-tertiary truncate min-w-0'>{model.sourceModelId || model.id}</span>
+                </div>
+                <div className='flex items-center gap-4px shrink-0'>
+                  <Tag size='small' color={getReasoningTagColor(model.defaultReasoning)}>
+                    {getFactoryReasoningLabel(model.defaultReasoning)}
+                  </Tag>
+                </div>
+              </div>
+              {index < builtInModels.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}
+            </div>
+          ))}
+        </Collapse.Item>
+      </Collapse>
+    </div>
+  );
+};
+
+const FactoryDroidByokSection: React.FC<{
+  byokConfigs: IDroidByokModelConfig[];
+  loading?: boolean;
+  removingId?: string | null;
+  onEditCustomModel: (config: IDroidByokModelConfig) => void;
+  onRemoveCustomModel: (config: IDroidByokModelConfig) => void;
+}> = ({ byokConfigs, loading = false, removingId = null, onEditCustomModel, onRemoveCustomModel }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(true);
+  const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
+  const factoryModels = factoryCatalog.filter((model) => !model.deprecated);
+  const displayModels = resolveFactoryDroidDisplayModels(factoryModels, byokConfigs);
+
+  return (
+    <div className='mb-16px'>
+      <Collapse
+        activeKey={expanded ? ['factory-byok'] : []}
+        onChange={(_, keys) => setExpanded(keys.includes('factory-byok'))}
+        bordered
+        expandIconPosition='left'
+        className={`[&_.arco-collapse-item]:!border-0 [&_.arco-collapse-item]:!rounded-12px [&_.arco-collapse-item]:!overflow-hidden [&_.arco-collapse-item]:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!bg-[var(--fill-0)] [&_.arco-collapse-item-header]:!pl-36px [&_.arco-collapse-item-header]:!pr-12px [&_.arco-collapse-item-header]:!py-8px [&_.arco-collapse-item-header]:transition-colors [&_.arco-collapse-item-header]:hover:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!gap-8px [&_.arco-collapse-item-header-title]:!min-w-0 [&_.arco-collapse-item-header-icon]:!text-2 [&_.arco-collapse-item-header:hover_.arco-collapse-item-header-icon]:!text-1 [&_.arco-collapse-item-content]:!bg-fill-1 [&_.arco-collapse-item-content-box]:!px-10px [&_.arco-collapse-item-content-box]:!py-8px [&_.arco-collapse-item-content]:!border-t [&_.arco-collapse-item-content]:!border-[var(--color-border-2)] ${
+          expanded
+            ? '[&_.arco-collapse-item-header]:!rounded-t-12px [&_.arco-collapse-item-header]:!rounded-b-0 [&_.arco-collapse-item-content]:!rounded-b-12px'
+            : '[&_.arco-collapse-item-header]:!rounded-12px'
+        }`}
+      >
+        <Collapse.Item
+          name='factory-byok'
+          header={
+            <div className='flex items-center justify-between w-full min-h-32px gap-8px min-w-0'>
+              <span
+                className={`text-14px font-500 truncate min-w-0 transition-colors ${expanded ? 'text-t-primary' : 'text-2 group-hover:text-1'}`}
+              >
+                {t('settings.droidByok.factoryDroid')}
+              </span>
+              <div className='flex items-center gap-8px shrink-0' onClick={(e) => e.stopPropagation()}>
+                <Tag size='small' color='green'>
+                  {t('settings.droidByok.byokTag')}
+                </Tag>
+                <span className='text-12px text-t-secondary'>
+                  {displayModels.length} {t('settings.modelCount')}
+                </span>
+              </div>
+            </div>
+          }
+        >
+          {displayModels.length === 0 ? (
+            <div className='px-8px py-12px text-13px text-t-secondary'>{t('settings.noAvailableModels')}</div>
+          ) : (
+            displayModels.map((model, index, arr) => (
+              <div key={`${model.id}-${model.name}`}>
                 <div className='flex items-center justify-between px-8px py-10px transition-colors hover:bg-[var(--fill-0)]'>
                   <div className='flex items-center gap-8px min-w-0'>
-                    {model.id === FACTORY_DEFAULT_MODEL_ID && (
-                      <Tooltip content='Default Model'>
-                        <Star theme='filled' size='14' fill='rgb(var(--primary-6))' className='shrink-0' />
-                      </Tooltip>
-                    )}
                     <span className='text-13px text-t-primary font-500 shrink-0'>{model.name}</span>
-                    <span className='text-11px text-t-tertiary truncate min-w-0'>{model.id}</span>
+                    <span className='text-11px text-t-tertiary truncate min-w-0'>
+                      {model.sourceModelId || model.id}
+                    </span>
                   </div>
                   <div className='flex items-center gap-4px shrink-0'>
-                    <Tag size='small' color={getReasoningTagColor(model.defaultReasoning)}>
-                      {getFactoryReasoningLabel(model.defaultReasoning)}
-                    </Tag>
+                    {!('fallbackOnly' in model && model.fallbackOnly) && (
+                      <Tag size='small' color={getReasoningTagColor(model.defaultReasoning)}>
+                        {getFactoryReasoningLabel(model.defaultReasoning)}
+                      </Tag>
+                    )}
+                    {'managedConfig' in model && model.managedConfig && (
+                      <>
+                        <Button
+                          size='mini'
+                          className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
+                          icon={<Write size='14' />}
+                          disabled={loading || Boolean(removingId)}
+                          onClick={() => onEditCustomModel(model.managedConfig)}
+                        />
+                        <Popconfirm
+                          title={t('settings.droidByok.deleteCustomModelConfirm')}
+                          onOk={() => onRemoveCustomModel(model.managedConfig)}
+                        >
+                          <Button
+                            size='mini'
+                            className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
+                            icon={<Minus size='14' />}
+                            loading={removingId === model.managedConfig.id}
+                            disabled={loading || Boolean(removingId)}
+                          />
+                        </Popconfirm>
+                      </>
+                    )}
                   </div>
                 </div>
                 {index < arr.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}
               </div>
-            )
+            ))
           )}
         </Collapse.Item>
       </Collapse>
@@ -190,13 +349,41 @@ const ModelModalContent: React.FC = () => {
   const isPageMode = viewMode === 'page';
   const [collapseKey, setCollapseKey] = useState<Record<string, boolean>>({});
   const [healthCheckLoading, setHealthCheckLoading] = useState<Record<string, boolean>>({});
+  const [droidByokConfigs, setDroidByokConfigs] = useState<IDroidByokModelConfig[]>([]);
+  const [droidByokLoading, setDroidByokLoading] = useState(true);
+  const [droidByokRemovingId, setDroidByokRemovingId] = useState<string | null>(null);
   const { data, mutate } = useSWR('model.config', () => {
-    return ipcBridge.mode.getModelConfig.invoke().then((data) => {
-      if (!data) return [];
-      return data;
+    return ipcBridge.mode.getModelConfig.invoke().then((modelConfigData) => {
+      if (!modelConfigData) return [];
+      return modelConfigData;
     });
   });
   const [message, messageContext] = Message.useMessage();
+
+  const syncDroidCatalog = async (refresh = false): Promise<void> => {
+    const result = await ipcBridge.acpConversation.getDroidModelCatalog.invoke({ refresh });
+    const catalog = result.data?.catalog;
+    if (result.success && Array.isArray(catalog) && catalog.length > 0) {
+      setDroidModelCatalog(catalog);
+    }
+  };
+
+  const loadDroidByokConfig = async () => {
+    setDroidByokLoading(true);
+    try {
+      const result = await ipcBridge.acpConversation.getDroidByokConfig.invoke();
+      if (!result.success) {
+        throw new Error(result.msg || t('settings.droidByok.loadFailed'));
+      }
+
+      setDroidByokConfigs(result.data?.configs || []);
+    } catch (error) {
+      console.error('Failed to load Droid BYOK config:', error);
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDroidByokLoading(false);
+    }
+  };
 
   const saveModelConfig = (newData: IProvider[], success?: () => void) => {
     // 乐观更新：立即更新 UI
@@ -204,15 +391,15 @@ const ModelModalContent: React.FC = () => {
 
     ipcBridge.mode.saveModelConfig
       .invoke(newData)
-      .then((data) => {
-        if (data.success) {
+      .then((saveResult) => {
+        if (saveResult.success) {
           // 保存成功后重新验证数据
           void mutate();
           success?.();
         } else {
           // 保存失败，回滚到服务器数据
           void mutate();
-          message.error(data.msg);
+          message.error(saveResult.msg);
         }
       })
       .catch((error) => {
@@ -542,12 +729,48 @@ const ModelModalContent: React.FC = () => {
     },
   });
 
+  const [factoryDroidByokModalCtrl, factoryDroidByokModalContext] = FactoryDroidByokModal.useModal({
+    async onSubmit(config) {
+      const result = await ipcBridge.acpConversation.saveDroidByokConfig.invoke(config);
+      if (!result.success || !result.data?.config) {
+        throw new Error(result.msg || t('settings.droidByok.saveFailed'));
+      }
+
+      await loadDroidByokConfig();
+      await syncDroidCatalog(true);
+      message.success(t('settings.droidByok.saveSuccess'));
+    },
+  });
+
+  const handleRemoveDroidByok = async (config: IDroidByokModelConfig) => {
+    setDroidByokRemovingId(config.id);
+    try {
+      const result = await ipcBridge.acpConversation.removeDroidByokConfig.invoke({ id: config.id });
+      if (!result.success) {
+        throw new Error(result.msg || t('settings.droidByok.removeFailed'));
+      }
+
+      await loadDroidByokConfig();
+      await syncDroidCatalog(true);
+      message.success(t('settings.droidByok.removeSuccess'));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDroidByokRemovingId(null);
+    }
+  };
+
+  useEffect(() => {
+    void loadDroidByokConfig();
+  }, []);
+
   return (
     <div className='flex flex-col bg-2 rd-16px px-16px md:px-24px lg:px-28px py-16px md:py-18px'>
       {messageContext}
       {addPlatformModalContext}
       {editModalContext}
       {addModelModalContext}
+      {factoryDroidByokModalContext}
 
       {/* Header with Add Button */}
       <div className='flex-shrink-0 border-b border-[var(--color-border-2)] pb-12px mb-14px flex flex-col gap-10px'>
@@ -567,10 +790,10 @@ const ModelModalContent: React.FC = () => {
               type='outline'
               shape='round'
               icon={<Plus size='16' />}
-              onClick={() => addPlatformModalCtrl.open()}
+              onClick={() => factoryDroidByokModalCtrl.open({ data: null })}
               className='rd-100px border-1 border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
             >
-              {t('settings.addModel')}
+              {t('settings.droidByok.addCustomModel')}
             </Button>
           </div>
         </div>
@@ -579,7 +802,17 @@ const ModelModalContent: React.FC = () => {
       {/* Content Area */}
       <AionScrollArea className='flex-1 min-h-0' disableOverflow={isPageMode}>
         {/* Factory Droid Built-in Models */}
-        <FactoryDroidModelSection />
+        <FactoryDroidBuiltInSection />
+
+        <FactoryDroidByokSection
+          byokConfigs={droidByokConfigs}
+          loading={droidByokLoading}
+          removingId={droidByokRemovingId}
+          onEditCustomModel={(config) => factoryDroidByokModalCtrl.open({ data: config })}
+          onRemoveCustomModel={(config) => {
+            void handleRemoveDroidByok(config);
+          }}
+        />
 
         {/* User-configured providers */}
         {data && data.length > 0 ? (

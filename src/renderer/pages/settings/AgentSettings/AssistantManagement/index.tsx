@@ -9,13 +9,13 @@
  * | Name           |  no     |  no       |  yes   |
  * | Description    |  no     |  no       |  yes   |
  * | Avatar         |  no     |  no       |  yes   |
- * | Main Agent     |  yes    |  no       |  yes   |
+ * | Main Agent     |  no     |  no       |  yes   |
  * | Prompt editing |  no     |  no       |  yes   |
  * | Delete         |  no     |  no       |  yes   |
  *
- * Builtin assistants allow switching Main Agent and saving,
- * but their identity fields (name, description, avatar) and
- * prompt content are read-only.
+ * Builtin assistants are saved with Factory Droid locked as their
+ * Main Agent, while their identity fields (name, description, avatar)
+ * and prompt content remain read-only.
  * Extension assistants are fully read-only.
  */
 import coworkSvg from '@/renderer/assets/icons/cowork.svg';

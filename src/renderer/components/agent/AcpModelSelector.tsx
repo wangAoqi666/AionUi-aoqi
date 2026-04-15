@@ -8,14 +8,43 @@ import { ipcBridge } from '@/common';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { ConfigStorage } from '@/common/config/storage';
 import type { IProvider } from '@/common/config/storage';
-import { getFactoryDroidModelInfo } from '@/common/config/factoryModels';
+import {
+  getFactoryDroidModelInfo,
+  getFactoryModels,
+  subscribeFactoryModelCatalog,
+} from '@/common/config/factoryModels';
 import type { AcpModelInfo } from '@/common/types/acpTypes';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import MarqueePillLabel from './MarqueePillLabel';
+
+const buildImmediateFallbackModelInfo = (backend?: string, initialModelId?: string): AcpModelInfo | null => {
+  if (backend === 'droid') {
+    const factoryInfo = getFactoryDroidModelInfo(initialModelId);
+    const effectiveModelId = initialModelId || factoryInfo.currentModelId;
+    return {
+      ...factoryInfo,
+      currentModelId: effectiveModelId,
+      currentModelLabel:
+        factoryInfo.availableModels.find((model) => model.id === effectiveModelId)?.label || effectiveModelId,
+    };
+  }
+
+  if (initialModelId) {
+    return {
+      source: 'models',
+      currentModelId: initialModelId,
+      currentModelLabel: initialModelId,
+      canSwitch: false,
+      availableModels: [],
+    };
+  }
+
+  return null;
+};
 
 /**
  * Model selector for ACP-based agents.
@@ -37,7 +66,10 @@ const AcpModelSelector: React.FC<{
   initialModelId?: string;
 }> = ({ conversationId, backend, initialModelId }) => {
   const { t } = useTranslation();
-  const [modelInfo, setModelInfo] = useState<AcpModelInfo | null>(null);
+  const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
+  const [modelInfo, setModelInfo] = useState<AcpModelInfo | null>(() =>
+    buildImmediateFallbackModelInfo(backend, initialModelId)
+  );
   const modelInfoRef = useRef(modelInfo);
   modelInfoRef.current = modelInfo;
   // Track whether user has manually switched model via dropdown
@@ -57,6 +89,7 @@ const AcpModelSelector: React.FC<{
     }
 
     let cancelled = false;
+    setModelInfo(buildImmediateFallbackModelInfo(backend, initialModelId));
     ipcBridge.acpConversation.getModelInfo
       .invoke({ conversationId })
       .then((result) => {
@@ -136,7 +169,7 @@ const AcpModelSelector: React.FC<{
         // Silently ignore
       }
     }
-  }, [conversationId, backend, initialModelId]);
+  }, [conversationId, backend, factoryCatalog, initialModelId]);
 
   // Listen for acp_model_info / codex_model_info events from responseStream
   useEffect(() => {

@@ -4,6 +4,10 @@
  */
 import type { AssistantListItem, SkillInfo } from './types';
 import { hasBuiltinSkills } from './assistantUtils';
+import {
+  getAssistantBackendOptions,
+  isBuiltinAssistantBackendLocked,
+} from '@/renderer/hooks/assistant/assistantBackendOptions';
 import EmojiPicker from '@/renderer/components/chat/EmojiPicker';
 import MarkdownView from '@/renderer/components/Markdown';
 import { Avatar, Button, Checkbox, Collapse, Drawer, Input, Select, Tag, Typography } from '@arco-design/web-react';
@@ -149,6 +153,13 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
     : isRuleEditable && promptViewMode === 'edit'
       ? '260px'
       : '220px';
+  const backendOptions = getAssistantBackendOptions({
+    assistant: activeAssistant,
+    availableBackends,
+    extensionAcpAdapters,
+  });
+  const isBackendLocked = isBuiltinAssistantBackendLocked(activeAssistant);
+  const selectedBackendLabel = backendOptions.find((option) => option.value === editAgent)?.label || editAgent;
 
   return (
     <Drawer
@@ -283,34 +294,25 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
               className='mt-10px w-full rounded-4px'
               value={editAgent}
               onChange={(value) => setEditAgent(value as string)}
-              disabled={isReadonlyAssistant}
+              disabled={isReadonlyAssistant || isBackendLocked}
             >
-              {[
-                { value: 'gemini', label: 'Gemini CLI' },
-                { value: 'claude', label: 'Claude Code' },
-                { value: 'qwen', label: 'Qwen Code' },
-                { value: 'codex', label: 'Codex' },
-                { value: 'codebuddy', label: 'CodeBuddy' },
-                { value: 'opencode', label: 'OpenCode' },
-              ]
-                .filter((opt) => availableBackends.has(opt.value))
-                .map((opt) => (
-                  <Select.Option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </Select.Option>
-                ))}
-              {/* Extension-contributed ACP adapters */}
-              {extensionAcpAdapters?.map((adapter) => {
-                const id = adapter.id as string;
-                const name = (adapter.name as string) || id;
+              {backendOptions.map((option) => {
+                if (option.isExtension) {
+                  return (
+                    <Select.Option key={option.value} value={option.value}>
+                      <span className='flex items-center gap-6px'>
+                        {option.label}
+                        <Tag size='small' color='arcoblue'>
+                          ext
+                        </Tag>
+                      </span>
+                    </Select.Option>
+                  );
+                }
+
                 return (
-                  <Select.Option key={id} value={id}>
-                    <span className='flex items-center gap-6px'>
-                      {name}
-                      <Tag size='small' color='arcoblue'>
-                        ext
-                      </Tag>
-                    </span>
+                  <Select.Option key={option.value} value={option.value}>
+                    {option.label}
                   </Select.Option>
                 );
               })}
@@ -323,7 +325,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
               {t('settings.assistantMainAgent', { defaultValue: 'Main Agent' })}:
             </span>
             <Tag size='small' color='arcoblue'>
-              {editAgent}
+              {selectedBackendLabel}
             </Tag>
             <span className='text-12px text-t-secondary ml-6px'>
               {t('settings.assistantSkills', { defaultValue: 'Skills' })}:
