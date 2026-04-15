@@ -114,6 +114,7 @@ export class DroidMessageMapper {
       },
     };
     this.activeToolCalls.set(toolCallId, toolCallData);
+    this.currentMsgId = uuid();
 
     return [
       {
