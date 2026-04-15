@@ -15,7 +15,58 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const prepareBundledBun = require('./prepareBundledBun');
+const prepareBundledDroid = require('./prepareBundledDroid');
 const prepareAionrs = require('./prepareAionrs');
+
+// macOS 7zip-bin fix: the bundled 7za (p7zip 16.02) creates ZIP files instead
+// of 7z when used on Apple Silicon. This breaks NSIS installers which expect
+// Nsis7z::Extract to decompress a real 7z archive.
+// Fix: write a wrapper that routes .7z outputs through system 7za (which
+// produces valid 7z format) while keeping .zip outputs via system zip.
+if (process.platform === 'darwin') {
+  const wrapperDir = path.join(require('os').tmpdir(), '7zip-bin-compat');
+  const wrapperPath = path.join(wrapperDir, '7za');
+  const bundled7za = path.resolve(__dirname, '../node_modules/7zip-bin/mac', process.arch, '7za');
+  try {
+    fs.mkdirSync(wrapperDir, { recursive: true });
+    const script =
+      [
+        '#!/bin/sh',
+        '# 7zip-bin compat wrapper v2 (written by build-with-builder.js)',
+        '# .7z -> system 7za (valid 7z); .zip -> system zip (symlink safe)',
+        'if [ "$1" = "a" ]; then',
+        '  OUTPUT_FILE=""',
+        '  for arg in "$@"; do',
+        '    case "$arg" in',
+        '      -*) ;; a) ;;',
+        '      *) if [ -z "$OUTPUT_FILE" ]; then OUTPUT_FILE="$arg"; fi ;;',
+        '    esac',
+        '  done',
+        '  case "$OUTPUT_FILE" in',
+        '    *.7z)',
+        '      SYSTEM_7ZA=$(command -v 7za 2>/dev/null)',
+        '      if [ -n "$SYSTEM_7ZA" ]; then exec "$SYSTEM_7ZA" "$@"',
+        `      else exec "${bundled7za}" "$@"; fi ;;`,
+        '    *)',
+        '      shift',
+        '      while [ $# -gt 0 ]; do',
+        '        case "$1" in -*) shift ;; *) break ;; esac',
+        '      done',
+        '      OUTPUT="$1"; shift; INPUT="$1"',
+        '      INPUT_DIR=$(dirname "$INPUT")',
+        '      INPUT_BASE=$(basename "$INPUT")',
+        '      cd "$INPUT_DIR" && exec zip -r -y "$OUTPUT" "$INPUT_BASE" ;;',
+        '  esac',
+        'else',
+        `  exec "${bundled7za}" "$@"`,
+        'fi',
+      ].join('\n') + '\n';
+    fs.writeFileSync(wrapperPath, script, { mode: 0o755 });
+    console.log('🔧 7zip-bin wrapper: .7z -> system 7za, .zip -> system zip');
+  } catch (e) {
+    console.log('⚠️  Failed to write 7zip-bin wrapper:', e.message);
+  }
+}
 
 // DMG retry logic for macOS: detects DMG creation failures by checking artifacts
 // (.app exists but .dmg missing) and retries only the DMG step using
@@ -212,6 +263,18 @@ function killWindowsProcesses(imageNames) {
   }
 }
 
+const WINDOWS_APP_EXECUTABLE_NAMES = ['agentFactory.exe', '智能体工厂.exe', 'AionUi.exe'];
+
+function findExistingWindowsExecutable(outDir, unpackedDir = 'win-unpacked') {
+  for (const executableName of WINDOWS_APP_EXECUTABLE_NAMES) {
+    const executablePath = path.join(outDir, unpackedDir, executableName);
+    if (fs.existsSync(executablePath)) {
+      return executablePath;
+    }
+  }
+  return null;
+}
+
 function formatExecError(error) {
   return [error?.message, error?.stdout?.toString?.(), error?.stderr?.toString?.()].filter(Boolean).join('\n').trim();
 }
@@ -267,18 +330,19 @@ function buildWithDmgRetry(cmd, targetArch) {
 }
 
 // Clean stale Windows packaging outputs from previous runs
-function cleanupWindowsPackOutput() {
+function cleanupWindowsPackOutput(targetArch) {
   const outDir = path.resolve(__dirname, '../out');
   if (!fs.existsSync(outDir)) return;
 
   const removed = [];
-  const winUnpackedDirRe = /^win(?:-[a-z0-9]+)?-unpacked$/i;
-  const winArtifactFileRe = /-win-[^.]+\.(?:exe|msi|zip|7z)$/i;
+  const targetUnpackedDirs =
+    targetArch === 'arm64' ? new Set(['win-arm64-unpacked']) : new Set(['win-unpacked', 'win-x64-unpacked']);
+  const winArtifactFileRe = new RegExp(`-win-${targetArch}\\.(?:exe|msi|zip|7z)$`, 'i');
 
   for (const entry of fs.readdirSync(outDir, { withFileTypes: true })) {
     const fullPath = path.join(outDir, entry.name);
 
-    if (entry.isDirectory() && winUnpackedDirRe.test(entry.name)) {
+    if (entry.isDirectory() && targetUnpackedDirs.has(entry.name)) {
       fs.rmSync(fullPath, { recursive: true, force: true });
       removed.push(entry.name);
       continue;
@@ -340,10 +404,18 @@ function getTargetArchFromConfig(platform) {
   }
 }
 
+function getTargetPlatformFromBuilderArgs(builderArgs) {
+  if (builderArgs.includes('--mac')) return 'darwin';
+  if (builderArgs.includes('--win')) return 'win32';
+  if (builderArgs.includes('--linux')) return 'linux';
+  return process.platform;
+}
+
 // Determine target architecture
 const buildMachineArch = process.arch;
 let targetArch;
 let multiArch = false;
+const targetPlatform = getTargetPlatformFromBuilderArgs(builderArgs);
 
 // Check if multiple architectures are specified (support both --x64 and x64 formats)
 const rawArchArgs = args
@@ -377,6 +449,7 @@ if (archArgs.length > 1) {
 }
 
 console.log(`🔨 Building for architecture: ${targetArch}`);
+console.log(`🖥️ Target platform: ${targetPlatform}`);
 console.log(`📋 Builder arguments: ${builderArgs || '(none)'}`);
 if (skipVite) console.log('⚡ --skip-vite: Will skip Vite compilation if output exists');
 if (skipNative) console.log('⚡ --skip-native: Will skip native module rebuilding');
@@ -452,7 +525,14 @@ try {
 
   // 5. Prepare bundled bun/bunx binaries (for packaged runtime usage)
   // This only affects packaging assets; runtime integration will be added in a future PR.
+  process.env.AIONUI_BUN_TARGET_PLATFORM = targetPlatform;
+  process.env.AIONUI_BUN_TARGET_ARCH = targetArch;
+  process.env.AIONUI_DROID_TARGET_PLATFORM = targetPlatform;
+  process.env.AIONUI_DROID_TARGET_ARCH = targetArch;
+  process.env.AIONRS_PLATFORM = targetPlatform;
+  process.env.AIONRS_ARCH = targetArch;
   prepareBundledBun();
+  prepareBundledDroid();
 
   // 5b. Prepare hub resources (index.json + extension zips for offline fallback)
   execSync('node scripts/prepareHubResources.js', { stdio: 'inherit', env: process.env });
@@ -523,14 +603,16 @@ try {
     const winUnpackedDir = path.join(outDir, 'win-unpacked');
     let cleaned = tryRemoveDir(winUnpackedDir);
     if (!cleaned) {
-      const aionRunning = isProcessRunningWindows('AionUi.exe');
+      const brandedAppRunning = WINDOWS_APP_EXECUTABLE_NAMES.some((imageName) => isProcessRunningWindows(imageName));
       const electronRunning = isProcessRunningWindows('electron.exe');
-      if (aionRunning || electronRunning) {
-        console.log('⚠️  Detected running AionUi/Electron process. Attempting to close...');
-        killWindowsProcesses(['AionUi.exe', 'electron.exe']);
+      if (brandedAppRunning || electronRunning) {
+        console.log('⚠️  Detected running Agent Factory/Electron process. Attempting to close...');
+        killWindowsProcesses([...WINDOWS_APP_EXECUTABLE_NAMES, 'electron.exe']);
         cleaned = tryRemoveDir(winUnpackedDir);
         if (!cleaned) {
-          console.log('⚠️  Directory still locked. Please close any running AionUi/Electron processes and retry.');
+          console.log(
+            '⚠️  Directory still locked. Please close any running Agent Factory/Electron processes and retry.'
+          );
         }
       }
     }
@@ -538,23 +620,23 @@ try {
 
   const isWindowsBuild = builderArgs.includes('--win') || builderArgs.includes('--all');
   if (isWindowsBuild) {
-    cleanupWindowsPackOutput();
+    cleanupWindowsPackOutput(targetArch);
   }
 
   const builderCommand = `bunx electron-builder ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
   try {
     buildWithDmgRetry(builderCommand, targetArch);
   } catch (error) {
-    const winExePath = path.join(outDir, 'win-unpacked', 'AionUi.exe');
+    const winExePath = findExistingWindowsExecutable(outDir);
     const firstError = formatExecError(error);
     const canRetryWithoutExecutableEdit =
-      process.platform === 'win32' && isWindowsBuild && process.env.CI !== 'true' && fs.existsSync(winExePath);
+      process.platform === 'win32' && isWindowsBuild && process.env.CI !== 'true' && winExePath != null;
 
     if (!canRetryWithoutExecutableEdit) {
       throw error;
     }
 
-    console.log('⚠️  Windows local build failed after AionUi.exe was produced.');
+    console.log(`⚠️  Windows local build failed after ${path.basename(winExePath)} was produced.`);
     if (firstError) {
       console.log('   First failure summary:');
       console.log(
@@ -567,8 +649,8 @@ try {
     }
     console.log('   Retrying local build with win.signAndEditExecutable=false...');
     console.log('   This fallback is intended for transient rcedit / file-lock failures on developer machines.');
-    killWindowsProcesses(['AionUi.exe', 'electron.exe']);
-    cleanupWindowsPackOutput();
+    killWindowsProcesses([...WINDOWS_APP_EXECUTABLE_NAMES, 'electron.exe']);
+    cleanupWindowsPackOutput(targetArch);
 
     try {
       buildWithDmgRetry(`${builderCommand} --config.win.signAndEditExecutable=false`, targetArch);

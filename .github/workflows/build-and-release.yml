@@ -13,7 +13,7 @@ on:
       - '*'
 
 env:
-  BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
+  BUN_INSTALL_REGISTRY: 'https://registry.npmmirror.com/'
 
 jobs:
   build-pipeline:

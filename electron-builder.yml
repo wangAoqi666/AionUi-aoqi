@@ -109,6 +109,8 @@ extraResources:
     to: app.png
   - from: resources/bundled-bun
     to: bundled-bun
+  - from: resources/bundled-droid
+    to: bundled-droid
   # aionrs binary (pre-compiled per platform/arch)
   - from: resources/bundled-aionrs
     to: bundled-aionrs
@@ -120,6 +122,7 @@ win:
     - nsis
     #    - msi
     - zip
+  executableName: agentFactory
   icon: resources/app.ico # Use the checked-in Windows icon resource for executable metadata/icon patching
   artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
@@ -128,6 +131,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  runAfterFinish: true
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   artifactName: ${productName}-${version}-${os}-${arch}.${ext}

@@ -173,6 +173,7 @@ class ExtWecomBotChannelPlugin {
     return {
       id: payload.msgid || `wecom-${Date.now()}`,
       platform: 'ext-wecom-bot',
+      pluginId: this.config?.id || 'ext-wecom-bot',
       chatId,
       user: {
         id: fromUserId,

@@ -17,3 +17,4 @@ Function .onVerifyInstDir
     Quit
   ${EndIf}
 FunctionEnd
+

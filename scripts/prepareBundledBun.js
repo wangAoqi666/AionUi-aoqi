@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const CACHE_META_FILE = 'runtime-meta.json';
+const NETWORK_TIMEOUT_MS = Number(process.env.AIONUI_DOWNLOAD_TIMEOUT_MS || 600000);
 
 function ensureDirectory(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -41,6 +42,16 @@ function getRequiredRuntimeFiles(platform) {
 function getRuntimeVersion() {
   const configured = process.env.AIONUI_BUN_VERSION;
   return configured && configured.trim() ? configured.trim() : 'latest';
+}
+
+function getTargetPlatform() {
+  const target = process.env.AIONUI_BUN_TARGET_PLATFORM;
+  return target && target.trim() ? target.trim() : process.platform;
+}
+
+function getTargetArch() {
+  const target = process.env.AIONUI_BUN_TARGET_ARCH || process.env.npm_config_target_arch;
+  return target && target.trim() ? target.trim() : process.arch;
 }
 
 function getCacheRootDir() {
@@ -97,7 +108,7 @@ function getDownloadUrl(assetName, version) {
 function runCommand(command, args, options = {}) {
   execFileSync(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120000,
+    timeout: NETWORK_TIMEOUT_MS,
     ...options,
   });
 }
@@ -263,8 +274,8 @@ function downloadRuntimeIntoCache(cacheRuntimeDir, platform, arch, version) {
 
 function prepareBundledBun() {
   const projectRoot = path.resolve(__dirname, '..');
-  const platform = process.platform;
-  const arch = process.arch;
+  const platform = getTargetPlatform();
+  const arch = getTargetArch();
   const runtimeKey = `${platform}-${arch}`;
   const runtimeVersion = getRuntimeVersion();
 

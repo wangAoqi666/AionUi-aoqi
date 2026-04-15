@@ -16,6 +16,7 @@ const path = require('path');
 
 const GITHUB_OWNER = 'iOfficeAI';
 const GITHUB_REPO = 'aionrs';
+const NETWORK_TIMEOUT_MS = Number(process.env.AIONUI_DOWNLOAD_TIMEOUT_MS || 600000);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,6 +56,16 @@ function getVersion() {
   return (process.env.AIONRS_VERSION || 'latest').trim();
 }
 
+function getTargetPlatform() {
+  const target = process.env.AIONRS_PLATFORM;
+  return target && target.trim() ? target.trim() : process.platform;
+}
+
+function getTargetArch() {
+  const target = process.env.AIONRS_ARCH || process.env.npm_config_target_arch;
+  return target && target.trim() ? target.trim() : process.arch;
+}
+
 // ---------------------------------------------------------------------------
 // Source resolvers
 // ---------------------------------------------------------------------------
@@ -84,13 +95,15 @@ function downloadFile(url, outputPath) {
   console.log(`  Downloading aionrs from ${url}`);
   if (process.platform === 'win32') {
     const ps = `$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '${url}' -OutFile '${outputPath.replace(/'/g, "''")}'`;
-    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 120000 });
+    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: NETWORK_TIMEOUT_MS });
     return;
   }
   try {
-    execFileSync('curl', ['-L', '--fail', '--silent', '--show-error', '-o', outputPath, url], { timeout: 120000 });
+    execFileSync('curl', ['-L', '--fail', '--silent', '--show-error', '-o', outputPath, url], {
+      timeout: NETWORK_TIMEOUT_MS,
+    });
   } catch {
-    execFileSync('wget', ['-q', '-O', outputPath, url], { timeout: 120000 });
+    execFileSync('wget', ['-q', '-O', outputPath, url], { timeout: NETWORK_TIMEOUT_MS });
   }
 }
 
@@ -154,9 +167,8 @@ function downloadAndExtract(platform, arch, version) {
 
 function prepareAionrs() {
   const projectRoot = path.resolve(__dirname, '..');
-  const platform = process.platform;
-  // Support cross-compilation: AIONRS_ARCH > npm_config_target_arch > process.arch
-  const arch = process.env.AIONRS_ARCH || process.env.npm_config_target_arch || process.arch;
+  const platform = getTargetPlatform();
+  const arch = getTargetArch();
   const runtimeKey = `${platform}-${arch}`;
   const version = getVersion();
 
