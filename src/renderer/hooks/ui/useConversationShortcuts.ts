@@ -3,6 +3,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useVisibleConversationIds } from '@/renderer/pages/conversation/GroupedHistory/hooks/useVisibleConversationIds';
 import { isElectronDesktop } from '@/renderer/utils/platform';
+import { getSelectedSpaceGuidState } from '@/renderer/utils/workspace/selectedSpace';
 
 type UseConversationShortcutsParams = {
   navigate: NavigateFunction;
@@ -65,6 +66,11 @@ export const useConversationShortcuts = ({ navigate }: UseConversationShortcutsP
 
       if (isNewConversationShortcut(event)) {
         event.preventDefault();
+        const state = getSelectedSpaceGuidState();
+        if (state) {
+          void navigate('/guid', { state });
+          return;
+        }
         void navigate('/guid');
       }
     };

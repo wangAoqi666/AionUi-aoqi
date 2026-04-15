@@ -47,6 +47,19 @@ function extractBtwQuestion(value: string): string | null {
   return match ? match[1] || '' : null;
 }
 
+function resolveSubmitErrorMessage(error: unknown, fallbackMessage: string): string {
+  const errorMsg = error instanceof Error ? error.message : String(error || '');
+  if (
+    errorMsg.includes('NODE_MODULE_VERSION') ||
+    errorMsg.includes('better_sqlite3.node') ||
+    errorMsg.includes('was compiled against')
+  ) {
+    return fallbackMessage;
+  }
+
+  return errorMsg.trim() || fallbackMessage;
+}
+
 const SendBox: React.FC<{
   value?: string;
   onChange?: (value: string) => void;
@@ -641,7 +654,10 @@ const SendBox: React.FC<{
     setReplyQuote(null);
 
     onSend(finalMessage)
-      .catch(() => {})
+      .catch((error: unknown) => {
+        console.error('[sendbox] Failed to send message:', error);
+        message.error?.(resolveSubmitErrorMessage(error, t('conversation.createFailed')));
+      })
       .finally(() => {
         setIsLoading(false);
       });
@@ -827,7 +843,13 @@ const SendBox: React.FC<{
           }
         >
           {isSingleLine && (
-            <div className={isMobile ? 'sendbox-tools sendbox-tools-scroll-mobile' : 'flex-shrink-0 sendbox-tools'}>
+            <div
+              className={
+                isMobile
+                  ? 'sendbox-tools sendbox-tools-scroll-mobile'
+                  : 'flex-shrink-0 min-w-0 sendbox-tools sendbox-tools--composer'
+              }
+            >
               {tools}
             </div>
           )}
@@ -879,9 +901,17 @@ const SendBox: React.FC<{
           )}
         </div>
         {!isSingleLine && (
-          <div className='sendbox-footer flex items-center justify-between gap-2 w-full'>
-            <div className={isMobile ? 'sendbox-tools sendbox-tools-scroll-mobile' : 'sendbox-tools'}>{tools}</div>
-            <div className='sendbox-action-cluster flex items-center gap-2'>
+          <div className='sendbox-footer flex items-center gap-2 w-full min-w-0'>
+            <div
+              className={
+                isMobile
+                  ? 'sendbox-tools sendbox-tools--footer sendbox-tools-scroll-mobile'
+                  : 'sendbox-tools sendbox-tools--footer'
+              }
+            >
+              {tools}
+            </div>
+            <div className='sendbox-action-cluster sendbox-action-cluster--footer flex items-center gap-2'>
               <SpeechInputButton
                 disabled={disabled || isLoading || loading || isUploading}
                 locale={speechLocale}

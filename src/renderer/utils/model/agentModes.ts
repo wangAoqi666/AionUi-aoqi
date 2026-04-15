@@ -77,6 +77,11 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
   ],
   droid: [
     { value: 'default', label: 'Default' },
+    {
+      value: 'spec',
+      label: 'SPEC',
+      description: 'Specification Mode planning with read-only analysis before implementation',
+    },
     { value: 'acceptEdits', label: 'Accept Edits' },
     { value: 'auto', label: 'Auto' },
     { value: 'yolo', label: 'YOLO' },

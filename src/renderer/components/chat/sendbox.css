@@ -1,20 +1,22 @@
 /* Sendbox component styles */
 
 .conversation-sendbox-dock {
-  width: min(100%, 1040px);
-  margin: 0 auto 20px;
-  padding: 0 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .conversation-sendbox-dock .sendbox-panel {
-  border-radius: 26px !important;
-  border: 1px solid color-mix(in srgb, var(--color-border-2) 78%, transparent) !important;
+  border-radius: 22px !important;
+  border: 1px solid color-mix(in srgb, var(--color-border-2) 72%, transparent) !important;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--color-bg-1) 98%, transparent) 0%,
-    color-mix(in srgb, var(--color-bg-2) 92%, transparent) 100%
+    color-mix(in srgb, var(--color-bg-1) 100%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg-2) 98%, transparent) 100%
   ) !important;
-  box-shadow: 0 24px 64px color-mix(in srgb, var(--color-text-1) 12%, transparent);
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--color-text-1) 5%, transparent),
+    0 1px 0 color-mix(in srgb, white 34%, transparent) inset;
 }
 
 .conversation-sendbox-dock .sendbox-panel::before {
@@ -42,7 +44,7 @@
 }
 
 .conversation-sendbox-dock .sendbox-prefix {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .conversation-sendbox-dock .sendbox-input {
@@ -52,17 +54,18 @@
 }
 
 .conversation-sendbox-dock .sendbox-footer {
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--color-border-2) 76%, transparent);
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border-2) 64%, transparent);
+  min-width: 0;
 }
 
 .conversation-sendbox-dock .sendbox-action-cluster {
-  border: 1px solid color-mix(in srgb, var(--color-border-2) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border-2) 62%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-1) 96%, transparent);
+  background: color-mix(in srgb, var(--color-bg-1) 98%, transparent);
   padding: 4px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 54%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 32%, transparent);
 }
 
 .send-button-custom,
@@ -205,6 +208,20 @@
   flex-wrap: wrap;
 }
 
+.sendbox-tools--footer {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sendbox-tools--composer {
+  min-width: 0;
+}
+
+.sendbox-action-cluster--footer {
+  flex-shrink: 0;
+}
+
 /* Circle / icon-only buttons must not shrink */
 .sendbox-tools .arco-btn-shape-circle {
   flex-shrink: 0 !important;
@@ -247,8 +264,8 @@
 @media (max-width: 767px) {
   .conversation-sendbox-dock {
     width: 100%;
-    margin-bottom: 12px;
-    padding: 0 8px;
+    margin: 0;
+    padding: 0;
   }
 
   .conversation-sendbox-dock .sendbox-panel {

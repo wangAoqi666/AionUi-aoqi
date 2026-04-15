@@ -21,6 +21,7 @@ import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertLatexDelimiters } from '@renderer/utils/chat/latexDelimiters';
 import LocalImageView from '@renderer/components/media/LocalImageView';
+import { extractRichMessageSegments, JsonRenderView } from './JsonRender';
 import CodeBlock from './CodeBlock';
 import ShadowView from './ShadowView';
 
@@ -135,19 +136,52 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({
 
   const rehypePlugins = useMemo(() => (allowHtml ? [rehypeRaw, rehypeKatex] : [rehypeKatex]), [allowHtml]);
 
-  return (
-    <div className={classNames('relative w-full', className)}>
-      <ShadowView>
-        <div ref={onRef} className='markdown-shadow-body'>
+  const renderMarkdownSegment = useCallback(
+    (content: string, key?: string, segmentRef?: (el?: HTMLDivElement | null) => void) => (
+      <ShadowView key={key}>
+        <div ref={segmentRef} className='markdown-shadow-body'>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
             rehypePlugins={rehypePlugins}
             components={components}
           >
-            {normalizedChildren}
+            {content}
           </ReactMarkdown>
         </div>
       </ShadowView>
+    ),
+    [components, rehypePlugins]
+  );
+
+  const richSegments = useMemo(() => extractRichMessageSegments(normalizedChildren), [normalizedChildren]);
+  const hasJsonRenderBlocks = richSegments.some((segment) => segment.type === 'json-render');
+
+  if (hasJsonRenderBlocks) {
+    let markdownSegmentIndex = 0;
+
+    return (
+      <div className={classNames('relative w-full', className)}>
+        {richSegments.map((segment, index) => {
+          if (segment.type === 'json-render') {
+            return <JsonRenderView key={`json-render-${index}`} spec={segment.spec} />;
+          }
+
+          if (!segment.content.trim()) {
+            return null;
+          }
+
+          const shouldAttachRef = markdownSegmentIndex === 0;
+          markdownSegmentIndex += 1;
+
+          return renderMarkdownSegment(segment.content, `markdown-${index}`, shouldAttachRef ? onRef : undefined);
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className={classNames('relative w-full', className)}>
+      {renderMarkdownSegment(normalizedChildren, 'markdown-root', onRef)}
     </div>
   );
 };
