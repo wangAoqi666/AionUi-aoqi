@@ -24,6 +24,7 @@ import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { useConversationShortcuts } from '@renderer/hooks/ui/useConversationShortcuts';
 import { useSectionRouteMemory } from '@renderer/hooks/ui/useSectionRouteMemory';
 import { isElectronDesktop } from '@renderer/utils/platform';
+import { getSelectedSpaceGuidState } from '@renderer/utils/workspace/selectedSpace';
 import { computeCssSyncDecision, resolveCssByActiveTheme } from '@renderer/utils/theme/themeCssSync';
 import AppBrandLogo from '@renderer/assets/logos/brand/app.png';
 import {
@@ -307,6 +308,11 @@ const Layout: React.FC<{
 
     // Navigate to guid page when requested from tray / 托盘请求导航到 guid 页面
     const handleNavigateToGuid = () => {
+      const state = getSelectedSpaceGuidState();
+      if (state) {
+        void navigate('/guid', { state });
+        return;
+      }
       void navigate('/guid');
     };
 
@@ -520,7 +526,7 @@ const Layout: React.FC<{
               )}
               {/* 侧栏折叠改由标题栏统一控制 / Sidebar folding handled by Titlebar toggle */}
             </ArcoLayout.Header>
-            <ArcoLayout.Content className={classNames('layout-sider-content', !isMobile && 'h-[calc(100%-72px-16px)]')}>
+            <ArcoLayout.Content className='layout-sider-content'>
               <div
                 className={classNames(
                   'layout-navigation-shell',

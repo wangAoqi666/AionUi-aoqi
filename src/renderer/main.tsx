@@ -17,11 +17,14 @@ import './utils/ui/runtimePatches';
 
 // Browser adapter setup
 import '@/common/adapter/browser';
+import { ipcBridge } from '@/common';
 
 // React and core dependencies
 import type { PropsWithChildren } from 'react';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { ConfigStorage } from '@/common/config/storage';
+import { setDroidModelCatalog } from '@/common/config/factoryModels';
 
 // Context providers
 import { AuthProvider } from './hooks/context/AuthContext';
@@ -129,4 +132,38 @@ const App = HOC.Wrapper(Config)(Main);
 void registerPwa();
 
 const root = createRoot(document.getElementById('root')!);
-root.render(React.createElement(AppProviders, null, React.createElement(App)));
+
+const hydrateDroidCatalogFromStorage = async () => {
+  const droidCatalog = await ConfigStorage.get('factoryDroidCatalog');
+  if (Array.isArray(droidCatalog) && droidCatalog.length > 0) {
+    setDroidModelCatalog(droidCatalog);
+    return true;
+  }
+  return false;
+};
+
+const refreshDroidCatalogInBackground = async () => {
+  try {
+    const result = await ipcBridge.acpConversation.getDroidModelCatalog.invoke({ refresh: true });
+    const droidCatalog = result.data?.catalog;
+    if (result.success && Array.isArray(droidCatalog) && droidCatalog.length > 0) {
+      setDroidModelCatalog(droidCatalog);
+    }
+  } catch {
+    // Ignore catalog refresh failures and keep the latest cached/default catalog
+  }
+};
+
+const bootstrap = () => {
+  root.render(React.createElement(AppProviders, null, React.createElement(App)));
+
+  void hydrateDroidCatalogFromStorage()
+    .catch(() => {
+      // Ignore catalog hydration failures and fall back to built-in defaults
+    })
+    .finally(() => {
+      void refreshDroidCatalogInBackground();
+    });
+};
+
+void bootstrap();

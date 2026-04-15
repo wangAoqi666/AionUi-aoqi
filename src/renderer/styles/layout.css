@@ -7,8 +7,22 @@
   border-right: 1px solid var(--border-base);
 }
 
+.layout-sider > .arco-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.layout-sider-header {
+  flex-shrink: 0;
+}
+
 .layout-sider-content {
   padding: 0 !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
 }
 
 .layout-navigation-shell {

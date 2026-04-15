@@ -46,7 +46,7 @@ const PrimaryRail: React.FC<PrimaryRailProps> = ({ activeSection, isMobile, onSe
       {
         section: 'settings',
         label: t('common.settings'),
-        icon: <SettingTwo theme='outline' size='20' fill='currentColor' />,
+        icon: <SettingTwo theme='outline' size='20' fill='currentColor' style={{ transform: 'translateY(-2px)' }} />,
         placement: 'bottom',
       },
     ],
@@ -80,7 +80,7 @@ const PrimaryRail: React.FC<PrimaryRailProps> = ({ activeSection, isMobile, onSe
       <div className='flex w-full flex-col items-center gap-8px'>
         {items.filter((item) => item.placement === 'top').map(renderButton)}
       </div>
-      <div className='mt-auto flex w-full flex-col items-center gap-8px'>
+      <div className='mt-auto mb-12px flex w-full flex-col items-center gap-8px'>
         {items.filter((item) => item.placement === 'bottom').map(renderButton)}
       </div>
     </div>

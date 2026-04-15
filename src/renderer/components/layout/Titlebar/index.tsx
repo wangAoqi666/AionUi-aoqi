@@ -12,7 +12,9 @@ import type { WorkspaceStateDetail } from '@renderer/utils/workspace/workspaceEv
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { isElectronDesktop, isMacOS } from '@/renderer/utils/platform';
+import { getSelectedSpaceGuidState } from '@/renderer/utils/workspace/selectedSpace';
 import { DESKTOP_NAVIGATION_WIDTH, PRIMARY_RAIL_WIDTH } from '../layoutSections';
+import { GLOBAL_SIDER_SEARCH_SLOT_ID } from '../Sider/SiderSearchEntry';
 import './titlebar.css';
 
 interface TitlebarProps {
@@ -88,6 +90,9 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   const siderTooltip = layout?.siderCollapsed
     ? t('common.expandMore', { defaultValue: 'Expand sidebar' })
     : t('common.collapse', { defaultValue: 'Collapse sidebar' });
+  const showConversationSearchSlot = Boolean(
+    !layout?.isMobile && layout?.activeSection === 'conversation' && !layout?.siderCollapsed
+  );
 
   const handleSiderToggle = () => {
     if (!showSiderToggle || !layout?.setSiderCollapsed) return;
@@ -116,6 +121,11 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   };
 
   const handleCreateConversation = () => {
+    const state = getSelectedSpaceGuidState();
+    if (state) {
+      void navigate('/guid', { state });
+      return;
+    }
     void navigate('/guid');
   };
 
@@ -270,20 +280,30 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
           </button>
         )}
       </div>
-      <div
-        className='app-titlebar__brand'
-        aria-label={layout?.isMobile ? mobileCenterTitle : appTitle}
-        title={layout?.isMobile ? mobileCenterTitle : appTitle}
-      >
-        {layout?.isMobile ? (
-          <span className='app-titlebar__brand-mobile'>
-            <AionLogoMark />
-            <span className='app-titlebar__brand-text'>{mobileCenterTitle}</span>
-          </span>
-        ) : (
-          appTitle
-        )}
-      </div>
+      {showConversationSearchSlot ? (
+        <div className='app-titlebar__search-host'>
+          <div
+            id={GLOBAL_SIDER_SEARCH_SLOT_ID}
+            className='app-titlebar__search-slot'
+            data-testid='titlebar-search-slot'
+          />
+        </div>
+      ) : (
+        <div
+          className='app-titlebar__brand'
+          aria-label={layout?.isMobile ? mobileCenterTitle : appTitle}
+          title={layout?.isMobile ? mobileCenterTitle : appTitle}
+        >
+          {layout?.isMobile ? (
+            <span className='app-titlebar__brand-mobile'>
+              <AionLogoMark />
+              <span className='app-titlebar__brand-text'>{mobileCenterTitle}</span>
+            </span>
+          ) : (
+            appTitle
+          )}
+        </div>
+      )}
       <div ref={toolbarRef} className='app-titlebar__toolbar'>
         {showNewConversationButton && (
           <button
