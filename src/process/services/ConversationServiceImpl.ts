@@ -38,6 +38,10 @@ export class ConversationServiceImpl implements IConversationService {
   }
 
   async deleteConversation(id: string): Promise<void> {
+    const jobs = await cronService.listJobsByConversation(id);
+    for (const job of jobs) {
+      await cronService.removeJob(job.id);
+    }
     await this.repo.deleteConversation(id);
   }
 
@@ -174,6 +178,7 @@ export class ConversationServiceImpl implements IConversationService {
     if (params.name) overrides.name = params.name;
     if (params.source) overrides.source = params.source;
     if (params.channelChatId) overrides.channelChatId = params.channelChatId;
+    if (params.channelPluginId) overrides.channelPluginId = params.channelPluginId;
     // Merge extra fields from params that the factory didn't consume (e.g. cronJobId).
     // Factory-produced values take precedence; only novel keys from params.extra are added.
     if (params.extra && conversation.extra) {

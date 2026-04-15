@@ -35,6 +35,7 @@ agentFactory.register('acp', (conv, opts) => {
   return new AcpAgentManager({
     ...c.extra,
     conversation_id: c.id,
+    source: c.source,
     yoloMode: opts?.yoloMode,
     // Only gemini ACP conversations use conversation.model as a backend-aligned model
     // fallback. Other ACP backends persist their own CLI model IDs in extra.currentModelId.

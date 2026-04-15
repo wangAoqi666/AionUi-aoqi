@@ -18,6 +18,7 @@ import { execFile, execFileSync, spawn } from 'child_process';
 import { accessSync, existsSync, readdirSync } from 'fs';
 import os from 'os';
 import path from 'path';
+import { getBundledDroidDir } from '@process/agent/droid/cliResolver';
 
 /** Enable ACP performance diagnostics via ACP_PERF=1 */
 const PERF_LOG = process.env.ACP_PERF === '1';
@@ -341,7 +342,14 @@ function getPosixExtraToolPaths(): string[] {
  * 对于 PATH，合并两个来源以确保无论应用如何启动都能找到 CLI 工具。
  * 在 Windows 上，还会追加常见工具路径（npm 全局包、nvm、volta、scoop 等）。
  */
-export function getEnhancedEnv(customEnv?: Record<string, string>): Record<string, string> {
+type EnhancedEnvOptions = {
+  includeBundledDroidInPath?: boolean;
+};
+
+export function getEnhancedEnv(
+  customEnv?: Record<string, string>,
+  options: EnhancedEnvOptions = {}
+): Record<string, string> {
   const shellEnv = loadShellEnvironment();
   const separator = process.platform === 'win32' ? ';' : ':';
 
@@ -364,6 +372,11 @@ export function getEnhancedEnv(customEnv?: Record<string, string>): Record<strin
 
   // Prepend bundled bun directory (highest priority — ensures extensions always
   // have access to bun/bunx even if the user hasn't installed it)
+  const bundledDroidDir = getBundledDroidDir();
+  if (bundledDroidDir && options.includeBundledDroidInPath !== false) {
+    mergedPath = `${bundledDroidDir}${separator}${mergedPath}`;
+  }
+
   const bundledBunDir = getBundledBunDir();
   if (bundledBunDir) {
     mergedPath = `${bundledBunDir}${separator}${mergedPath}`;

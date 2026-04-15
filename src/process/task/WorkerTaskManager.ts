@@ -19,6 +19,7 @@ const AGENT_IDLE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 export class WorkerTaskManager implements IWorkerTaskManager {
   private taskList: Array<{ id: string; task: IAgentManager }> = [];
+  private pendingTaskBuilds = new Map<string, Promise<IAgentManager>>();
   private idleCheckTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
@@ -49,8 +50,26 @@ export class WorkerTaskManager implements IWorkerTaskManager {
     if (!options?.skipCache) {
       const existing = this.getTask(id);
       if (existing) return existing;
+
+      const pendingBuild = this.pendingTaskBuilds.get(id);
+      if (pendingBuild) return pendingBuild;
+
+      const buildPromise = this.buildTaskFromRepository(id, options);
+      this.pendingTaskBuilds.set(id, buildPromise);
+
+      try {
+        return await buildPromise;
+      } finally {
+        if (this.pendingTaskBuilds.get(id) === buildPromise) {
+          this.pendingTaskBuilds.delete(id);
+        }
+      }
     }
 
+    return this.buildTaskFromRepository(id, options);
+  }
+
+  private async buildTaskFromRepository(id: string, options?: BuildConversationOptions): Promise<IAgentManager> {
     const conversation = await this.repo.getConversation(id);
     if (conversation) return this._buildAndCache(conversation, options);
 
@@ -82,6 +101,7 @@ export class WorkerTaskManager implements IWorkerTaskManager {
   clear(): void {
     clearInterval(this.idleCheckTimer);
     this.idleCheckTimer = undefined;
+    this.pendingTaskBuilds.clear();
     this.taskList.forEach((item) => item.task.kill());
     this.taskList = [];
   }

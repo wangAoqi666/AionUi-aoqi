@@ -7,11 +7,14 @@ import type { AskUserConfirmationQuestion, CronMessageMeta, TMessage } from '@/c
 import { isCodexAutoApproveMode } from '@/common/types/codex/codexModes';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { transformMessage } from '@/common/chat/chatLib';
+import type { ConversationSource } from '@/common/config/storage';
 import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { parseError, uuid } from '@/common/utils';
 import type {
   AcpBackend,
+  AcpBackendAll,
+  AcpBackendConfig,
   AcpModelInfo,
   AcpPermissionOption,
   AcpPermissionRequest,
@@ -25,6 +28,7 @@ import { addMessage, addOrUpdateMessage, nextTickToLocalFinish } from '@process/
 import { handlePreviewOpenEvent } from '@process/utils/previewUtils';
 import { cronBusyGuard } from '@process/services/cron/CronBusyGuard';
 import { mainLog, mainWarn, mainError } from '@process/utils/mainLogger';
+import path from 'path';
 import {
   getCodexSandboxModeForSessionMode,
   type CodexSandboxMode,
@@ -46,6 +50,7 @@ import { extractTextFromMessage, processCronInMessage } from './MessageMiddlewar
 interface AcpAgentManagerData {
   workspace?: string;
   backend: AcpBackend;
+  source?: ConversationSource;
   cliPath?: string;
   customWorkspace?: boolean;
   conversation_id: string;
@@ -59,6 +64,8 @@ interface AcpAgentManagerData {
   yoloMode?: boolean;
   /** ACP session ID for resume support / ACP session ID 用于会话恢复 */
   acpSessionId?: string;
+  /** Workspace path the ACP session was bound to / ACP session 绑定的工作区路径 */
+  acpSessionWorkspace?: string;
   /** Last update time of ACP session / ACP session 最后更新时间 */
   acpSessionUpdatedAt?: number;
   /** Persisted session mode for resume support / 持久化的会话模式，用于恢复 */
@@ -88,6 +95,31 @@ type DroidAskUserAnswer = {
   }>;
 };
 
+const normalizeAcpWorkspacePath = (workspace?: string): string | undefined => {
+  if (!workspace) {
+    return undefined;
+  }
+
+  return path.resolve(workspace).replace(/[\\/]+$/, '');
+};
+
+export function shouldResumeAcpSession(
+  data: Pick<AcpAgentManagerData, 'backend' | 'workspace' | 'acpSessionId' | 'acpSessionWorkspace'>
+): boolean {
+  if (!data.acpSessionId) {
+    return false;
+  }
+
+  const currentWorkspace = normalizeAcpWorkspacePath(data.workspace);
+  const persistedWorkspace = normalizeAcpWorkspacePath(data.acpSessionWorkspace);
+
+  if (persistedWorkspace) {
+    return currentWorkspace === persistedWorkspace;
+  }
+
+  return data.backend !== 'droid';
+}
+
 class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissionOption | DroidAskUserAnswer> {
   workspace: string;
   agent: AcpAgent | DroidSdkAgent;
@@ -96,6 +128,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
   private isFirstMessage: boolean = true;
   options: AcpAgentManagerData;
   private currentMode: string = 'default';
+  private pendingModeSyncWithAgent: boolean = false;
   private persistedModelId: string | null = null;
   // Track current message for cron detection (accumulated from streaming chunks)
   private currentMsgId: string | null = null;
@@ -120,8 +153,9 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     this.currentMode = data.sessionMode || 'default';
     this.persistedModelId = data.currentModelId || null;
     this.status = 'pending';
-    // Sync yoloMode from sessionMode so addConfirmation auto-approves when Full Auto is selected
-    this.yoloMode = this.yoloMode || this.isYoloMode(this.currentMode);
+    // Recompute manager-side auto-approval after BaseAgentManager applies legacy yoloMode.
+    // Droid relies on SDK-native autonomy, so manager-side auto-confirm must stay disabled.
+    this.yoloMode = this.shouldManagerAutoApprove(this.currentMode, data.yoloMode);
   }
 
   private makeStreamBufferKey(message: Extract<TMessage, { type: 'text' }>): string {
@@ -186,6 +220,16 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       let customArgs: string[] | undefined;
       let customEnv: Record<string, string> | undefined;
       let yoloMode: boolean | undefined;
+      const resumableAcpSessionId = shouldResumeAcpSession(data) ? data.acpSessionId : undefined;
+
+      if (data.acpSessionId && !resumableAcpSessionId) {
+        mainLog('[AcpAgentManager]', 'Ignoring persisted ACP session due to missing or mismatched workspace', {
+          conversationId: data.conversation_id,
+          backend: data.backend,
+          workspace: data.workspace,
+          persistedWorkspace: data.acpSessionWorkspace,
+        });
+      }
 
       // 处理自定义后端：优先读 acp.customAgents；若未命中则尝试扩展贡献的 adapter
       // Handle custom backend: prefer acp.customAgents; fallback to extension-contributed adapters
@@ -214,7 +258,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
                 ? adapter.acpArgs.filter((v): v is string => typeof v === 'string')
                 : undefined,
               env: typeof adapter.env === 'object' && adapter.env ? (adapter.env as Record<string, string>) : undefined,
-            } as any;
+            } as AcpBackendConfig;
           }
         }
 
@@ -236,7 +280,8 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         }
         // yoloMode priority: data.yoloMode (from CronService) > config setting
         // yoloMode 优先级：data.yoloMode（来自 CronService）> 配置设置
-        const legacyYoloMode = data.yoloMode ?? (config?.[data.backend] as any)?.yoloMode;
+        const backendStoredConfig = config?.[data.backend];
+        const legacyYoloMode = data.yoloMode ?? backendStoredConfig?.yoloMode;
 
         // Migrate legacy yoloMode config (from SecurityModalContent) to currentMode.
         // Maps to each backend's native yolo mode value for correct protocol behavior.
@@ -249,7 +294,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
             codex: 'yolo',
           };
           this.currentMode = yoloModeValues[data.backend] || 'yolo';
-          this.yoloMode = true;
+          this.yoloMode = this.shouldManagerAutoApprove(this.currentMode, true);
         }
 
         // When legacy config has yoloMode=true but user explicitly chose a non-yolo mode
@@ -260,7 +305,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
 
         // Derive effective yoloMode from currentMode so that the agent respects
         // the user's explicit mode choice. data.yoloMode (cron jobs) always takes priority.
-        yoloMode = data.yoloMode ?? this.isYoloMode(this.currentMode);
+        yoloMode = this.shouldManagerAutoApprove(this.currentMode, data.yoloMode);
 
         // Get acpArgs from backend config (for goose, auggie, opencode, etc.)
         const backendConfig = ACP_BACKENDS_ALL[data.backend];
@@ -296,9 +341,10 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
           workingDir: data.workspace || '.',
           cliPath: cliPath || 'droid',
           modelId: this.persistedModelId ?? undefined,
+          source: data.source,
           yoloMode: yoloMode,
           sessionMode: this.currentMode,
-          acpSessionId: data.acpSessionId,
+          acpSessionId: resumableAcpSessionId,
           cachedConfigOptions: data.cachedConfigOptions,
           pendingConfigOptions: data.pendingConfigOptions,
           onStreamEvent: (message) => this.handleStreamEvent(message, data),
@@ -334,7 +380,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
             customEnv: customEnv,
             yoloMode: yoloMode,
             agentName: data.agentName,
-            acpSessionId: data.acpSessionId,
+            acpSessionId: resumableAcpSessionId,
             acpSessionUpdatedAt: data.acpSessionUpdatedAt,
             currentModelId: this.persistedModelId ?? undefined,
             sessionMode: this.currentMode,
@@ -422,7 +468,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
               };
               // Process cron commands and send results back to AI
               const collectedResponses: string[] = [];
-              await processCronInMessage(this.conversation_id, data.backend as any, message, (sysMsg) => {
+              await processCronInMessage(this.conversation_id, data.backend as AcpBackendAll, message, (sysMsg) => {
                 collectedResponses.push(sysMsg);
                 // Also emit to frontend for display
                 const systemMessage: IResponseMessage = {
@@ -452,7 +498,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
 
             // Forward signals (finish/error/etc.) to Channel global event bus
             channelEventBus.emitAgentMessage(this.conversation_id, {
-              ...(v as any),
+              ...(v as IResponseMessage),
               conversation_id: this.conversation_id,
             });
           },
@@ -716,13 +762,21 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
   }
 
   async confirm(id: string, callId: string, data: AcpPermissionOption | DroidAskUserAnswer) {
+    const existingConfirmation = this.getConfirmations().find((item) => item.callId === callId) as
+      | { descriptionFormat?: 'text' | 'markdown' }
+      | undefined;
+    const nextMode = 'optionId' in data ? this.resolveModeForSpecApproval(existingConfirmation, data.optionId) : null;
+
     super.confirm(id, callId, data);
     await this.bootstrap;
     if ('optionId' in data) {
-      void this.agent.confirmMessage({
+      const result = await this.agent.confirmMessage({
         confirmKey: data.optionId,
         callId: callId,
       });
+      if (result.success && nextMode) {
+        await this.applyModeFromSpecApproval(nextMode);
+      }
       return;
     }
     if (this.agent instanceof DroidSdkAgent) {
@@ -737,8 +791,19 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     this.flushBufferedStreamTextMessages();
 
     const { toolCall, options } = message.data as AcpPermissionRequest;
+    const isSpecConfirmation = toolCall.kind === 'exit_spec_mode' || typeof toolCall.rawInput?.plan === 'string';
 
-    if (this.isYoloMode(this.currentMode) && options.length > 0) {
+    if (isSpecConfirmation) {
+      const tMessage = transformMessage(message);
+      if (tMessage) {
+        addOrUpdateMessage(message.conversation_id, tMessage, this.options.backend);
+      }
+      ipcBridge.acpConversation.responseStream.emit(message);
+      teamEventBus.emit('responseStream', { ...message, conversation_id: this.conversation_id });
+      channelEventBus.emitAgentMessage(this.conversation_id, { ...message, conversation_id: this.conversation_id });
+    }
+
+    if (this.shouldManagerAutoApprove(this.currentMode) && options.length > 0) {
       const autoOption = options[0];
       setTimeout(() => {
         void this.confirm(message.msg_id, toolCall.toolCallId || message.msg_id, autoOption);
@@ -747,7 +812,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     }
 
     const toolTitle = toolCall.title || '';
-    if (toolTitle.includes('aionui-team') && options.length > 0) {
+    if (this.options.backend !== 'droid' && toolTitle.includes('aionui-team') && options.length > 0) {
       const autoOption = options[0];
       setTimeout(() => {
         void this.confirm(message.msg_id, toolCall.toolCallId || message.msg_id, autoOption);
@@ -760,6 +825,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       action: 'messages.command',
       id: message.msg_id,
       description: toolCall.rawInput?.description || 'messages.agentRequestingPermission',
+      descriptionFormat: isSpecConfirmation ? 'markdown' : 'text',
       callId: toolCall.toolCallId || message.msg_id,
       options: options.map((option) => ({
         label: option.name,
@@ -801,8 +867,6 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    */
   private handleStreamEvent(message: IResponseMessage, data: AcpAgentManagerData): void {
     if (this.bootstrapping) return;
-
-    const pipelineStart = Date.now();
 
     // Reduce status noise: show full lifecycle only for the first turn.
     // Droid backend uses SDK natively — never show agent_status badges.
@@ -1095,17 +1159,8 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     if (!this.agent) {
       // For droid backend, return Factory model list even when agent is not initialized
       if (this.options.backend === 'droid') {
-        const { getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
-        const factoryInfo = getFactoryDroidModelInfo() as AcpModelInfo;
-        if (this.persistedModelId) {
-          const match = factoryInfo.availableModels.find((m) => m.id === this.persistedModelId);
-          return {
-            ...factoryInfo,
-            currentModelId: this.persistedModelId,
-            currentModelLabel: match?.label || this.persistedModelId,
-          };
-        }
-        return factoryInfo;
+        const { getFactoryDefaultModelId, getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
+        return getFactoryDroidModelInfo(this.persistedModelId || getFactoryDefaultModelId()) as AcpModelInfo;
       }
       // Return persisted model info when agent is not yet initialized
       if (this.persistedModelId) {
@@ -1123,18 +1178,10 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     if (this.options.backend === 'droid') {
       const agentInfo = this.agent.getModelInfo();
       if (!agentInfo || agentInfo.availableModels.length === 0) {
-        const { getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
-        const factoryInfo = getFactoryDroidModelInfo() as AcpModelInfo;
-        const currentId = agentInfo?.currentModelId || this.persistedModelId;
-        if (currentId) {
-          const match = factoryInfo.availableModels.find((m) => m.id === currentId);
-          return {
-            ...factoryInfo,
-            currentModelId: currentId,
-            currentModelLabel: match?.label || currentId,
-          };
-        }
-        return factoryInfo;
+        const { getFactoryDefaultModelId, getFactoryDroidModelInfo } = require('@/common/config/factoryModels');
+        return getFactoryDroidModelInfo(
+          agentInfo?.currentModelId || this.persistedModelId || getFactoryDefaultModelId()
+        );
       }
       return agentInfo;
     }
@@ -1214,8 +1261,8 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * Set the session mode for this agent (e.g., plan, default, bypassPermissions, yolo).
    * 设置此代理的会话模式（如 plan、default、bypassPermissions、yolo）。
    *
-   * Note: Agent must be initialized (user must have sent at least one message)
-   * before mode switching is possible, as we need an active ACP session.
+   * If the agent session has not started yet, persist the mode locally and
+   * apply it when the first session is created.
    *
    * @param mode - The mode ID to set
    * @returns Promise that resolves with success status and current mode
@@ -1225,57 +1272,100 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     // and manages approval at the Manager layer. Update local state only to avoid
     // "Invalid params" JSON-RPC error from the bridge.
     if (this.options.backend === 'codex') {
-      const prev = this.currentMode;
-      this.currentMode = mode;
-      this.yoloMode = this.isYoloMode(mode);
       const sandboxMode = getCodexSandboxModeForSessionMode(mode, this.options.sandboxMode);
       this.options.sandboxMode = sandboxMode;
       await writeCodexSandboxMode(sandboxMode);
-      this.saveSessionMode(mode);
-
-      if (this.isYoloMode(prev) && !this.isYoloMode(mode)) {
-        void this.clearLegacyYoloConfig();
-      }
+      this.updateCurrentMode(mode);
       return { success: true, data: { mode: this.currentMode } };
     }
 
-    // If agent is not initialized, try to initialize it first
-    // 如果 agent 未初始化，先尝试初始化
-    if (!this.agent) {
-      try {
-        await this.initAgent(this.options);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        return {
-          success: false,
-          msg: `Agent initialization failed: ${errorMsg}`,
-        };
-      }
+    if (mode === this.currentMode && !this.pendingModeSyncWithAgent) {
+      return { success: true, data: { mode: this.currentMode } };
     }
 
-    // Check again after initialization attempt
     if (!this.agent) {
-      return { success: false, msg: 'Agent not initialized' };
+      this.updateCurrentMode(mode);
+      return { success: true, data: { mode: this.currentMode } };
     }
 
     const result = await this.agent.setMode(mode);
     if (result.success) {
-      const prev = this.currentMode;
-      this.currentMode = mode;
-      this.yoloMode = this.isYoloMode(mode);
-      this.saveSessionMode(mode);
-
-      // Sync legacy yoloMode config: when leaving yolo mode, clear the old
-      // SecurityModalContent setting to prevent it from re-activating on next session.
-      if (this.isYoloMode(prev) && !this.isYoloMode(mode)) {
-        void this.clearLegacyYoloConfig();
-      }
+      this.updateCurrentMode(mode);
     }
     return {
       success: result.success,
       msg: result.error,
       data: { mode: this.currentMode },
     };
+  }
+
+  private shouldManagerAutoApprove(mode: string, explicitValue?: boolean): boolean {
+    if (this.options.backend === 'droid') {
+      return false;
+    }
+
+    if (typeof explicitValue === 'boolean') {
+      return explicitValue;
+    }
+
+    return this.isYoloMode(mode);
+  }
+
+  private resolveModeForSpecApproval(
+    confirmation: { descriptionFormat?: 'text' | 'markdown' } | undefined,
+    optionId: string
+  ): string | null {
+    if (this.options.backend !== 'droid') {
+      return null;
+    }
+
+    const normalizedOptionId = optionId.trim().toLowerCase();
+    if (normalizedOptionId === 'proceed_auto_run_low' || normalizedOptionId === 'proceed_edit') {
+      return 'acceptEdits';
+    }
+    if (normalizedOptionId === 'proceed_auto_run' || normalizedOptionId === 'proceed_auto_run_medium') {
+      return 'auto';
+    }
+    if (normalizedOptionId === 'proceed_auto_run_high') {
+      return 'yolo';
+    }
+
+    if (confirmation?.descriptionFormat !== 'markdown') {
+      return null;
+    }
+
+    return normalizedOptionId === 'proceed_once' ? 'default' : null;
+  }
+
+  private async applyModeFromSpecApproval(mode: string): Promise<void> {
+    if (!mode || mode === this.currentMode) {
+      return;
+    }
+
+    if (this.options.backend === 'droid') {
+      if (this.agent && 'rememberSessionMode' in this.agent && typeof this.agent.rememberSessionMode === 'function') {
+        this.agent.rememberSessionMode(mode);
+      }
+      this.updateCurrentMode(mode, true);
+      return;
+    }
+
+    const result = await this.setMode(mode);
+    if (!result.success) {
+      mainWarn('[AcpAgentManager]', `Failed to switch mode after SPEC approval: ${result.msg || 'unknown error'}`);
+    }
+  }
+
+  private updateCurrentMode(mode: string, markPendingAgentSync: boolean = false): void {
+    const prev = this.currentMode;
+    this.currentMode = mode;
+    this.pendingModeSyncWithAgent = markPendingAgentSync;
+    this.yoloMode = this.shouldManagerAutoApprove(mode);
+    void this.saveSessionMode(mode);
+
+    if (this.isYoloMode(prev) && !this.isYoloMode(mode)) {
+      void this.clearLegacyYoloConfig();
+    }
   }
 
   /** Check if a mode value represents YOLO mode for any backend */
@@ -1292,7 +1382,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     try {
       const config = await ProcessConfig.get('acp.config');
       const backendConfig = config?.[this.options.backend];
-      if ((backendConfig as any)?.yoloMode) {
+      if (backendConfig?.yoloMode) {
         await ProcessConfig.set('acp.config', {
           ...config,
           [this.options.backend]: { ...backendConfig, yoloMode: false },
@@ -1372,6 +1462,11 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         db.updateConversation(this.conversation_id, {
           extra: updatedExtra,
         } as Partial<typeof conversation>);
+        ipcBridge.conversation.listChanged.emit({
+          conversationId: this.conversation_id,
+          action: 'updated',
+          source: conversation.source || 'aionui',
+        });
       }
     } catch (error) {
       mainError('[AcpAgentManager]', 'Failed to save session mode', error);
@@ -1413,7 +1508,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * An idempotent doKill() guard prevents double super.kill() when the hard
    * timeout and graceful path race against each other.
    */
-  kill(reason?: AgentKillReason) {
+  kill(_reason?: AgentKillReason) {
     this.flushBufferedStreamTextMessages();
 
     let killed = false;
@@ -1494,6 +1589,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
           ...conversation.extra,
           acpSessionId: sessionId,
           acpSessionConversationId: this.conversation_id,
+          acpSessionWorkspace: normalizeAcpWorkspacePath(this.workspace),
           acpSessionUpdatedAt: Date.now(),
         };
         db.updateConversation(this.conversation_id, {

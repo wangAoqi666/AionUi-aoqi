@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { CronMessageMeta, TMessage } from '@/common/chat/chatLib';
+import type { TMessage } from '@/common/chat/chatLib';
 import type { TChatConversation } from '@/common/config/storage';
 import { uuid } from '@/common/utils';
 import { addMessage } from '@process/utils/message';
@@ -70,6 +70,7 @@ export class CronService {
     try {
       await this.cleanupOrphanJobs();
       await this.backfillCronJobIdOnConversations();
+      await this.cleanupStaleCronConversationMarkers();
 
       const jobs = await this.repo.listEnabled();
 
@@ -86,33 +87,24 @@ export class CronService {
   }
 
   /**
-   * Remove cron jobs whose associated conversation no longer exists.
+   * Remove cron jobs whose owner conversation no longer exists.
    * Called once during init to clean up stale jobs left by abnormal deletion paths.
    */
   private async cleanupOrphanJobs(): Promise<void> {
     try {
       const allJobs = await this.repo.listAll();
       for (const job of allJobs) {
-        // new_conversation mode jobs are not bound to a single conversation — skip orphan check.
-        // Also skip when conversationId is empty (legacy jobs created before execution_mode existed).
-        if (job.target.executionMode === 'new_conversation' || !job.metadata.conversationId) {
+        // Legacy jobs created without an owner conversation cannot be verified here.
+        if (!job.metadata.conversationId) {
           continue;
         }
-        const conversation = await this.conversationRepo.getConversation(job.metadata.conversationId);
-        if (!conversation) {
-          // Double-check: if the job has child conversations (via cronJobId), it's not truly orphaned.
-          // This can happen when a job's original conversationId is stale but it has produced executions.
-          const childConversations = await this.conversationRepo.getConversationsByCronJob(job.id);
-          if (childConversations.length > 0) {
-            console.log(
-              `[CronService] Skipping orphan cleanup for "${job.name}" (${job.id}): has ${childConversations.length} child conversations`
-            );
-            continue;
-          }
+        const ownerConversation = await this.conversationRepo.getConversation(job.metadata.conversationId);
+        if (!ownerConversation) {
           console.log(
-            `[CronService] Removing orphan job "${job.name}" (${job.id}): conversation ${job.metadata.conversationId} not found`
+            `[CronService] Removing orphan job "${job.name}" (${job.id}): owner conversation ${job.metadata.conversationId} not found`
           );
           this.stopTimer(job.id);
+          await this.cleanupCronJobConversations(job);
           await this.repo.delete(job.id);
           try {
             await deleteCronSkillFile(job.id);
@@ -128,23 +120,21 @@ export class CronService {
   }
 
   /**
-   * Backfill cronJobId into conversation.extra and agentConfig into job.metadata
-   * for existing jobs that predate these fields.
+   * Remove legacy cronJobId markers from owner conversations and backfill metadata.
    */
   private async backfillCronJobIdOnConversations(): Promise<void> {
     try {
       const allJobs = await this.repo.listAll();
       for (const job of allJobs) {
-        if (job.target.executionMode === 'new_conversation' || !job.metadata.conversationId) {
+        if (!job.metadata.conversationId) {
           continue;
         }
         const conv = await this.conversationRepo.getConversation(job.metadata.conversationId);
         if (!conv) continue;
 
-        // Backfill cronJobId on conversation extra
         const extra = (conv.extra ?? {}) as Record<string, unknown>;
-        if (extra.cronJobId !== job.id) {
-          extra.cronJobId = job.id;
+        if (extra.cronJobId === job.id) {
+          delete extra.cronJobId;
           await this.conversationRepo.updateConversation(job.metadata.conversationId, {
             extra: extra as TChatConversation['extra'],
           });
@@ -172,6 +162,31 @@ export class CronService {
     }
   }
 
+  private async cleanupStaleCronConversationMarkers(): Promise<void> {
+    try {
+      const [allJobs, allConversations] = await Promise.all([
+        this.repo.listAll(),
+        this.conversationRepo.listAllConversations(),
+      ]);
+      const jobsById = new Map(allJobs.map((job) => [job.id, job] as const));
+      const staleMarkerConversations = allConversations.filter((conversation) => {
+        const cronJobId = (conversation.extra as { cronJobId?: string } | undefined)?.cronJobId;
+        if (!cronJobId) {
+          return false;
+        }
+
+        const job = jobsById.get(cronJobId);
+        return !job || job.metadata.conversationId === conversation.id;
+      });
+
+      await Promise.all(
+        staleMarkerConversations.map((conversation) => this.clearCronJobIdFromConversation(conversation))
+      );
+    } catch (error) {
+      console.warn('[CronService] Failed to cleanup stale cron conversation markers:', error);
+    }
+  }
+
   /**
    * Build ICronAgentConfig from conversation extra fields.
    */
@@ -192,26 +207,50 @@ export class CronService {
     };
   }
 
-  /**
-   * Add a new cron job
-   * @throws Error if conversation already has a cron job (one job per conversation limit)
-   */
-  async addJob(params: CreateCronJobParams): Promise<CronJob> {
-    // Check if conversation already has a cron job (one job per conversation limit)
-    // Skip for new_conversation mode since each execution creates a new conversation
-    if (params.executionMode !== 'new_conversation' && params.conversationId) {
-      const existingJobs = await this.repo.listByConversation(params.conversationId);
-      if (existingJobs.length > 0) {
-        const existingJob = existingJobs[0];
-        throw new Error(
-          i18n.t('cron:error.alreadyExists', {
-            name: existingJob.name,
-            id: existingJob.id,
-          })
-        );
+  private async clearCronJobIdFromConversation(conversation: TChatConversation): Promise<void> {
+    const existingExtra = (conversation.extra ?? {}) as Record<string, unknown>;
+    if (!('cronJobId' in existingExtra)) {
+      return;
+    }
+
+    const nextExtra = { ...existingExtra };
+    delete nextExtra.cronJobId;
+
+    await this.conversationRepo.updateConversation(conversation.id, {
+      extra: nextExtra as TChatConversation['extra'],
+    });
+
+    ipcBridge.conversation.listChanged.emit({
+      conversationId: conversation.id,
+      action: 'updated',
+      source: conversation.source || 'aionui',
+    });
+  }
+
+  private async cleanupCronJobConversations(job: CronJob): Promise<void> {
+    const relatedConversations = new Map<string, TChatConversation>();
+
+    if (job.metadata.conversationId) {
+      const ownerConversation = await this.conversationRepo.getConversation(job.metadata.conversationId);
+      if (ownerConversation) {
+        relatedConversations.set(ownerConversation.id, ownerConversation);
       }
     }
 
+    const childConversations = await this.conversationRepo.getConversationsByCronJob(job.id);
+    childConversations.forEach((conversation) => {
+      relatedConversations.set(conversation.id, conversation);
+    });
+
+    for (const conversation of relatedConversations.values()) {
+      await this.clearCronJobIdFromConversation(conversation);
+    }
+  }
+
+  /**
+   * Add a new cron job
+   */
+  async addJob(params: CreateCronJobParams): Promise<CronJob> {
     const now = Date.now();
     const jobId = `cron_${uuid()}`;
 
@@ -246,18 +285,14 @@ export class CronService {
     // Save to database
     await this.repo.insert(job);
 
-    // Tag the conversation with cronJobId so it appears under the scheduled tasks tab
-    // and update modifyTime so it appears at the top of the list (skip for new_conversation mode)
-    if (params.executionMode !== 'new_conversation' && params.conversationId) {
+    // Update modifyTime on the owner conversation so it stays visible near the top of the list.
+    if (params.conversationId) {
       try {
-        const conv = await this.conversationRepo.getConversation(params.conversationId);
-        const existingExtra = (conv?.extra ?? {}) as Record<string, unknown>;
         await this.conversationRepo.updateConversation(params.conversationId, {
           modifyTime: now,
-          extra: { ...existingExtra, cronJobId: jobId } as TChatConversation['extra'],
         });
       } catch (err) {
-        console.warn('[CronService] Failed to update conversation with cronJobId:', err);
+        console.warn('[CronService] Failed to update owner conversation modifyTime:', err);
       }
     }
 
@@ -328,36 +363,10 @@ export class CronService {
       console.warn('[CronService] Failed to delete SKILL.md:', err);
     }
 
-    // Clean up associated conversations.
-    // Note: deleteConversation relies on SQLite ON DELETE CASCADE to remove
-    // related messages rows — see migration v1 foreign key definition.
+    // Keep bound/run conversations and only remove cron markers so they remain accessible.
     if (job) {
       try {
-        if (job.target.executionMode === 'new_conversation') {
-          // Delete all child conversations created by this cron job
-          const childConversations = await this.conversationRepo.getConversationsByCronJob(jobId);
-          for (const conv of childConversations) {
-            await this.conversationRepo.deleteConversation(conv.id);
-            ipcBridge.conversation.listChanged.emit({
-              conversationId: conv.id,
-              action: 'deleted',
-              source: conv.source || 'aionui',
-            });
-          }
-          if (childConversations.length > 0) {
-            console.log(`[CronService] Deleted ${childConversations.length} child conversations for job ${jobId}`);
-          }
-        } else if (job.metadata.conversationId) {
-          // Remove cronJobId from the associated conversation's extra
-          const conv = await this.conversationRepo.getConversation(job.metadata.conversationId);
-          if (conv) {
-            const existingExtra = (conv.extra ?? {}) as Record<string, unknown>;
-            delete existingExtra.cronJobId;
-            await this.conversationRepo.updateConversation(job.metadata.conversationId, {
-              extra: existingExtra as TChatConversation['extra'],
-            });
-          }
-        }
+        await this.cleanupCronJobConversations(job);
       } catch (err) {
         console.warn('[CronService] Failed to clean up conversations for job:', err);
       }

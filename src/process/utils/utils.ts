@@ -7,6 +7,7 @@
 import type { IDirOrFile } from '@/common/adapter/ipcBridge';
 import { getPlatformServices } from '@/common/platform';
 import { getEnvAwareName } from '@/common/config/appEnv';
+import { AGENT_FACTORY_CONFIG_SYMLINK, AGENT_FACTORY_DATA_SYMLINK } from '@/common/config/appPathConfig';
 import { existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync } from 'fs';
 import fs from 'fs/promises';
 import os from 'os';
@@ -98,7 +99,7 @@ const ensureCliSafeSymlink = (targetPath: string, symlinkName: string): string =
 export const getDataPath = (): string => {
   const rootPath = getElectronPathOrFallback('userData');
   const dataPath = path.join(rootPath, 'aionui');
-  return ensureCliSafeSymlink(dataPath, getEnvAwareName('.aionui'));
+  return ensureCliSafeSymlink(dataPath, getEnvAwareName(AGENT_FACTORY_DATA_SYMLINK));
 };
 
 /**
@@ -110,7 +111,7 @@ export const getDataPath = (): string => {
 export const getConfigPath = (): string => {
   const rootPath = getElectronPathOrFallback('userData');
   const configPath = path.join(rootPath, 'config');
-  return ensureCliSafeSymlink(configPath, getEnvAwareName('.aionui-config'));
+  return ensureCliSafeSymlink(configPath, getEnvAwareName(AGENT_FACTORY_CONFIG_SYMLINK));
 };
 
 export const generateHashWithFullName = (fullName: string): string => {

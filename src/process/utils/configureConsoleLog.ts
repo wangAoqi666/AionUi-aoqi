@@ -20,11 +20,16 @@
  * BEFORE any other module emits console output.
  */
 
+import { app } from 'electron';
 import log from 'electron-log/main';
+import path from 'path';
+import { getDefaultLogDir } from '@/common/config/appPathConfig';
 
 // Daily log file: e.g. 2026-03-12.log
 const today = new Date().toISOString().slice(0, 10);
 log.transports.file.fileName = `${today}.log`;
+log.transports.file.resolvePathFn = () =>
+  path.join(getDefaultLogDir(app.getPath('home'), app.isPackaged), `${today}.log`);
 
 // Persist info-level and above to file; keep all levels in terminal stdout.
 log.transports.file.level = 'info';

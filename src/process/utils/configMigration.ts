@@ -30,6 +30,8 @@ export function getElectronConfigCandidatePaths(): string[] {
   const home = os.homedir();
   if (process.platform === 'darwin') {
     return [
+      path.join(home, '.agent-factory-config', 'aionui-config.txt'),
+      path.join(home, '.agent-factory-config-dev', 'aionui-config.txt'),
       path.join(home, '.aionui-config', 'aionui-config.txt'),
       path.join(home, '.aionui-config-dev', 'aionui-config.txt'),
     ];
@@ -37,12 +39,16 @@ export function getElectronConfigCandidatePaths(): string[] {
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
     return [
+      path.join(appData, 'agent-factory', 'config', 'aionui-config.txt'),
+      path.join(appData, 'agent-factory-dev', 'config', 'aionui-config.txt'),
       path.join(appData, 'AionUi', 'config', 'aionui-config.txt'),
       path.join(appData, 'AionUi-Dev', 'config', 'aionui-config.txt'),
     ];
   }
   // Linux and other platforms
   return [
+    path.join(home, '.config', 'agent-factory', 'config', 'aionui-config.txt'),
+    path.join(home, '.config', 'agent-factory-dev', 'config', 'aionui-config.txt'),
     path.join(home, '.config', 'AionUi', 'config', 'aionui-config.txt'),
     path.join(home, '.config', 'AionUi-Dev', 'config', 'aionui-config.txt'),
   ];

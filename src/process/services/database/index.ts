@@ -504,8 +504,8 @@ export class AionUIDatabase {
       const row = conversationToRow(conversation, userId || this.defaultUserId);
 
       const stmt = this.db.prepare(`
-        INSERT INTO conversations (id, user_id, name, type, extra, model, status, source, channel_chat_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO conversations (id, user_id, name, type, extra, model, status, source, channel_chat_id, channel_plugin_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -518,6 +518,7 @@ export class AionUIDatabase {
         row.status,
         row.source,
         row.channel_chat_id ?? null,
+        row.channel_plugin_id ?? null,
         row.created_at,
         row.updated_at
       );
@@ -568,6 +569,7 @@ export class AionUIDatabase {
    */
   findChannelConversation(
     source: ConversationSource,
+    channelPluginId: string,
     channelChatId: string,
     type: string,
     backend?: string,
@@ -582,24 +584,24 @@ export class AionUIDatabase {
           .prepare(
             `
             SELECT * FROM conversations
-            WHERE user_id = ? AND source = ? AND channel_chat_id = ? AND type = ?
+            WHERE user_id = ? AND source = ? AND channel_plugin_id = ? AND channel_chat_id = ? AND type = ?
               AND json_extract(extra, '$.backend') = ?
             ORDER BY updated_at DESC
             LIMIT 1
           `
           )
-          .get(finalUserId, source, channelChatId, type, backend) as IConversationRow | undefined;
+          .get(finalUserId, source, channelPluginId, channelChatId, type, backend) as IConversationRow | undefined;
       } else {
         row = this.db
           .prepare(
             `
             SELECT * FROM conversations
-            WHERE user_id = ? AND source = ? AND channel_chat_id = ? AND type = ?
+            WHERE user_id = ? AND source = ? AND channel_plugin_id = ? AND channel_chat_id = ? AND type = ?
             ORDER BY updated_at DESC
             LIMIT 1
           `
           )
-          .get(finalUserId, source, channelChatId, type) as IConversationRow | undefined;
+          .get(finalUserId, source, channelPluginId, channelChatId, type) as IConversationRow | undefined;
       }
 
       return {
@@ -622,17 +624,25 @@ export class AionUIDatabase {
     source: 'telegram' | 'lark' | 'dingtalk' | 'weixin',
     type: string,
     model: TProviderWithModel,
-    userId?: string
+    userId?: string,
+    pluginId?: string
   ): IQueryResult<number> {
     try {
       const finalUserId = userId || this.defaultUserId;
       const modelJson = JSON.stringify(model);
       const now = Date.now();
-      const stmt = this.db.prepare(`
-        UPDATE conversations SET model = ?, updated_at = ?
-        WHERE user_id = ? AND source = ? AND type = ?
-      `);
-      const result = stmt.run(modelJson, now, finalUserId, source, type);
+      const stmt = pluginId
+        ? this.db.prepare(`
+            UPDATE conversations SET model = ?, updated_at = ?
+            WHERE user_id = ? AND source = ? AND type = ? AND channel_plugin_id = ?
+          `)
+        : this.db.prepare(`
+            UPDATE conversations SET model = ?, updated_at = ?
+            WHERE user_id = ? AND source = ? AND type = ?
+          `);
+      const result = pluginId
+        ? stmt.run(modelJson, now, finalUserId, source, type, pluginId)
+        : stmt.run(modelJson, now, finalUserId, source, type);
       return { success: true, data: result.changes };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -1214,11 +1224,19 @@ export class AionUIDatabase {
   /**
    * Get assistant user by platform user ID
    */
-  getChannelUserByPlatform(platformUserId: string, platformType: PluginType): IQueryResult<IChannelUser | null> {
+  getChannelUserByPlatform(
+    platformUserId: string,
+    platformType: PluginType,
+    pluginId?: string
+  ): IQueryResult<IChannelUser | null> {
     try {
-      const row = this.db
-        .prepare('SELECT * FROM assistant_users WHERE platform_user_id = ? AND platform_type = ?')
-        .get(platformUserId, platformType) as IChannelUserRow | undefined;
+      const row = pluginId
+        ? (this.db
+            .prepare('SELECT * FROM assistant_users WHERE platform_user_id = ? AND platform_type = ? AND plugin_id = ?')
+            .get(platformUserId, platformType, pluginId) as IChannelUserRow | undefined)
+        : (this.db
+            .prepare('SELECT * FROM assistant_users WHERE platform_user_id = ? AND platform_type = ?')
+            .get(platformUserId, platformType) as IChannelUserRow | undefined);
 
       return { success: true, data: row ? rowToChannelUser(row) : null };
     } catch (error: any) {
@@ -1232,12 +1250,13 @@ export class AionUIDatabase {
   createChannelUser(user: IChannelUser): IQueryResult<IChannelUser> {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO assistant_users (id, platform_user_id, platform_type, display_name, authorized_at, last_active, session_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO assistant_users (id, plugin_id, platform_user_id, platform_type, display_name, authorized_at, last_active, session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
         user.id,
+        user.pluginId,
         user.platformUserId,
         user.platformType,
         user.displayName ?? null,
@@ -1319,9 +1338,10 @@ export class AionUIDatabase {
     try {
       const now = Date.now();
       const stmt = this.db.prepare(`
-        INSERT INTO assistant_sessions (id, user_id, agent_type, conversation_id, workspace, chat_id, created_at, last_activity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO assistant_sessions (id, plugin_id, user_id, agent_type, conversation_id, workspace, chat_id, created_at, last_activity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+          plugin_id = excluded.plugin_id,
           agent_type = excluded.agent_type,
           conversation_id = excluded.conversation_id,
           workspace = excluded.workspace,
@@ -1331,6 +1351,7 @@ export class AionUIDatabase {
 
       stmt.run(
         session.id,
+        session.pluginId,
         session.userId,
         session.agentType,
         session.conversationId ?? null,
@@ -1402,12 +1423,13 @@ export class AionUIDatabase {
   createPairingRequest(request: IChannelPairingRequest): IQueryResult<IChannelPairingRequest> {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO assistant_pairing_codes (code, platform_user_id, platform_type, display_name, requested_at, expires_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO assistant_pairing_codes (code, plugin_id, platform_user_id, platform_type, display_name, requested_at, expires_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
         request.code,
+        request.pluginId,
         request.platformUserId,
         request.platformType,
         request.displayName ?? null,

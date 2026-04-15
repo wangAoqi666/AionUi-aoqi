@@ -17,6 +17,7 @@ export interface CreateConversationParams {
   model: TProviderWithModel;
   source?: ConversationSource;
   channelChatId?: string;
+  channelPluginId?: string;
   extra: {
     workspace?: string;
     customWorkspace?: boolean;

@@ -1117,6 +1117,159 @@ const migration_v22: IMigration = {
 };
 
 /**
+ * Migration v22 -> v23: Scope published channel data by plugin instance ID.
+ */
+const migration_v23: IMigration = {
+  version: 23,
+  name: 'Add plugin instance scoping for channels',
+  up: (db) => {
+    db.exec(`CREATE TABLE IF NOT EXISTS assistant_users_new (
+        id TEXT PRIMARY KEY,
+        plugin_id TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        platform_type TEXT NOT NULL,
+        display_name TEXT,
+        authorized_at INTEGER NOT NULL,
+        last_active INTEGER,
+        session_id TEXT,
+        UNIQUE(plugin_id, platform_user_id)
+      )`);
+    db.exec(`INSERT INTO assistant_users_new (id, plugin_id, platform_user_id, platform_type, display_name, authorized_at, last_active, session_id)
+      SELECT
+        id,
+        platform_type || '_default',
+        platform_user_id,
+        platform_type,
+        display_name,
+        authorized_at,
+        last_active,
+        session_id
+      FROM assistant_users`);
+    db.exec('DROP TABLE assistant_users');
+    db.exec('ALTER TABLE assistant_users_new RENAME TO assistant_users');
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_assistant_users_platform ON assistant_users(platform_type, platform_user_id)'
+    );
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_users_plugin ON assistant_users(plugin_id, platform_user_id)');
+
+    db.exec(`CREATE TABLE IF NOT EXISTS assistant_sessions_new (
+        id TEXT PRIMARY KEY,
+        plugin_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('gemini', 'acp', 'codex', 'openclaw-gateway')),
+        conversation_id TEXT,
+        workspace TEXT,
+        chat_id TEXT,
+        created_at INTEGER NOT NULL,
+        last_activity INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES assistant_users(id) ON DELETE CASCADE,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+      )`);
+    db.exec(`INSERT INTO assistant_sessions_new (id, plugin_id, user_id, agent_type, conversation_id, workspace, chat_id, created_at, last_activity)
+      SELECT
+        s.id,
+        u.plugin_id,
+        s.user_id,
+        s.agent_type,
+        s.conversation_id,
+        s.workspace,
+        s.chat_id,
+        s.created_at,
+        s.last_activity
+      FROM assistant_sessions s
+      INNER JOIN assistant_users u ON u.id = s.user_id`);
+    db.exec('DROP TABLE assistant_sessions');
+    db.exec('ALTER TABLE assistant_sessions_new RENAME TO assistant_sessions');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_sessions_user ON assistant_sessions(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_sessions_conversation ON assistant_sessions(conversation_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_sessions_plugin_chat ON assistant_sessions(plugin_id, chat_id)');
+
+    db.exec(`CREATE TABLE IF NOT EXISTS assistant_pairing_codes_new (
+        code TEXT PRIMARY KEY,
+        plugin_id TEXT NOT NULL,
+        platform_user_id TEXT NOT NULL,
+        platform_type TEXT NOT NULL,
+        display_name TEXT,
+        requested_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'expired'))
+      )`);
+    db.exec(`INSERT INTO assistant_pairing_codes_new (code, plugin_id, platform_user_id, platform_type, display_name, requested_at, expires_at, status)
+      SELECT
+        code,
+        platform_type || '_default',
+        platform_user_id,
+        platform_type,
+        display_name,
+        requested_at,
+        expires_at,
+        status
+      FROM assistant_pairing_codes`);
+    db.exec('DROP TABLE assistant_pairing_codes');
+    db.exec('ALTER TABLE assistant_pairing_codes_new RENAME TO assistant_pairing_codes');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_pairing_expires ON assistant_pairing_codes(expires_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_pairing_status ON assistant_pairing_codes(status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_assistant_pairing_plugin ON assistant_pairing_codes(plugin_id, status)');
+
+    db.exec(`CREATE TABLE IF NOT EXISTS conversations_new (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        extra TEXT NOT NULL,
+        model TEXT,
+        status TEXT CHECK(status IN ('pending', 'running', 'finished')),
+        source TEXT,
+        channel_chat_id TEXT,
+        channel_plugin_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`);
+    db.exec(`INSERT INTO conversations_new (id, user_id, name, type, extra, model, status, source, channel_chat_id, channel_plugin_id, created_at, updated_at)
+      SELECT
+        id,
+        user_id,
+        name,
+        type,
+        extra,
+        model,
+        status,
+        source,
+        channel_chat_id,
+        CASE
+          WHEN source IS NOT NULL AND source != 'aionui' THEN source || '_default'
+          ELSE NULL
+        END,
+        created_at,
+        updated_at
+      FROM conversations`);
+    db.exec('DROP TABLE conversations');
+    db.exec('ALTER TABLE conversations_new RENAME TO conversations');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_user_updated ON conversations(user_id, updated_at DESC)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_source ON conversations(source)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_source_updated ON conversations(source, updated_at DESC)');
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_conversations_source_chat ON conversations(source, channel_chat_id, updated_at DESC)'
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_conversations_source_plugin_chat ON conversations(source, channel_plugin_id, channel_chat_id, updated_at DESC)'
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_conversations_cron_job_id ON conversations(json_extract(extra, '$.cronJobId'))`
+    );
+
+    console.log('[Migration v23] Added plugin instance scoping for channels');
+  },
+  down: (_db) => {
+    console.warn('[Migration v23] Rollback skipped: removing plugin instance scoping would risk data loss.');
+  },
+};
+
+/**
  * All migrations in order
  */
 // prettier-ignore
@@ -1124,7 +1277,7 @@ export const ALL_MIGRATIONS: IMigration[] = [
   migration_v1, migration_v2, migration_v3, migration_v4, migration_v5, migration_v6,
   migration_v7, migration_v8, migration_v9, migration_v10, migration_v11, migration_v12,
   migration_v13, migration_v14, migration_v15, migration_v16, migration_v17, migration_v18,
-  migration_v19, migration_v20, migration_v21, migration_v22,
+  migration_v19, migration_v20, migration_v21, migration_v22, migration_v23,
 ];
 
 /**

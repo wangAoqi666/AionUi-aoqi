@@ -170,6 +170,10 @@ export class WorkerTaskManagerJobExecutor implements ICronJobExecutor {
     const convName = `${job.name} - ${this.formatExecutionTimestamp(job)}`;
 
     const agentType = this.getAgentType(config.backend);
+    const service = await getConversationService();
+    const ownerConversation = job.metadata.conversationId
+      ? await service.getConversation(job.metadata.conversationId)
+      : undefined;
 
     // Check if a per-task SKILL.md exists (user-saved via "Turn into skill").
     // If yes: inject it into the workspace and exclude both cron and cron-run builtin skills.
@@ -182,6 +186,7 @@ export class WorkerTaskManagerJobExecutor implements ICronJobExecutor {
       name: convName,
       model,
       extra: {
+        ...this.getOwnerWorkspaceOverrides(ownerConversation),
         backend: config.backend,
         agentName: config.name,
         cliPath: config.cliPath,
@@ -194,7 +199,6 @@ export class WorkerTaskManagerJobExecutor implements ICronJobExecutor {
       },
     };
 
-    const service = await getConversationService();
     const conversation = await service.createConversation(params);
 
     // Notify frontend so sider updates immediately
@@ -205,6 +209,22 @@ export class WorkerTaskManagerJobExecutor implements ICronJobExecutor {
     });
 
     return conversation;
+  }
+
+  private getOwnerWorkspaceOverrides(
+    ownerConversation?: TChatConversation | null
+  ): Pick<CreateConversationParams['extra'], 'workspace' | 'customWorkspace'> {
+    const workspace = ownerConversation?.extra?.workspace;
+    const customWorkspace = ownerConversation?.extra?.customWorkspace;
+
+    if (!workspace || customWorkspace !== true) {
+      return {};
+    }
+
+    return {
+      workspace,
+      customWorkspace: true,
+    };
   }
 
   /**

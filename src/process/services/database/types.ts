@@ -76,6 +76,7 @@ export interface IConversationRow {
   status?: 'pending' | 'running' | 'finished';
   source?: ConversationSource; // 会话来源 / Conversation source
   channel_chat_id?: string; // Channel chat isolation ID (e.g. user:xxx or group:xxx)
+  channel_plugin_id?: string; // Channel plugin instance ID
   created_at: number;
   updated_at: number;
 }
@@ -124,6 +125,7 @@ export function conversationToRow(conversation: TChatConversation, userId: strin
     status: conversation.status,
     source: conversation.source,
     channel_chat_id: conversation.channelChatId,
+    channel_plugin_id: conversation.channelPluginId,
     created_at: conversation.createTime,
     updated_at: conversation.modifyTime,
   };
@@ -142,6 +144,7 @@ export function rowToConversation(row: IConversationRow): TChatConversation {
     status: row.status,
     source: row.source,
     channelChatId: row.channel_chat_id,
+    channelPluginId: row.channel_plugin_id,
   };
 
   // Gemini type has model field

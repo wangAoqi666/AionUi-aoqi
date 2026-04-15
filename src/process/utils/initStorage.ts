@@ -10,6 +10,7 @@ import path from 'path';
 import { getPlatformServices } from '@/common/platform';
 import { application } from '@/common/adapter/ipcBridge';
 import type { TMessage } from '@/common/chat/chatLib';
+import { normalizeLegacySystemPath } from '@/common/config/appPathConfig';
 import { ASSISTANT_PRESETS } from '@/common/config/presets/assistantPresets';
 import type {
   IChatConversationRefer,
@@ -20,6 +21,13 @@ import type {
   TProviderWithModel,
 } from '@/common/config/storage';
 import { ChatMessageStorage, ChatStorage, ConfigStorage, EnvStorage } from '@/common/config/storage';
+import {
+  getFactoryDefaultModelId,
+  getFactoryDroidModelInfo,
+  getFactoryModels,
+  setDroidModelCatalog,
+} from '@/common/config/factoryModels';
+import type { FactoryModel } from '@/common/config/factoryModels';
 import {
   copyDirectoryRecursively,
   ensureDirectory,
@@ -32,6 +40,7 @@ import {
 import { getDatabase } from '../services/database/export';
 import type { AcpBackendConfig } from '@/common/types/acpTypes';
 import { migrateFromElectronConfig, importConfigFromFile } from './configMigration';
+import { probeDroidModelCatalog } from '../agent/droid/modelProbe';
 import {
   BUILTIN_IMAGE_GEN_ID,
   BUILTIN_IMAGE_GEN_LEGACY_NAMES,
@@ -241,7 +250,36 @@ const JsonFileBuilder = <S extends object = Record<string, unknown>>(filePath: s
 
 const envFile = JsonFileBuilder<IEnvStorageRefer>(path.join(getHomePage(), STORAGE_PATH.env));
 
-const dirConfig = envFile.getSync('aionui.dir');
+const normalizeDirConfig = (
+  value: IEnvStorageRefer['aionui.dir'] | undefined
+): IEnvStorageRefer['aionui.dir'] | undefined => {
+  if (!value) return value;
+
+  const cacheDir = normalizeLegacySystemPath(value.cacheDir) ?? value.cacheDir;
+  const workDir = normalizeLegacySystemPath(value.workDir) ?? value.workDir;
+
+  if (cacheDir === value.cacheDir && workDir === value.workDir) {
+    return value;
+  }
+
+  return {
+    cacheDir,
+    workDir,
+  };
+};
+
+const rawDirConfig = envFile.getSync('aionui.dir');
+const dirConfig = normalizeDirConfig(rawDirConfig);
+
+if (
+  rawDirConfig &&
+  dirConfig &&
+  (rawDirConfig.cacheDir !== dirConfig.cacheDir || rawDirConfig.workDir !== dirConfig.workDir)
+) {
+  void envFile.set('aionui.dir', dirConfig).catch((error) => {
+    console.warn('[AionUi] Failed to persist normalized system directories:', error);
+  });
+}
 
 const cacheDir = dirConfig?.cacheDir || getHomePage();
 
@@ -334,11 +372,59 @@ const getAssistantsDir = () => {
 };
 
 /**
- * 获取技能脚本目录路径
- * Get skills scripts directory path
+ * 获取官方 Factory 根目录路径
+ * Get official Factory root directory path
+ */
+const getFactoryRootDir = () => {
+  return path.join(getPlatformServices().paths.getHomeDir(), '.factory');
+};
+
+/**
+ * 获取官方全局 skills 目录
+ * Get official global skills directory
+ */
+const getFactorySkillsDir = () => {
+  return path.join(getFactoryRootDir(), STORAGE_PATH.skills);
+};
+
+/**
+ * 获取官方全局 rules 目录
+ * Get official global rules directory
+ */
+const getFactoryRulesDir = () => {
+  return path.join(getFactoryRootDir(), 'rules');
+};
+
+/**
+ * 获取官方全局 memories 文件
+ * Get official global memories file
+ */
+const getFactoryMemoriesFile = () => {
+  return path.join(getFactoryRootDir(), 'memories.md');
+};
+
+/**
+ * 获取官方全局 AGENTS 文件
+ * Get official global AGENTS file
+ */
+const getFactoryAgentsFile = () => {
+  return path.join(getFactoryRootDir(), 'AGENTS.md');
+};
+
+/**
+ * 获取旧版用户 skills 目录（迁移来源）
+ * Get legacy user skills directory (migration source)
+ */
+const getLegacyUserSkillsDir = () => {
+  return path.join(cacheDir, STORAGE_PATH.skills);
+};
+
+/**
+ * 获取官方全局 skills 目录
+ * Get official global skills directory
  */
 const getSkillsDir = () => {
-  return path.join(cacheDir, STORAGE_PATH.skills);
+  return getFactorySkillsDir();
 };
 
 /**
@@ -363,6 +449,231 @@ const getAutoSkillsDir = () => {
  */
 const getCronSkillsDir = () => {
   return path.join(cacheDir, STORAGE_PATH.cronSkills);
+};
+
+const ensureFactoryGlobalStructure = async (): Promise<void> => {
+  await fs.mkdir(getFactoryRootDir(), { recursive: true });
+  await fs.mkdir(getFactorySkillsDir(), { recursive: true });
+  await fs.mkdir(getFactoryRulesDir(), { recursive: true });
+};
+
+const areJsonEqual = (left: unknown, right: unknown): boolean => {
+  return JSON.stringify(left) === JSON.stringify(right);
+};
+
+const hydrateFactoryDroidCatalogFromStorage = async (): Promise<void> => {
+  const storedCatalog = (await configFile.get('factoryDroidCatalog').catch((): undefined => undefined)) || undefined;
+  if (Array.isArray(storedCatalog) && storedCatalog.length > 0) {
+    setDroidModelCatalog(storedCatalog);
+    return;
+  }
+
+  setDroidModelCatalog(undefined);
+};
+
+const syncFactoryDroidCatalog = async (): Promise<void> => {
+  const storedCatalog = (await configFile.get('factoryDroidCatalog').catch((): undefined => undefined)) || undefined;
+  if (Array.isArray(storedCatalog) && storedCatalog.length > 0) {
+    setDroidModelCatalog(storedCatalog);
+  }
+
+  const acpConfig = (await configFile.get('acp.config').catch((): undefined => undefined)) || {};
+  const droidCliPath =
+    acpConfig && typeof acpConfig === 'object' && 'droid' in acpConfig
+      ? (acpConfig.droid as { cliPath?: string } | undefined)?.cliPath
+      : undefined;
+  const probedCatalog = await probeDroidModelCatalog({
+    cwd: getPlatformServices().paths.getHomeDir(),
+    execPath: droidCliPath,
+  });
+
+  if (probedCatalog && probedCatalog.length > 0) {
+    const nextCatalog = setDroidModelCatalog(probedCatalog);
+    if (!areJsonEqual(storedCatalog, nextCatalog)) {
+      await configFile.set('factoryDroidCatalog', nextCatalog);
+    }
+    return;
+  }
+
+  if (!Array.isArray(storedCatalog) || storedCatalog.length === 0) {
+    setDroidModelCatalog(undefined);
+  }
+};
+
+const syncFactoryDroidCachedModelInfo = async (): Promise<void> => {
+  const cachedModels = (await configFile.get('acp.cachedModels').catch((): undefined => undefined)) || {};
+  const cachedDroidInfo = cachedModels['droid'];
+  const nextDroidInfo = getFactoryDroidModelInfo(cachedDroidInfo?.currentModelId || getFactoryDefaultModelId());
+
+  if (areJsonEqual(cachedDroidInfo, nextDroidInfo)) {
+    return;
+  }
+
+  await configFile.set('acp.cachedModels', {
+    ...cachedModels,
+    droid: nextDroidInfo,
+  });
+};
+
+let refreshFactoryDroidCatalogPromise: Promise<FactoryModel[]> | null = null;
+
+export const refreshFactoryDroidCatalog = async () => {
+  if (refreshFactoryDroidCatalogPromise) {
+    return refreshFactoryDroidCatalogPromise;
+  }
+
+  refreshFactoryDroidCatalogPromise = (async () => {
+    await syncFactoryDroidCatalog();
+    await syncFactoryDroidCachedModelInfo();
+    return getFactoryModels();
+  })().finally(() => {
+    refreshFactoryDroidCatalogPromise = null;
+  });
+
+  return refreshFactoryDroidCatalogPromise;
+};
+
+const appendMigratedMarkdown = async (
+  targetPath: string,
+  sourcePath: string,
+  incomingContent: string
+): Promise<void> => {
+  const normalizedIncoming = incomingContent.trim();
+  if (!normalizedIncoming) {
+    return;
+  }
+
+  try {
+    const existingContent = await fs.readFile(targetPath, 'utf-8');
+    if (existingContent.trim() === normalizedIncoming) {
+      return;
+    }
+
+    const marker = `\n\n---\nMigrated from ${sourcePath}\n---\n\n`;
+    const nextContent = `${existingContent.trimEnd()}${marker}${incomingContent.trimStart()}\n`;
+    await fs.writeFile(targetPath, nextContent, 'utf-8');
+  } catch {
+    await fs.writeFile(targetPath, `${incomingContent.trimEnd()}\n`, 'utf-8');
+  }
+};
+
+const moveEntryWithFallback = async (sourcePath: string, targetPath: string): Promise<void> => {
+  try {
+    await fs.rename(sourcePath, targetPath);
+    return;
+  } catch (error) {
+    const errno = error as NodeJS.ErrnoException;
+    if (errno.code !== 'EXDEV') {
+      throw error;
+    }
+  }
+
+  const stat = await fs.lstat(sourcePath);
+  if (stat.isSymbolicLink()) {
+    const linkTarget = await fs.readlink(sourcePath);
+    await fs.symlink(linkTarget, targetPath, 'junction');
+    await fs.unlink(sourcePath);
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    await copyDirectoryRecursively(sourcePath, targetPath, { overwrite: true });
+    await fs.rm(sourcePath, { recursive: true, force: true });
+    return;
+  }
+
+  await fs.copyFile(sourcePath, targetPath);
+  await fs.unlink(sourcePath);
+};
+
+const resolveUniqueSkillMigrationTarget = async (baseDir: string, preferredName: string): Promise<string> => {
+  let suffix = 0;
+
+  while (true) {
+    const candidateName = suffix === 0 ? preferredName : `${preferredName}-migrated${suffix === 1 ? '' : `-${suffix}`}`;
+    const candidatePath = path.join(baseDir, candidateName);
+
+    try {
+      await fs.access(candidatePath);
+      suffix += 1;
+    } catch {
+      return candidatePath;
+    }
+  }
+};
+
+const migrateLegacyMarkdownFile = async (sourcePath: string, targetPath: string): Promise<void> => {
+  if (!existsSync(sourcePath)) {
+    return;
+  }
+
+  const content = await fs.readFile(sourcePath, 'utf-8');
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await appendMigratedMarkdown(targetPath, sourcePath, content);
+  await fs.unlink(sourcePath);
+};
+
+const migrateLegacyUserSkills = async (): Promise<void> => {
+  const legacyDir = getLegacyUserSkillsDir();
+  const targetDir = getFactorySkillsDir();
+
+  if (path.resolve(legacyDir) === path.resolve(targetDir) || !existsSync(legacyDir)) {
+    return;
+  }
+
+  const entries = await fs.readdir(legacyDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === '_builtin') {
+      continue;
+    }
+
+    const sourcePath = path.join(legacyDir, entry.name);
+
+    if (entry.isDirectory() || entry.isSymbolicLink()) {
+      let targetPath = path.join(targetDir, entry.name);
+      if (existsSync(targetPath)) {
+        targetPath = await resolveUniqueSkillMigrationTarget(targetDir, entry.name);
+      }
+      await moveEntryWithFallback(sourcePath, targetPath);
+      continue;
+    }
+
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.md') {
+      continue;
+    }
+
+    const skillName = path.basename(entry.name, '.md');
+    const targetSkillDir = await resolveUniqueSkillMigrationTarget(targetDir, skillName);
+    await fs.mkdir(targetSkillDir, { recursive: true });
+    await moveEntryWithFallback(sourcePath, path.join(targetSkillDir, 'SKILL.md'));
+  }
+
+  try {
+    const remainingEntries = await fs.readdir(legacyDir);
+    if (remainingEntries.length === 0) {
+      await fs.rmdir(legacyDir);
+    }
+  } catch (error) {
+    console.warn('[AionUi] Failed to clean up legacy skills directory:', error);
+  }
+};
+
+const migrateLegacyProjectFactoryFiles = async (): Promise<void> => {
+  const projectRoot = process.cwd();
+  const factoryDir = path.join(projectRoot, '.factory');
+
+  if (!existsSync(factoryDir)) {
+    return;
+  }
+
+  await migrateLegacyMarkdownFile(path.join(factoryDir, 'RULES.md'), path.join(factoryDir, 'rules', 'project.md'));
+  await migrateLegacyMarkdownFile(path.join(factoryDir, 'MEMORY.md'), path.join(factoryDir, 'memories.md'));
+};
+
+const migrateOfficialFactoryStructure = async (): Promise<void> => {
+  await ensureFactoryGlobalStructure();
+  await migrateLegacyUserSkills();
+  await migrateLegacyProjectFactoryFiles();
 };
 
 /**
@@ -848,6 +1159,9 @@ const initStorage = async () => {
   await migrateLegacyData();
   mark('1. migrateLegacyData');
 
+  await migrateOfficialFactoryStructure();
+  mark('1.1 migrateOfficialFactoryStructure');
+
   // 2. 创建必要的目录（迁移后再创建，确保迁移能正常进行）
   // Use ensureDirectory to handle cases where a regular file blocks the path (#841)
   ensureDirectory(getHomePage());
@@ -939,8 +1253,10 @@ const initStorage = async () => {
         const existing = updatedAgents[index];
         // 只有当关键字段不同时才更新，避免不必要的写入
         // Update only if key fields are different to avoid unnecessary writes
-        // 注意：enabled 和 presetAgentType 字段由用户控制，不参与 shouldUpdate 判断
-        // Note: enabled and presetAgentType are user-controlled, not included in shouldUpdate check
+        // 注意：enabled 字段由用户控制，不参与 shouldUpdate 判断；
+        // 内置助手的 presetAgentType 由产品固定为 Factory Droid，需要强制与内置默认值对齐
+        // Note: enabled is user-controlled and not included in shouldUpdate;
+        // builtin presetAgentType is locked to Factory Droid and must match builtin defaults
         // 检查 promptsI18n 是否需要更新（如果不存在或已更改，或需要迁移）
         // Check if promptsI18n needs update (if missing, changed, or migration needed)
         const promptsI18nMissing = !existing.promptsI18n && builtin.promptsI18n;
@@ -965,6 +1281,7 @@ const initStorage = async () => {
           existing.avatar !== builtin.avatar ||
           existing.isPreset !== builtin.isPreset ||
           existing.isBuiltin !== builtin.isBuiltin ||
+          existing.presetAgentType !== builtin.presetAgentType ||
           nameI18nMissing ||
           !!nameI18nChanged ||
           descriptionI18nMissing ||
@@ -976,9 +1293,7 @@ const initStorage = async () => {
         // 迁移时强制使用默认值，否则保留用户设置
         // Force default value during migration, otherwise preserve user setting
         const resolvedEnabled = needsEnabledFix ? builtin.enabled : existing.enabled;
-        // presetAgentType 由用户控制，未设置时使用内置默认值
-        // presetAgentType is user-controlled, use builtin default if not set
-        const resolvedPresetAgentType = existing.presetAgentType ?? builtin.presetAgentType;
+        const resolvedPresetAgentType = builtin.presetAgentType;
 
         // 为有 defaultEnabledSkills 配置的内置助手添加默认技能（仅在迁移时且用户未设置 enabledSkills 时）
         // Add default enabled skills for builtin assistants with defaultEnabledSkills (only during migration and if user hasn't set enabledSkills)
@@ -997,7 +1312,7 @@ const initStorage = async () => {
           (needsSkillsMigration && resolvedEnabledSkills !== existing.enabledSkills) ||
           needsPromptsI18nUpdate
         ) {
-          // 保留用户已设置的 enabled 和 presetAgentType / Preserve user-set enabled and presetAgentType
+          // 保留用户已设置的 enabled，但强制内置助手使用 Factory Droid
           updatedAgents[index] = {
             ...existing,
             ...builtin,
@@ -1036,18 +1351,27 @@ const initStorage = async () => {
     console.error('[AionUi] Failed to initialize builtin assistants:', error);
   }
 
-  // 5.3 Pre-seed Factory Droid model list so it's available on first launch
+  // 5.3 Hydrate the last known Factory Droid catalog immediately so startup stays responsive
   try {
-    const { getFactoryDroidModelInfo } = await import('@/common/config/factoryModels');
-    const cachedModels = (await configFile.get('acp.cachedModels').catch((): undefined => undefined)) || {};
-    if (!cachedModels['droid']) {
-      cachedModels['droid'] = getFactoryDroidModelInfo();
-      await configFile.set('acp.cachedModels', cachedModels);
-    }
+    await hydrateFactoryDroidCatalogFromStorage();
   } catch (error) {
-    console.error('[AionUi] Failed to pre-seed Factory Droid models:', error);
+    console.error('[AionUi] Failed to hydrate Factory Droid catalog from storage:', error);
   }
-  mark('5.3 factoryDroidModels');
+  mark('5.3 factoryDroidCatalogHydrated');
+
+  // 5.4 Keep cached Droid model info in sync with the current catalog/default
+  try {
+    await syncFactoryDroidCachedModelInfo();
+  } catch (error) {
+    console.error('[AionUi] Failed to sync Factory Droid cached model info:', error);
+  }
+  mark('5.4 factoryDroidModelsHydrated');
+
+  // 5.5 Refresh the catalog in the background so startup never blocks on CLI probing
+  void refreshFactoryDroidCatalog().catch((error) => {
+    console.error('[AionUi] Failed to refresh Factory Droid catalog:', error);
+  });
+  mark('5.5 factoryDroidCatalogRefreshScheduled');
 
   // 6. 初始化数据库（better-sqlite3）
   try {
@@ -1095,6 +1419,10 @@ export const getSystemDir = () => {
  */
 export {
   getAssistantsDir,
+  getFactoryRootDir,
+  getFactoryRulesDir,
+  getFactoryMemoriesFile,
+  getFactoryAgentsFile,
   getSkillsDir,
   getBuiltinSkillsCopyDir,
   getAutoSkillsDir,
@@ -1139,9 +1467,6 @@ export const loadSkillsContent = async (enabledSkills: string[]): Promise<string
     const bundledSkillFile = path.join(getBuiltinSkillsCopyDir(), skillName, 'SKILL.md');
     // 3. User custom: skills/{skillName}/SKILL.md
     const skillDirFile = path.join(skillsDir, skillName, 'SKILL.md');
-    // 向后兼容：扁平结构 {skillName}.md
-    // Backward compatible: flat structure {skillName}.md
-    const skillFlatFile = path.join(skillsDir, `${skillName}.md`);
 
     try {
       let content: string | null = null;
@@ -1152,8 +1477,6 @@ export const loadSkillsContent = async (enabledSkills: string[]): Promise<string
         content = await fs.readFile(bundledSkillFile, 'utf-8');
       } else if (existsSync(skillDirFile)) {
         content = await fs.readFile(skillDirFile, 'utf-8');
-      } else if (existsSync(skillFlatFile)) {
-        content = await fs.readFile(skillFlatFile, 'utf-8');
       }
 
       if (content && content.trim()) {
