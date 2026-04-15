@@ -46,14 +46,17 @@ import type { ChannelAgentType, PluginType } from '../types';
 import type { ActionHandler, IRegisteredAction } from './types';
 import { SystemActionNames, createErrorResponse, createSuccessResponse } from './types';
 import { GOOGLE_AUTH_PROVIDER_ID } from '@/common/config/constants';
-import { buildChannelConversationExtra } from '../utils';
+import { buildChannelConversationExtra, loadChannelPublishInstanceSettings } from '../utils';
 
 /**
  * Get the default model for Channel assistant (Telegram/Lark)
  * Reads from saved config or falls back to default Gemini model
  */
 
-export async function getChannelDefaultModel(platform: PluginType): Promise<TProviderWithModel> {
+export async function getChannelDefaultModel(
+  platform: PluginType,
+  preferredModel?: { id: string; useModel: string }
+): Promise<TProviderWithModel> {
   try {
     const providers = await ProcessConfig.get('model.config');
     const providerList = providers && Array.isArray(providers) ? providers : [];
@@ -69,13 +72,14 @@ export async function getChannelDefaultModel(platform: PluginType): Promise<TPro
 
     // Try to get saved model selection
     const savedModel =
-      platform === 'lark'
+      preferredModel ||
+      (platform === 'lark'
         ? await ProcessConfig.get('assistant.lark.defaultModel')
         : platform === 'dingtalk'
           ? await ProcessConfig.get('assistant.dingtalk.defaultModel')
           : platform === 'weixin'
             ? await ProcessConfig.get('assistant.weixin.defaultModel')
-            : await ProcessConfig.get('assistant.telegram.defaultModel');
+            : await ProcessConfig.get('assistant.telegram.defaultModel'));
     if (savedModel?.id && savedModel?.useModel) {
       if (savedModel.id === GOOGLE_AUTH_PROVIDER_ID) {
         // Google OAuth credentials are stored locally by Gemini CLI (~/.gemini/oauth_creds.json).
@@ -230,45 +234,32 @@ export const handleSessionNew: ActionHandler = async (context) => {
   const platform = context.platform;
   const source =
     platform === 'lark' ? 'lark' : platform === 'dingtalk' ? 'dingtalk' : platform === 'weixin' ? 'weixin' : 'telegram';
-
-  // Selected agent (defaults to Gemini)
-  let savedAgent: unknown = undefined;
-  try {
-    savedAgent = await (platform === 'lark'
-      ? ProcessConfig.get('assistant.lark.agent')
-      : platform === 'dingtalk'
-        ? ProcessConfig.get('assistant.dingtalk.agent')
-        : platform === 'weixin'
-          ? ProcessConfig.get('assistant.weixin.agent')
-          : ProcessConfig.get('assistant.telegram.agent'));
-  } catch {
-    // ignore
-  }
-  const backend = (
-    savedAgent && typeof savedAgent === 'object' && typeof (savedAgent as any).backend === 'string'
-      ? (savedAgent as any).backend
-      : 'gemini'
-  ) as string;
-  const customAgentId =
-    savedAgent && typeof savedAgent === 'object'
-      ? ((savedAgent as any).customAgentId as string | undefined)
-      : undefined;
-  const agentName =
-    savedAgent && typeof savedAgent === 'object' ? ((savedAgent as any).name as string | undefined) : undefined;
+  const instanceSettings = await loadChannelPublishInstanceSettings(context.pluginId, platform);
+  const backend = instanceSettings.agent?.backend || 'droid';
+  const customAgentId = instanceSettings.agent?.customAgentId;
+  const agentName = instanceSettings.agent?.name;
 
   // Provider model is required by typing; ACP/Codex will ignore it.
-  const model = await getChannelDefaultModel(platform);
+  const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel);
 
   // Always create a NEW conversation for "session.new" (scoped by chatId)
   const channelChatId = context.chatId;
   const { convType, convBackend } = resolveChannelConvType(backend);
   const name = getChannelConversationName(platform, convType, convBackend, channelChatId);
-  const conversationExtra = buildChannelConversationExtra({
-    platform,
-    backend,
-    customAgentId,
-    agentName,
-  });
+  const conversationExtra = {
+    ...buildChannelConversationExtra({
+      platform,
+      backend,
+      customAgentId,
+      agentName,
+    }),
+    ...(instanceSettings.workspace
+      ? {
+          workspace: instanceSettings.workspace,
+          customWorkspace: true,
+        }
+      : {}),
+  };
 
   let newConversation: TChatConversation;
   try {
@@ -279,6 +270,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
         source,
         name,
         channelChatId,
+        channelPluginId: context.pluginId,
         extra: conversationExtra,
       });
     } else if (backend === 'codex') {
@@ -288,6 +280,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
         source,
         name,
         channelChatId,
+        channelPluginId: context.pluginId,
         extra: { ...conversationExtra, backend: 'codex' },
       });
     } else if (backend === 'openclaw-gateway') {
@@ -297,6 +290,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
         source,
         name,
         channelChatId,
+        channelPluginId: context.pluginId,
         extra: conversationExtra,
       });
     } else {
@@ -306,6 +300,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
         source,
         name,
         channelChatId,
+        channelPluginId: context.pluginId,
         extra: conversationExtra,
       });
     }
@@ -319,7 +314,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
     context.channelUser,
     newConversation.id,
     agentType,
-    undefined,
+    instanceSettings.workspace,
     channelChatId
   );
 

@@ -15,7 +15,7 @@ import { DingTalkPlugin } from '../plugins/dingtalk/DingTalkPlugin';
 import { LarkPlugin } from '../plugins/lark/LarkPlugin';
 import { TelegramPlugin } from '../plugins/telegram/TelegramPlugin';
 import { WeixinPlugin } from '../plugins/weixin/WeixinPlugin';
-import { isBuiltinChannelPlatform, resolveChannelConvType } from '../types';
+import { getDefaultChannelPluginId, isBuiltinChannelPlatform, resolveChannelConvType } from '../types';
 import type { ChannelPlatform, IChannelPluginConfig, PluginType } from '../types';
 import { SessionManager } from './SessionManager';
 
@@ -91,32 +91,34 @@ export class ChannelManager {
 
       // Set confirm handler for tool confirmations
       // 设置工具确认处理器
-      this.pluginManager.setConfirmHandler(async (userId: string, platform: string, callId: string, value: string) => {
-        // 查找用户
-        // Find user
-        const db = await getDatabase();
-        const userResult = db.getChannelUserByPlatform(userId, platform as PluginType);
-        if (!userResult.data) {
-          console.error(`[ChannelManager] User not found: ${userId}@${platform}`);
-          return;
-        }
+      this.pluginManager.setConfirmHandler(
+        async (pluginId: string, userId: string, platform: string, callId: string, value: string) => {
+          // 查找用户
+          // Find user
+          const db = await getDatabase();
+          const userResult = db.getChannelUserByPlatform(userId, platform as PluginType, pluginId);
+          if (!userResult.data) {
+            console.error(`[ChannelManager] User not found: ${userId}@${platform}`);
+            return;
+          }
 
-        // 查找 session 获取 conversationId
-        // Find session to get conversationId
-        const session = this.sessionManager?.getSession(userResult.data.id);
-        if (!session?.conversationId) {
-          console.error(`[ChannelManager] Session not found for user: ${userResult.data.id}`);
-          return;
-        }
+          // 查找 session 获取 conversationId
+          // Find session to get conversationId
+          const session = this.sessionManager?.getSession(userResult.data.id);
+          if (!session?.conversationId) {
+            console.error(`[ChannelManager] Session not found for user: ${userResult.data.id}`);
+            return;
+          }
 
-        // 调用 confirm
-        // Call confirm
-        try {
-          await getChannelMessageService().confirm(session.conversationId, callId, value);
-        } catch (error) {
-          console.error(`[ChannelManager] Tool confirmation failed:`, error);
+          // 调用 confirm
+          // Call confirm
+          try {
+            await getChannelMessageService().confirm(session.conversationId, callId, value);
+          } catch (error) {
+            console.error(`[ChannelManager] Tool confirmation failed:`, error);
+          }
         }
-      });
+      );
 
       // Load and start enabled plugins from database
       await this.loadEnabledPlugins();
@@ -223,6 +225,52 @@ export class ChannelManager {
       throw new Error('PluginManager not initialized');
     }
     await this.pluginManager.startPlugin(config);
+  }
+
+  async createPluginInstance(
+    platform: ChannelPlatform
+  ): Promise<{ success: boolean; error?: string; pluginId?: string }> {
+    if (!this.initialized) {
+      return { success: false, error: 'Channel manager not initialized' };
+    }
+
+    try {
+      const db = await getDatabase();
+      const existing = db.getChannelPlugins();
+      const siblingCount = existing.success
+        ? existing.data?.filter((plugin) => plugin.type === platform).length || 0
+        : 0;
+      const pluginId = `${platform}_${Date.now().toString(36)}`;
+      const baseName =
+        platform === 'lark'
+          ? 'Lark'
+          : platform === 'dingtalk'
+            ? 'DingTalk'
+            : platform === 'weixin'
+              ? 'WeChat'
+              : platform === 'telegram'
+                ? 'Telegram'
+                : platform;
+
+      const pluginConfig: IChannelPluginConfig = {
+        id: pluginId,
+        type: platform,
+        name: `${baseName} ${siblingCount + 1}`,
+        enabled: false,
+        status: 'stopped',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const saveResult = db.upsertChannelPlugin(pluginConfig);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, pluginId };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
   }
 
   /**
@@ -512,24 +560,34 @@ export class ChannelManager {
   async syncChannelSettings(
     platform: ChannelPlatform,
     agent: { backend: string; customAgentId?: string; name?: string },
-    model?: { id: string; useModel: string }
+    model?: { id: string; useModel: string },
+    pluginId?: string
   ): Promise<{ success: boolean; error?: string }> {
     if (!this.initialized || !this.sessionManager) {
       return { success: false, error: 'Channel manager not initialized' };
     }
 
     try {
+      const targetPluginId = pluginId || getDefaultChannelPluginId(platform);
       const { convType: newType } = resolveChannelConvType(agent.backend);
 
       // For gemini + model info: update existing conversations' model field
       if (newType === 'gemini' && model?.id && model?.useModel) {
         if (isBuiltinChannelPlatform(platform)) {
           const builtinPlatform: 'telegram' | 'lark' | 'dingtalk' | 'weixin' = platform;
-          const fullModel = await getChannelDefaultModel(builtinPlatform);
+          const fullModel = await getChannelDefaultModel(builtinPlatform, model);
           const db = await getDatabase();
-          const result = db.updateChannelConversationModel(builtinPlatform, 'gemini', fullModel);
+          const result = db.updateChannelConversationModel(
+            builtinPlatform,
+            'gemini',
+            fullModel,
+            undefined,
+            targetPluginId
+          );
           if (result.success) {
-            console.log(`[ChannelManager] Updated ${result.data} gemini conversation(s) for ${builtinPlatform}`);
+            console.log(
+              `[ChannelManager] Updated ${result.data} gemini conversation(s) for ${builtinPlatform}:${targetPluginId}`
+            );
           }
         } else {
           console.log(`[ChannelManager] Skip conversation model sync for extension platform: ${platform}`);
@@ -537,8 +595,10 @@ export class ChannelManager {
       }
 
       // Clear all sessions to force re-evaluation on next message
-      const cleared = await this.sessionManager.clearAllSessions();
-      console.log(`[ChannelManager] syncChannelSettings: platform=${platform}, type=${newType}, cleared=${cleared}`);
+      const cleared = await this.sessionManager.clearAllSessions(targetPluginId);
+      console.log(
+        `[ChannelManager] syncChannelSettings: platform=${platform}, pluginId=${targetPluginId}, type=${newType}, cleared=${cleared}`
+      );
 
       return { success: true };
     } catch (error: any) {

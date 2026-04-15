@@ -337,7 +337,7 @@ export class DingTalkPlugin extends BasePlugin {
       }
 
       // Convert to unified message
-      const unifiedMessage = toUnifiedIncomingMessage(data);
+      const unifiedMessage = toUnifiedIncomingMessage(data, undefined, this.config?.id || 'dingtalk_default');
       if (unifiedMessage && this.messageHandler) {
         // Check for menu button commands
         if (unifiedMessage.content.type === 'text' && unifiedMessage.content.text) {
@@ -398,11 +398,15 @@ export class DingTalkPlugin extends BasePlugin {
       // Handle tool confirmation specially
       if (actionInfo.name === 'system.confirm' && actionInfo.params?.callId && actionInfo.params?.value) {
         if (this.confirmHandler) {
-          void this.confirmHandler(userId, 'dingtalk', actionInfo.params.callId, actionInfo.params.value).catch(
-            (error) => {
-              console.error('[DingTalkPlugin] Confirm handler error:', error);
-            }
-          );
+          void this.confirmHandler(
+            this.config?.id || 'dingtalk_default',
+            userId,
+            'dingtalk',
+            actionInfo.params.callId,
+            actionInfo.params.value
+          ).catch((error) => {
+            console.error('[DingTalkPlugin] Confirm handler error:', error);
+          });
         }
         return;
       }
@@ -416,7 +420,7 @@ export class DingTalkPlugin extends BasePlugin {
         createAt: Date.now(),
       };
 
-      const unifiedMessage = toUnifiedIncomingMessage(mockData, actionInfo);
+      const unifiedMessage = toUnifiedIncomingMessage(mockData, actionInfo, this.config?.id || 'dingtalk_default');
       if (unifiedMessage && this.messageHandler) {
         void this.emitMessage(unifiedMessage).catch((error) =>
           console.error('[DingTalkPlugin] Error handling card action:', error)

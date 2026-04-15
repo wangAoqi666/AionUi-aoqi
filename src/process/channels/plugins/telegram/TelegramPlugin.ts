@@ -244,7 +244,7 @@ export class TelegramPlugin extends BasePlugin {
     this.activeUsers.add(userId);
 
     // Convert to unified message and forward to handler (non-blocking)
-    const unifiedMessage = toUnifiedIncomingMessage(ctx);
+    const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
     if (unifiedMessage && this.messageHandler) {
       // Mark as start command for special handling
       unifiedMessage.content.type = 'command';
@@ -275,7 +275,7 @@ export class TelegramPlugin extends BasePlugin {
       }
 
       // Convert to unified message and forward to handler
-      const unifiedMessage = toUnifiedIncomingMessage(ctx);
+      const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
       if (unifiedMessage && this.messageHandler) {
         // IMPORTANT: Don't await - process in background to avoid blocking polling loop
         // grammY's simple polling processes messages sequentially, so blocking here
@@ -302,7 +302,7 @@ export class TelegramPlugin extends BasePlugin {
    * Handle button-based commands from reply keyboard
    */
   private async handleButtonCommand(ctx: Context, text: string): Promise<boolean> {
-    const unifiedMessage = toUnifiedIncomingMessage(ctx);
+    const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
     if (!unifiedMessage || !this.messageHandler) return false;
 
     // Map button text to actions
@@ -344,7 +344,7 @@ export class TelegramPlugin extends BasePlugin {
     this.activeUsers.add(userId);
 
     // Convert to unified message and forward to handler (non-blocking)
-    const unifiedMessage = toUnifiedIncomingMessage(ctx);
+    const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
     if (unifiedMessage && this.messageHandler) {
       // Don't await - process in background
       void this.messageHandler(unifiedMessage).catch((error) =>
@@ -384,7 +384,7 @@ export class TelegramPlugin extends BasePlugin {
         const value = parts.slice(2).join(':'); // value 可能包含冒号
         // 直接调用 confirmHandler，不通过 messageHandler
         // Call confirmHandler directly, not through messageHandler
-        void this.confirmHandler(userId, 'telegram', callId, value)
+        void this.confirmHandler(this.config?.id || 'telegram_default', userId, 'telegram', callId, value)
           .then(async () => {
             // 确认成功后移除按钮
             // Remove buttons after confirmation success
@@ -407,7 +407,7 @@ export class TelegramPlugin extends BasePlugin {
     // Handle agent selection callback, format: agent:{agentType}
     if (category === 'agent') {
       const agentType = extractAction(data); // gemini, acp, codex
-      const unifiedMessage = toUnifiedIncomingMessage(ctx);
+      const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
       if (unifiedMessage && this.messageHandler) {
         unifiedMessage.content.type = 'action';
         unifiedMessage.content.text = 'agent.select';
@@ -433,7 +433,7 @@ export class TelegramPlugin extends BasePlugin {
 
     // 其他回调类型通过 messageHandler 处理
     // Other callback types are handled through messageHandler
-    const unifiedMessage = toUnifiedIncomingMessage(ctx);
+    const unifiedMessage = toUnifiedIncomingMessage(ctx, this.config?.id || 'telegram_default');
     if (unifiedMessage && this.messageHandler) {
       unifiedMessage.content.type = 'action';
       unifiedMessage.content.text = data;

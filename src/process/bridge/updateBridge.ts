@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import semver from 'semver';
 import { autoUpdaterService } from '../services/autoUpdaterService';
+import { getApplicationDisplayVersion } from './applicationBridgeCore';
 
 type GitHubReleaseApiAsset = {
   name: string;
@@ -44,7 +45,7 @@ interface AutoUpdateCheckParams {
   includePrerelease?: boolean;
 }
 
-const DEFAULT_REPO = 'iOfficeAI/AionUi';
+const DEFAULT_REPO = '';
 const DEFAULT_USER_AGENT = 'AionUi';
 const ALLOWED_ASSET_EXTS = new Set(['.exe', '.msi', '.dmg', '.zip', '.deb', '.rpm']);
 const ALLOWED_DOWNLOAD_HOSTS = new Set<string>([
@@ -171,8 +172,7 @@ export const pickRecommendedAsset = (
 
 const resolveRepo = (requestRepo?: string): string => {
   const envRepo = process.env.AIONUI_GITHUB_REPO?.trim();
-  const repo = (requestRepo || envRepo || DEFAULT_REPO).trim();
-  return repo || DEFAULT_REPO;
+  return (requestRepo || envRepo || DEFAULT_REPO).trim();
 };
 
 const assertAllowedUrl = (rawUrl: string) => {
@@ -443,18 +443,27 @@ export function initUpdateBridge(): void {
   ipcBridge.update.check.provider(
     async (params): Promise<{ success: boolean; data?: UpdateCheckResult; msg?: string }> => {
       try {
-        const repo = resolveRepo(params?.repo);
         const includePrerelease = Boolean(params?.includePrerelease);
-        const currentVersion = app.getVersion();
+        const currentVersion = getApplicationDisplayVersion();
+        const repo = resolveRepo(params?.repo);
+
+        if (!repo) {
+          return { success: true, data: { currentVersion, updateAvailable: false } };
+        }
 
         // EN: Versioning note
-        // Update comparisons are pure semver: `app.getVersion()` (packaged app version) vs release `tag_name`.
+        // Update comparisons are pure semver: the display version returned by
+        // `getApplicationDisplayVersion()` vs release `tag_name`.
+        // In packaged builds this matches `app.getVersion()`. In dev builds launched via a packaged host app,
+        // it prefers the host app bundle version so update surfaces stay consistent with the installed app shell.
         // If you want dev/prerelease updates to work reliably, CI must inject a prerelease semver into
         // `package.json#version` for dev builds (e.g. `1.7.2-dev.1234+sha.abcdef0`) so semver ordering holds.
         // We intentionally avoid heuristics based on tag strings when the app version is a stable semver.
         //
         // 中文：版本号说明
-        // 更新比较严格使用 semver：`app.getVersion()`（应用自身版本号）对比 Release 的 `tag_name`。
+        // 更新比较严格使用 semver：`getApplicationDisplayVersion()` 返回的展示版本对比 Release 的 `tag_name`。
+        // 打包环境下它等同于 `app.getVersion()`；开发环境若由系统包内置 bun 启动，则优先读取该系统包版本，
+        // 让更新弹窗与实际安装壳版本保持一致。
         // 若要 dev/预发布版本更新可靠生效，需要 CI 在 dev 构建时把 `package.json#version`
         // 注入为带 prerelease 的 semver（如 `1.7.2-dev.1234+sha.abcdef0`），以保证比较顺序正确。
         // 这里刻意不对“当前是稳定版版本号但用户勾选了 prerelease”做字符串猜测。

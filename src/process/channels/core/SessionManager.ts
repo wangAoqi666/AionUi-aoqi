@@ -61,10 +61,11 @@ export class SessionManager {
   async getSessionByPlatformUser(
     platformUserId: string,
     platformType: PluginType,
+    pluginId?: string,
     chatId?: string
   ): Promise<IChannelSession | null> {
     const db = await getDatabase();
-    const userResult = db.getChannelUserByPlatform(platformUserId, platformType);
+    const userResult = db.getChannelUserByPlatform(platformUserId, platformType, pluginId);
 
     if (!userResult.success || !userResult.data) {
       return null;
@@ -110,6 +111,7 @@ export class SessionManager {
     const now = Date.now();
     const session: IChannelSession = {
       id: uuid(),
+      pluginId: user.pluginId,
       userId: user.id,
       agentType,
       workspace,
@@ -126,7 +128,7 @@ export class SessionManager {
     this.activeSessions.set(key, session);
 
     // Update user's session reference
-    db.getChannelUserByPlatform(user.platformUserId, user.platformType);
+    db.getChannelUserByPlatform(user.platformUserId, user.platformType, user.pluginId);
 
     return session;
   }
@@ -204,10 +206,13 @@ export class SessionManager {
    * Clear all sessions from both in-memory cache and database.
    * Used when channel settings change to force session re-evaluation on next message.
    */
-  async clearAllSessions(): Promise<number> {
+  async clearAllSessions(pluginId?: string): Promise<number> {
     const db = await getDatabase();
     let cleared = 0;
     for (const [key, session] of this.activeSessions.entries()) {
+      if (pluginId && session.pluginId !== pluginId) {
+        continue;
+      }
       db.deleteChannelSession(session.id);
       this.activeSessions.delete(key);
       cleared++;

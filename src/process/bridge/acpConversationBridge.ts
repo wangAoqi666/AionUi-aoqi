@@ -14,7 +14,16 @@ import { GeminiAgentManager } from '@process/task/GeminiAgentManager';
 import { AionrsManager } from '@process/task/AionrsManager';
 import { mcpService } from '@/process/services/mcpServices/McpService';
 import { mainLog, mainWarn } from '@/process/utils/mainLogger';
+import { ProcessConfig, refreshFactoryDroidCatalog } from '@/process/utils/initStorage';
 import { ipcBridge } from '@/common';
+import { getFactoryModels } from '@/common/config/factoryModels';
+import { checkDroidCliUpdate, probeDroidStatus } from '@process/agent/droid/modelProbe';
+import {
+  getDroidByokConfigs,
+  removeDroidByokConfig,
+  saveDroidByokConfig,
+  testDroidByokConfig,
+} from './services/DroidByokService';
 import * as os from 'os';
 
 export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager): void {
@@ -201,6 +210,151 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
       success: true,
       data: { modelInfo: task.getModelInfo() },
     });
+  });
+
+  ipcBridge.acpConversation.getDroidModelCatalog.provider(async ({ refresh }) => {
+    try {
+      const catalog = refresh ? await refreshFactoryDroidCatalog() : getFactoryModels();
+      return {
+        success: true,
+        data: { catalog },
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      mainWarn('[ACP droid]', 'getDroidModelCatalog failed', errorMsg);
+      return {
+        success: true,
+        data: { catalog: getFactoryModels() },
+        msg: errorMsg,
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.getDroidStatus.provider(async () => {
+    try {
+      const acpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+      const droidCliPath =
+        acpConfig && typeof acpConfig === 'object' && 'droid' in acpConfig
+          ? (acpConfig.droid as { cliPath?: string } | undefined)?.cliPath
+          : undefined;
+
+      return {
+        success: true,
+        data: await probeDroidStatus({
+          cwd: os.homedir(),
+          execPath: droidCliPath,
+        }),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.checkDroidCliUpdate.provider(async () => {
+    try {
+      const acpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+      const droidCliPath =
+        acpConfig && typeof acpConfig === 'object' && 'droid' in acpConfig
+          ? (acpConfig.droid as { cliPath?: string } | undefined)?.cliPath
+          : undefined;
+
+      return {
+        success: true,
+        data: await checkDroidCliUpdate({
+          cwd: os.homedir(),
+          execPath: droidCliPath,
+        }),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.getDroidByokConfig.provider(async () => {
+    try {
+      return {
+        success: true,
+        data: {
+          configs: await getDroidByokConfigs(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.testDroidByokConfig.provider(async (payload) => {
+    try {
+      return {
+        success: true,
+        data: {
+          config: await testDroidByokConfig(payload),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.saveDroidByokConfig.provider(async (payload) => {
+    try {
+      const config = await saveDroidByokConfig(payload);
+      let refreshMsg: string | undefined;
+      try {
+        await refreshFactoryDroidCatalog();
+      } catch (error) {
+        refreshMsg = error instanceof Error ? error.message : String(error);
+        mainWarn('[ACP droid]', 'saveDroidByokConfig refresh failed', refreshMsg);
+      }
+
+      return {
+        success: true,
+        data: {
+          config,
+        },
+        ...(refreshMsg ? { msg: refreshMsg } : {}),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.removeDroidByokConfig.provider(async ({ id }) => {
+    try {
+      await removeDroidByokConfig(id);
+      let refreshMsg: string | undefined;
+      try {
+        await refreshFactoryDroidCatalog();
+      } catch (error) {
+        refreshMsg = error instanceof Error ? error.message : String(error);
+        mainWarn('[ACP droid]', 'removeDroidByokConfig refresh failed', refreshMsg);
+      }
+
+      return {
+        success: true,
+        ...(refreshMsg ? { msg: refreshMsg } : {}),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   ipcBridge.acpConversation.probeModelInfo.provider(async ({ backend }) => {

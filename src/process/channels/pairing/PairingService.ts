@@ -40,6 +40,7 @@ export class PairingService {
    * Generate a new pairing code for a user
    */
   async generatePairingCode(
+    pluginId: string,
     platformUserId: string,
     platformType: PluginType,
     displayName?: string
@@ -50,7 +51,11 @@ export class PairingService {
     const existingResult = db.getPendingPairingRequests();
     if (existingResult.success && existingResult.data) {
       const existing = existingResult.data.find(
-        (r) => r.platformUserId === platformUserId && r.platformType === platformType && r.status === 'pending'
+        (r) =>
+          r.pluginId === pluginId &&
+          r.platformUserId === platformUserId &&
+          r.platformType === platformType &&
+          r.status === 'pending'
       );
 
       // Return existing code if not expired
@@ -70,6 +75,7 @@ export class PairingService {
     // Create pairing request
     const request: IChannelPairingRequest = {
       code,
+      pluginId,
       platformUserId,
       platformType,
       displayName,
@@ -93,6 +99,7 @@ export class PairingService {
    * Refresh pairing code for a user (generate new one)
    */
   async refreshPairingCode(
+    pluginId: string,
     platformUserId: string,
     platformType: PluginType,
     displayName?: string
@@ -104,6 +111,7 @@ export class PairingService {
     if (existingResult.success && existingResult.data) {
       for (const request of existingResult.data) {
         if (
+          request.pluginId === pluginId &&
           request.platformUserId === platformUserId &&
           request.platformType === platformType &&
           request.status === 'pending'
@@ -114,15 +122,15 @@ export class PairingService {
     }
 
     // Generate new code
-    return this.generatePairingCode(platformUserId, platformType, displayName);
+    return this.generatePairingCode(pluginId, platformUserId, platformType, displayName);
   }
 
   /**
    * Check if a user is already authorized
    */
-  async isUserAuthorized(platformUserId: string, platformType: PluginType): Promise<boolean> {
+  async isUserAuthorized(platformUserId: string, platformType: PluginType, pluginId?: string): Promise<boolean> {
     const db = await getDatabase();
-    const result = db.getChannelUserByPlatform(platformUserId, platformType);
+    const result = db.getChannelUserByPlatform(platformUserId, platformType, pluginId);
     return result.success && result.data !== null;
   }
 
@@ -140,7 +148,8 @@ export class PairingService {
    */
   async getPendingRequestForUser(
     platformUserId: string,
-    platformType: PluginType
+    platformType: PluginType,
+    pluginId?: string
   ): Promise<IChannelPairingRequest | null> {
     const db = await getDatabase();
     const result = db.getPendingPairingRequests();
@@ -152,6 +161,7 @@ export class PairingService {
     return (
       result.data.find(
         (r) =>
+          (!pluginId || r.pluginId === pluginId) &&
           r.platformUserId === platformUserId &&
           r.platformType === platformType &&
           r.status === 'pending' &&
@@ -187,7 +197,7 @@ export class PairingService {
     }
 
     // Check if user already exists
-    const existingUser = db.getChannelUserByPlatform(request.platformUserId, request.platformType);
+    const existingUser = db.getChannelUserByPlatform(request.platformUserId, request.platformType, request.pluginId);
     if (existingUser.success && existingUser.data) {
       db.updatePairingRequestStatus(code, 'approved');
       return { success: true, user: existingUser.data };
@@ -197,6 +207,7 @@ export class PairingService {
     const userId = `assistant_user_${Date.now()}_${crypto.randomBytes(4).toString('hex').slice(0, 6)}`;
     const user: IChannelUser = {
       id: userId,
+      pluginId: request.pluginId,
       platformUserId: request.platformUserId,
       platformType: request.platformType,
       displayName: request.displayName,

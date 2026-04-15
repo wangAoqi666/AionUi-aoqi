@@ -14,7 +14,10 @@ import type { IUnifiedIncomingMessage } from '../../types';
  * Attachments are appended to the text as local file path markers so the
  * agent can read them with its file-read tools.
  */
-export function toUnifiedIncomingMessage(request: WeixinChatRequest): IUnifiedIncomingMessage {
+export function toUnifiedIncomingMessage(
+  request: WeixinChatRequest,
+  pluginId = 'weixin_default'
+): IUnifiedIncomingMessage {
   const { conversationId, text, attachments } = request;
 
   let fullText = text ?? '';
@@ -28,6 +31,7 @@ export function toUnifiedIncomingMessage(request: WeixinChatRequest): IUnifiedIn
   return {
     id: conversationId,
     platform: 'weixin',
+    pluginId,
     chatId: conversationId,
     user: {
       id: conversationId,

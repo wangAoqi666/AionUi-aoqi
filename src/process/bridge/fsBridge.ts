@@ -12,7 +12,16 @@ import https from 'node:https';
 import http from 'node:http';
 import JSZip from 'jszip';
 import { ipcBridge } from '@/common';
-import { getSystemDir, getAssistantsDir, getSkillsDir, getBuiltinSkillsCopyDir } from '@process/utils/initStorage';
+import {
+  getSystemDir,
+  getAssistantsDir,
+  getSkillsDir,
+  getBuiltinSkillsCopyDir,
+  getFactoryRootDir,
+  getFactoryRulesDir,
+  getFactoryMemoriesFile,
+  getFactoryAgentsFile,
+} from '@process/utils/initStorage';
 import { readDirectoryRecursive } from '@process/utils';
 
 // ============================================================================
@@ -178,6 +187,35 @@ export function initFsBridge(): void {
       return tree ? [tree] : [];
     } catch (error) {
       console.error('[fsBridge] Failed to read directory:', dir, error);
+      return [];
+    }
+  });
+
+  ipcBridge.fs.getFactoryGlobalPaths.provider(async () => ({
+    platform: process.platform,
+    factoryRootDir: getFactoryRootDir(),
+    skillsDir: getSkillsDir(),
+    rulesDir: getFactoryRulesDir(),
+    memoriesFile: getFactoryMemoriesFile(),
+    agentsFile: getFactoryAgentsFile(),
+  }));
+
+  ipcBridge.fs.listFactoryRuleFiles.provider(async () => {
+    const rulesDir = getFactoryRulesDir();
+
+    try {
+      await fs.mkdir(rulesDir, { recursive: true });
+      const entries = await fs.readdir(rulesDir, { withFileTypes: true });
+
+      return entries
+        .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.md')
+        .map((entry) => ({
+          name: entry.name,
+          path: path.join(rulesDir, entry.name),
+        }))
+        .toSorted((left, right) => left.name.localeCompare(right.name));
+    } catch (error) {
+      console.error('[fsBridge] Failed to list Factory rule files:', error);
       return [];
     }
   });

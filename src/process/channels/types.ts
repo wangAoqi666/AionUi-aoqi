@@ -147,6 +147,7 @@ export interface IChannelPluginStatus {
  */
 export interface IChannelUser {
   id: string;
+  pluginId: string;
   platformUserId: string;
   platformType: PluginType;
   displayName?: string;
@@ -160,6 +161,7 @@ export interface IChannelUser {
  */
 export interface IChannelUserRow {
   id: string;
+  plugin_id: string;
   platform_user_id: string;
   platform_type: string;
   display_name: string | null;
@@ -180,6 +182,7 @@ export type ChannelAgentType = 'gemini' | 'acp' | 'codex' | 'openclaw-gateway';
  */
 export interface IChannelSession {
   id: string;
+  pluginId: string;
   userId: string;
   agentType: ChannelAgentType;
   conversationId?: string;
@@ -194,6 +197,7 @@ export interface IChannelSession {
  */
 export interface IChannelSessionRow {
   id: string;
+  plugin_id: string;
   user_id: string;
   agent_type: string;
   conversation_id: string | null;
@@ -215,6 +219,7 @@ export type PairingStatus = 'pending' | 'approved' | 'rejected' | 'expired';
  */
 export interface IChannelPairingRequest {
   code: string;
+  pluginId: string;
   platformUserId: string;
   platformType: PluginType;
   displayName?: string;
@@ -228,6 +233,7 @@ export interface IChannelPairingRequest {
  */
 export interface IChannelPairingCodeRow {
   code: string;
+  plugin_id: string;
   platform_user_id: string;
   platform_type: string;
   display_name: string | null;
@@ -303,6 +309,7 @@ export interface IMessageAction {
 export interface IUnifiedIncomingMessage {
   id: string;
   platform: PluginType;
+  pluginId: string;
   chatId: string;
   user: IUnifiedUser;
   content: IUnifiedMessageContent;
@@ -435,6 +442,7 @@ export interface IAgentResponse {
 export function rowToChannelUser(row: IChannelUserRow): IChannelUser {
   return {
     id: row.id,
+    pluginId: row.plugin_id,
     platformUserId: row.platform_user_id,
     platformType: row.platform_type as PluginType,
     displayName: row.display_name ?? undefined,
@@ -450,6 +458,7 @@ export function rowToChannelUser(row: IChannelUserRow): IChannelUser {
 export function channelUserToRow(user: IChannelUser): IChannelUserRow {
   return {
     id: user.id,
+    plugin_id: user.pluginId,
     platform_user_id: user.platformUserId,
     platform_type: user.platformType,
     display_name: user.displayName ?? null,
@@ -465,6 +474,7 @@ export function channelUserToRow(user: IChannelUser): IChannelUserRow {
 export function rowToChannelSession(row: IChannelSessionRow): IChannelSession {
   return {
     id: row.id,
+    pluginId: row.plugin_id,
     userId: row.user_id,
     agentType: row.agent_type as ChannelAgentType,
     conversationId: row.conversation_id ?? undefined,
@@ -481,6 +491,7 @@ export function rowToChannelSession(row: IChannelSessionRow): IChannelSession {
 export function channelSessionToRow(session: IChannelSession): IChannelSessionRow {
   return {
     id: session.id,
+    plugin_id: session.pluginId,
     user_id: session.userId,
     agent_type: session.agentType,
     conversation_id: session.conversationId ?? null,
@@ -497,6 +508,7 @@ export function channelSessionToRow(session: IChannelSession): IChannelSessionRo
 export function rowToPairingRequest(row: IChannelPairingCodeRow): IChannelPairingRequest {
   return {
     code: row.code,
+    pluginId: row.plugin_id,
     platformUserId: row.platform_user_id,
     platformType: row.platform_type as PluginType,
     displayName: row.display_name ?? undefined,
@@ -512,6 +524,7 @@ export function rowToPairingRequest(row: IChannelPairingCodeRow): IChannelPairin
 export function pairingRequestToRow(request: IChannelPairingRequest): IChannelPairingCodeRow {
   return {
     code: request.code,
+    plugin_id: request.pluginId,
     platform_user_id: request.platformUserId,
     platform_type: request.platformType,
     display_name: request.displayName ?? null,
@@ -543,6 +556,20 @@ export function isBuiltinChannelPlatform(value: string): value is 'telegram' | '
  */
 export function isChannelPlatform(value: string): value is ChannelPlatform {
   return value.length > 0;
+}
+
+export function getDefaultChannelPluginId(platform: ChannelPlatform | PluginType): string {
+  return `${platform}_default`;
+}
+
+export function getChannelPlatformFromPluginId(pluginId: string): ChannelPlatform {
+  if (pluginId.startsWith('telegram')) return 'telegram';
+  if (pluginId.startsWith('lark')) return 'lark';
+  if (pluginId.startsWith('dingtalk')) return 'dingtalk';
+  if (pluginId.startsWith('weixin')) return 'weixin';
+  if (pluginId.startsWith('slack')) return 'slack';
+  if (pluginId.startsWith('discord')) return 'discord';
+  return pluginId;
 }
 
 /**

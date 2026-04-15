@@ -132,7 +132,8 @@ export function parseChatId(chatId: string): { type: 'user' | 'group'; id: strin
  */
 export function toUnifiedIncomingMessage(
   data: DingTalkStreamMessage,
-  actionInfo?: IMessageAction
+  actionInfo?: IMessageAction,
+  pluginId = 'dingtalk_default'
 ): IUnifiedIncomingMessage | null {
   // Handle card action
   if (actionInfo) {
@@ -142,6 +143,7 @@ export function toUnifiedIncomingMessage(
     return {
       id: data.msgId || Date.now().toString(),
       platform: 'dingtalk',
+      pluginId,
       chatId,
       user: {
         id: userId,
@@ -169,6 +171,7 @@ export function toUnifiedIncomingMessage(
   return {
     id: data.msgId || Date.now().toString(),
     platform: 'dingtalk',
+    pluginId,
     chatId,
     user,
     content,

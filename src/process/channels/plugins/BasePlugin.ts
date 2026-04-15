@@ -20,12 +20,19 @@ export type PluginMessageHandler = (message: IUnifiedIncomingMessage) => Promise
 /**
  * Tool confirmation handler type
  * 工具确认处理器类型
+ * @param pluginId - Channel plugin instance ID
  * @param userId - Platform user ID
  * @param platform - Platform type (telegram, etc.)
  * @param callId - Tool call ID
  * @param value - Confirmation value
  */
-export type PluginConfirmHandler = (userId: string, platform: string, callId: string, value: string) => Promise<void>;
+export type PluginConfirmHandler = (
+  pluginId: string,
+  userId: string,
+  platform: string,
+  callId: string,
+  value: string
+) => Promise<void>;
 
 /**
  * BasePlugin - Abstract base class for all platform plugins

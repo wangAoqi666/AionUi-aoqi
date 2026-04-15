@@ -379,7 +379,7 @@ export class LarkPlugin extends BasePlugin {
       this.activeUsers.add(userId);
 
       // Convert to unified message
-      const unifiedMessage = toUnifiedIncomingMessage(event);
+      const unifiedMessage = toUnifiedIncomingMessage(event, undefined, this.config?.id || 'lark_default');
       if (unifiedMessage && this.messageHandler) {
         // Check for menu button commands first
         if (unifiedMessage.content.type === 'text' && unifiedMessage.content.text) {
@@ -466,6 +466,7 @@ export class LarkPlugin extends BasePlugin {
       const unifiedMessage = {
         id: eventId,
         platform: 'lark' as const,
+        pluginId: this.config?.id || 'lark_default',
         chatId,
         user: {
           id: userId,
@@ -526,7 +527,7 @@ export class LarkPlugin extends BasePlugin {
       if (!actionInfo) return;
 
       // Convert to unified message with action
-      const unifiedMessage = toUnifiedIncomingMessage(event, actionInfo);
+      const unifiedMessage = toUnifiedIncomingMessage(event, actionInfo, this.config?.id || 'lark_default');
       if (unifiedMessage && this.messageHandler) {
         void this.messageHandler(unifiedMessage).catch((error) =>
           console.error(`[LarkPlugin] Error handling card action:`, error)

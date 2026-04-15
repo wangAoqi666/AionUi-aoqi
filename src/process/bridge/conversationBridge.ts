@@ -38,6 +38,25 @@ const refreshTrayMenuSafely = async (): Promise<void> => {
   }
 };
 
+const cleanupChannelConversationResources = async (
+  conversationId: string,
+  source?: TChatConversation['source']
+): Promise<void> => {
+  if (!source || source === 'aionui') {
+    return;
+  }
+
+  try {
+    const { getChannelManager } = await import('@process/channels/core/ChannelManager');
+    const channelManager = getChannelManager();
+    if (channelManager.isInitialized()) {
+      await channelManager.cleanupConversation(conversationId);
+    }
+  } catch (cleanupError) {
+    console.warn('[conversationBridge] Failed to cleanup channel resources:', cleanupError);
+  }
+};
+
 const VALID_CONVERSATION_TYPES = new Set<TChatConversation['type']>([
   'gemini',
   'acp',
@@ -47,6 +66,92 @@ const VALID_CONVERSATION_TYPES = new Set<TChatConversation['type']>([
   'remote',
   'aionrs',
 ]);
+
+type WorkspaceAwareExtra = TChatConversation['extra'] & {
+  workspace?: string;
+  customWorkspace?: boolean;
+};
+
+type OpenClawConversation = Extract<TChatConversation, { type: 'openclaw-gateway' }>;
+
+const getWorkspaceBinding = (extra?: TChatConversation['extra']): { workspace: string; customWorkspace: boolean } => {
+  const runtimeExtra = extra as WorkspaceAwareExtra | undefined;
+  const workspace = runtimeExtra?.workspace ? path.resolve(runtimeExtra.workspace).replace(/[\\/]+$/, '') : '';
+  return {
+    workspace,
+    customWorkspace: Boolean(runtimeExtra?.customWorkspace),
+  };
+};
+
+const hasWorkspaceBindingChanged = (
+  conversation: TChatConversation | undefined,
+  nextExtra: TChatConversation['extra'] | undefined
+): boolean => {
+  if (!conversation || !nextExtra) {
+    return false;
+  }
+
+  const previous = getWorkspaceBinding(conversation.extra);
+  const next = getWorkspaceBinding(nextExtra);
+  return previous.workspace !== next.workspace || previous.customWorkspace !== next.customWorkspace;
+};
+
+async function sanitizeConversationRuntimeState(conversation: TChatConversation): Promise<TChatConversation> {
+  switch (conversation.type) {
+    case 'acp':
+      return {
+        ...conversation,
+        extra: {
+          ...conversation.extra,
+          acpSessionId: undefined,
+          acpSessionConversationId: undefined,
+          acpSessionWorkspace: undefined,
+          acpSessionUpdatedAt: undefined,
+        },
+      } as TChatConversation;
+    case 'openclaw-gateway': {
+      const openclawConversation = conversation as OpenClawConversation;
+      const workspace = openclawConversation.extra.workspace;
+      let expectedIdentityHash: string | null | undefined;
+
+      if (workspace) {
+        try {
+          expectedIdentityHash = await computeOpenClawIdentityHash(workspace);
+        } catch (error) {
+          console.warn('[conversationBridge] Failed to recompute OpenClaw runtime identity hash:', error);
+        }
+      }
+
+      return {
+        ...openclawConversation,
+        extra: {
+          ...openclawConversation.extra,
+          sessionKey: undefined,
+          runtimeValidation: workspace
+            ? {
+                expectedWorkspace: workspace,
+                expectedBackend: openclawConversation.extra.backend,
+                expectedAgentName: openclawConversation.extra.agentName,
+                expectedCliPath: openclawConversation.extra.gateway?.cliPath,
+                expectedIdentityHash,
+                switchedAt: Date.now(),
+              }
+            : undefined,
+        },
+      } as OpenClawConversation;
+    }
+    case 'remote':
+      return {
+        ...conversation,
+        extra: {
+          ...conversation.extra,
+          sessionKey: undefined,
+        },
+      } as TChatConversation;
+    default:
+      return conversation;
+  }
+}
 
 export function initConversationBridge(
   conversationService: IConversationService,
@@ -212,8 +317,13 @@ export function initConversationBridge(
   ipcBridge.conversation.createWithConversation.provider(
     async ({ conversation, sourceConversationId, migrateCron }) => {
       try {
+        const sourceConversation = sourceConversationId
+          ? await conversationService.getConversation(sourceConversationId)
+          : undefined;
+        const sourceConversationSource = sourceConversation?.source ?? conversation.source;
+        const sanitizedConversation = await sanitizeConversationRuntimeState(conversation);
         const result = await conversationService.createWithMigration({
-          conversation,
+          conversation: sanitizedConversation,
           sourceConversationId,
           migrateCron,
         });
@@ -222,7 +332,12 @@ export function initConversationBridge(
         });
         emitConversationListChanged(result, 'created');
         if (sourceConversationId) {
-          emitConversationListChanged({ id: sourceConversationId, source: conversation.source }, 'deleted');
+          const sourceConversationStillExists = await conversationService.getConversation(sourceConversationId);
+          if (!sourceConversationStillExists) {
+            workerTaskManager.kill(sourceConversationId);
+            await cleanupChannelConversationResources(sourceConversationId, sourceConversationSource);
+            emitConversationListChanged({ id: sourceConversationId, source: sourceConversationSource }, 'deleted');
+          }
         }
         await refreshTrayMenuSafely();
         return result;
@@ -244,19 +359,7 @@ export function initConversationBridge(
 
       // If source is not 'aionui' (e.g., telegram), cleanup channel resources
       // 如果来源不是 aionui（如 telegram），需要清理 channel 相关资源
-      if (source && source !== 'aionui') {
-        try {
-          // Dynamic import to avoid circular dependency
-          const { getChannelManager } = await import('@process/channels/core/ChannelManager');
-          const channelManager = getChannelManager();
-          if (channelManager.isInitialized()) {
-            await channelManager.cleanupConversation(id);
-          }
-        } catch (cleanupError) {
-          console.warn('[conversationBridge] Failed to cleanup channel resources:', cleanupError);
-          // Continue with deletion even if cleanup fails
-        }
-      }
+      await cleanupChannelConversationResources(id, source);
 
       await conversationService.deleteConversation(id);
       if (conversation) {
@@ -280,14 +383,38 @@ export function initConversationBridge(
         const modelChanged = !!nextModel && JSON.stringify(prevModel) !== JSON.stringify(nextModel);
         // model change detection for task rebuild
 
-        await conversationService.updateConversation(id, updates, mergeExtra);
+        let finalUpdates = updates;
+        let finalMergeExtra = mergeExtra;
+        let workspaceBindingChanged = false;
+
+        if (existing && updates.extra) {
+          const mergedExtra = {
+            ...existing.extra,
+            ...updates.extra,
+          } as TChatConversation['extra'];
+
+          workspaceBindingChanged = hasWorkspaceBindingChanged(existing, mergedExtra);
+          if (workspaceBindingChanged) {
+            const sanitizedConversation = await sanitizeConversationRuntimeState({
+              ...existing,
+              extra: mergedExtra,
+            } as TChatConversation);
+            finalUpdates = {
+              ...updates,
+              extra: sanitizedConversation.extra,
+            } as Partial<TChatConversation>;
+            finalMergeExtra = false;
+          }
+        }
+
+        await conversationService.updateConversation(id, finalUpdates, finalMergeExtra);
 
         if (existing) {
           emitConversationListChanged(existing, 'updated');
         }
 
         // If model changed, kill running task to force rebuild with new model on next send
-        if (modelChanged) {
+        if (modelChanged || workspaceBindingChanged) {
           try {
             workerTaskManager.kill(id);
           } catch {
@@ -370,10 +497,10 @@ export function initConversationBridge(
     };
   })();
 
-  ipcBridge.conversation.getWorkspace.provider(async ({ workspace, search, path }) => {
+  ipcBridge.conversation.getWorkspace.provider(async ({ workspace, search, path: targetPath }) => {
     try {
       const fileService = GeminiAgent.buildFileServer(workspace);
-      return await readDirectoryRecursive(path, {
+      return await readDirectoryRecursive(targetPath, {
         root: workspace,
         fileService,
         abortController: buildLastAbortController(),

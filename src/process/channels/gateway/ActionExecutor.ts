@@ -7,16 +7,17 @@
 import type { TMessage } from '@/common/chat/chatLib';
 import type { TChatConversation } from '@/common/config/storage';
 import { getDatabase } from '@process/services/database';
-import { ProcessConfig } from '@process/utils/initStorage';
 import { conversationServiceSingleton } from '@/process/services/conversationServiceSingleton';
 import { buildChatErrorResponse, chatActions } from '../actions/ChatActions';
 import { handlePairingShow, platformActions } from '../actions/PlatformActions';
 import { getChannelDefaultModel, systemActions } from '../actions/SystemActions';
 import type { IActionContext, IRegisteredAction } from '../actions/types';
 import { getChannelMessageService } from '../agent/ChannelMessageService';
+import { DroidTextAskBridge } from '@process/agent/droid/runtime/DroidTextAskBridge';
 import type { SessionManager } from '../core/SessionManager';
 import type { PairingService } from '../pairing/PairingService';
 import type { PluginMessageHandler } from '../plugins/BasePlugin';
+import { workerTaskManager } from '@process/task/workerTaskManagerSingleton';
 import { getChannelConversationName, resolveChannelConvType } from '../types';
 import { createMainMenuCard, createErrorRecoveryCard, createToolConfirmationCard } from '../plugins/lark/LarkCards';
 import { convertHtmlToLarkMarkdown } from '../plugins/lark/LarkAdapter';
@@ -32,7 +33,11 @@ import { escapeHtml, markdownToTelegramHtml } from '../plugins/telegram/Telegram
 import { stripHtml } from '../plugins/weixin/WeixinAdapter';
 import type { ChannelAgentType, IUnifiedIncomingMessage, IUnifiedOutgoingMessage, PluginType } from '../types';
 import type { PluginManager } from './PluginManager';
-import { buildChannelConversationExtra, resolveChannelSendProtocol } from '../utils';
+import {
+  buildChannelConversationExtra,
+  loadChannelPublishInstanceSettings,
+  resolveChannelSendProtocol,
+} from '../utils';
 
 // ==================== Platform-specific Helpers ====================
 
@@ -344,7 +349,7 @@ export class ActionExecutor {
     // Build action context
     const context: IActionContext = {
       platform,
-      pluginId: `${platform}_default`, // TODO: Get actual plugin ID
+      pluginId: message.pluginId,
       userId: user.id,
       chatId,
       displayName: user.displayName,
@@ -356,7 +361,7 @@ export class ActionExecutor {
 
     try {
       // Check if user is authorized
-      const isAuthorized = await this.pairingService.isUserAuthorized(user.id, platform);
+      const isAuthorized = await this.pairingService.isUserAuthorized(user.id, platform, message.pluginId);
 
       // Handle /start command - always show pairing
       if (content.type === 'command' && content.text === '/start') {
@@ -378,7 +383,7 @@ export class ActionExecutor {
 
       // User is authorized - look up the assistant user
       const db = await getDatabase();
-      const userResult = db.getChannelUserByPlatform(user.id, platform);
+      const userResult = db.getChannelUserByPlatform(user.id, platform, message.pluginId);
       const channelUser = userResult.data;
 
       if (!channelUser) {
@@ -396,46 +401,47 @@ export class ActionExecutor {
 
       // Get or create session (scoped by chatId for per-chat isolation)
       let session = this.sessionManager.getSession(channelUser.id, chatId);
+      if (session?.conversationId) {
+        const sessionConversation = db.getConversation(session.conversationId);
+        if (!sessionConversation.success && sessionConversation.error === 'Conversation not found') {
+          console.warn(
+            `[ActionExecutor] Clearing stale session ${session.id} for missing conversation ${session.conversationId}`
+          );
+          await this.sessionManager.clearSession(channelUser.id, chatId);
+          session = null;
+        }
+      }
+
       if (!session || !session.conversationId) {
         const source = platform;
-
-        // Read selected agent for this platform (defaults to Gemini)
-        let savedAgent: unknown = undefined;
-        try {
-          savedAgent = await ProcessConfig.get(
-            `assistant.${platform}.agent` as Parameters<typeof ProcessConfig.get>[0]
-          );
-        } catch {
-          // ignore
-        }
-        const backend = (
-          savedAgent && typeof savedAgent === 'object' && typeof (savedAgent as any).backend === 'string'
-            ? (savedAgent as any).backend
-            : 'gemini'
-        ) as string;
-        const customAgentId =
-          savedAgent && typeof savedAgent === 'object'
-            ? ((savedAgent as any).customAgentId as string | undefined)
-            : undefined;
-        const agentName =
-          savedAgent && typeof savedAgent === 'object' ? ((savedAgent as any).name as string | undefined) : undefined;
+        const instanceSettings = await loadChannelPublishInstanceSettings(message.pluginId, platform);
+        const backend = instanceSettings.agent?.backend || 'droid';
+        const customAgentId = instanceSettings.agent?.customAgentId;
+        const agentName = instanceSettings.agent?.name;
 
         // Always resolve a provider model (required by ICreateConversationParams typing; ignored by ACP/Codex)
-        const model = await getChannelDefaultModel(platform);
+        const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel);
 
         // Map backend to conversation type for lookup
         const { convType, convBackend } = resolveChannelConvType(backend);
         const conversationName = getChannelConversationName(platform, convType, convBackend, chatId);
-        const conversationExtra = buildChannelConversationExtra({
-          platform,
-          backend,
-          customAgentId,
-          agentName,
-        });
+        const conversationExtra = {
+          ...buildChannelConversationExtra({
+            platform,
+            backend,
+            customAgentId,
+            agentName,
+          }),
+          ...(instanceSettings.workspace
+            ? {
+                workspace: instanceSettings.workspace,
+                customWorkspace: true,
+              }
+            : {}),
+        };
 
         // Lookup existing conversation by source + chatId + type + backend (per-chat isolation)
-        const db2 = await getDatabase();
-        const latest = db2.findChannelConversation(source, chatId, convType, convBackend);
+        const latest = db.findChannelConversation(source, message.pluginId, chatId, convType, convBackend);
         const existing = latest.success ? latest.data : null;
 
         let sessionConversation: TChatConversation | null = existing ?? null;
@@ -448,6 +454,7 @@ export class ActionExecutor {
                 name: conversationName,
                 source,
                 channelChatId: chatId,
+                channelPluginId: message.pluginId,
                 extra: conversationExtra,
               });
             } else if (backend === 'codex') {
@@ -457,6 +464,7 @@ export class ActionExecutor {
                 name: conversationName,
                 source,
                 channelChatId: chatId,
+                channelPluginId: message.pluginId,
                 extra: { ...conversationExtra, backend: 'codex' },
               });
             } else if (backend === 'openclaw-gateway') {
@@ -466,6 +474,7 @@ export class ActionExecutor {
                 name: conversationName,
                 source,
                 channelChatId: chatId,
+                channelPluginId: message.pluginId,
                 extra: conversationExtra,
               });
             } else {
@@ -475,6 +484,7 @@ export class ActionExecutor {
                 name: conversationName,
                 source,
                 channelChatId: chatId,
+                channelPluginId: message.pluginId,
                 extra: conversationExtra,
               });
             }
@@ -495,7 +505,7 @@ export class ActionExecutor {
             channelUser,
             sessionConversation.id,
             agentType as ChannelAgentType,
-            undefined,
+            instanceSettings.workspace,
             chatId
           );
         }
@@ -511,6 +521,9 @@ export class ActionExecutor {
         // Action encoded in content
         await this.executeAction(context, content.text, {});
       } else if (content.type === 'text' && content.text) {
+        if (await this.tryHandlePendingDroidAskUser(context, content.text)) {
+          return;
+        }
         // Regular text message - send to AI
         await this.handleChatMessage(context, content.text);
       } else {
@@ -567,6 +580,39 @@ export class ActionExecutor {
         parseMode: 'HTML',
       });
     }
+  }
+
+  /**
+   * Route the next inbound text to a pending Droid AskUser interaction.
+   */
+  private async tryHandlePendingDroidAskUser(context: IActionContext, text: string): Promise<boolean> {
+    const conversationId = context.conversationId;
+    if (!conversationId) {
+      return false;
+    }
+
+    const task = workerTaskManager.getTask(conversationId);
+    const pendingConfirmation = task
+      ?.getConfirmations()
+      .find((item) => item.interaction?.type === 'ask_user' && item.interaction.questions.length > 0);
+
+    if (!pendingConfirmation?.interaction || pendingConfirmation.interaction.type !== 'ask_user') {
+      return false;
+    }
+
+    const parsed = DroidTextAskBridge.parseReply(pendingConfirmation.interaction.questions, text);
+    if (!parsed.ok) {
+      const formatter = new DroidTextAskBridge(1000);
+      await context.sendMessage({
+        type: 'text',
+        text: formatter.buildRetryPrompt(pendingConfirmation.interaction.questions),
+        parseMode: 'HTML',
+      });
+      return true;
+    }
+
+    task?.confirm(pendingConfirmation.id, pendingConfirmation.callId, parsed.payload);
+    return true;
   }
 
   /**
@@ -790,9 +836,7 @@ export class ActionExecutor {
    * Get plugin instance for a message
    */
   private getPluginForMessage(message: IUnifiedIncomingMessage) {
-    // For now, get the first plugin of the matching type
-    const plugins = this.pluginManager.getAllPlugins();
-    return plugins.find((p) => p.type === message.platform);
+    return this.pluginManager.getPlugin(message.pluginId);
   }
 
   /**

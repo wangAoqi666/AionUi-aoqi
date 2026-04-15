@@ -81,7 +81,8 @@ interface LarkCardActionEvent {
  */
 export function toUnifiedIncomingMessage(
   event: LarkMessageEvent | LarkCardActionEvent,
-  actionInfo?: IMessageAction
+  actionInfo?: IMessageAction,
+  pluginId = 'lark_default'
 ): IUnifiedIncomingMessage | null {
   // Handle card action
   if (actionInfo && 'operator' in (event.event || {})) {
@@ -96,6 +97,7 @@ export function toUnifiedIncomingMessage(
     return {
       id: cardEvent.event?.token || Date.now().toString(),
       platform: 'lark',
+      pluginId,
       chatId,
       user: {
         id: userId,
@@ -129,6 +131,7 @@ export function toUnifiedIncomingMessage(
   return {
     id: message.message_id || Date.now().toString(),
     platform: 'lark',
+    pluginId,
     chatId: message.chat_id || userId,
     user,
     content,

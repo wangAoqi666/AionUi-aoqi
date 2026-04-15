@@ -145,7 +145,7 @@ export class WeixinPlugin extends BasePlugin {
         timer,
       });
 
-      const unified = toUnifiedIncomingMessage(request);
+      const unified = toUnifiedIncomingMessage(request, this.config?.id || 'weixin_default');
       this.emitMessage(unified)
         .then(() => {
           const pending = this.pendingResponses.get(conversationId);

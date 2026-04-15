@@ -16,7 +16,7 @@ import type {
   IChannelPairingRequest,
   IChannelSession,
 } from '@process/channels/types';
-import { hasPluginCredentials } from '@process/channels/types';
+import { getDefaultChannelPluginId, hasPluginCredentials } from '@process/channels/types';
 import type { IChannelRepository } from '@process/services/database/IChannelRepository';
 
 /**
@@ -91,7 +91,7 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
         enabledExtChannelTypes.add(pluginType);
       }
 
-      const statusMap = new Map<string, IChannelPluginStatus>();
+      const statuses: IChannelPluginStatus[] = [];
 
       for (const plugin of dbPlugins) {
         const isExtension = !BUILTIN_TYPES.has(plugin.type);
@@ -101,7 +101,7 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
           continue;
         }
 
-        statusMap.set(plugin.type, {
+        statuses.push({
           id: plugin.id,
           type: plugin.type,
           name: plugin.name,
@@ -119,10 +119,10 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
       // Ensure extension-contributed channel plugins are always visible in settings
       // even before first enable (i.e. not yet persisted in DB).
       for (const [pluginType, entry] of registry.getChannelPlugins()) {
-        if (statusMap.has(pluginType)) continue;
+        if (statuses.some((status) => status.type === pluginType)) continue;
         const extensionMeta = resolveExtensionMeta(pluginType);
         const meta = entry.meta as { name?: string } | undefined;
-        statusMap.set(pluginType, {
+        statuses.push({
           id: pluginType,
           type: pluginType,
           name: meta?.name || pluginType,
@@ -147,9 +147,10 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
         weixin: 'WeChat',
       };
       for (const builtinType of BUILTIN_TYPES) {
-        if (statusMap.has(builtinType)) continue;
-        statusMap.set(builtinType, {
-          id: builtinType,
+        const defaultPluginId = getDefaultChannelPluginId(builtinType);
+        if (statuses.some((status) => status.id === defaultPluginId)) continue;
+        statuses.push({
+          id: defaultPluginId,
           type: builtinType,
           name: BUILTIN_NAMES[builtinType] || builtinType,
           enabled: false,
@@ -161,7 +162,7 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
         });
       }
 
-      return { success: true, data: Array.from(statusMap.values()) };
+      return { success: true, data: statuses };
     } catch (error: any) {
       console.error('[ChannelBridge] getPluginStatus error:', error);
       return { success: false, msg: error.message };
@@ -183,6 +184,22 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
       return { success: true };
     } catch (error: any) {
       console.error('[ChannelBridge] enablePlugin error:', error);
+      return { success: false, msg: error.message };
+    }
+  });
+
+  channel.createPluginInstance.provider(async ({ platform }) => {
+    try {
+      const manager = getChannelManager();
+      const result = await manager.createPluginInstance(platform);
+
+      if (!result.success) {
+        return { success: false, msg: result.error };
+      }
+
+      return { success: true, data: { pluginId: result.pluginId } };
+    } catch (error: any) {
+      console.error('[ChannelBridge] createPluginInstance error:', error);
       return { success: false, msg: error.message };
     }
   });
@@ -327,10 +344,10 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
   /**
    * Sync channel settings after agent or model change
    */
-  channel.syncChannelSettings.provider(async ({ platform, agent, model }) => {
+  channel.syncChannelSettings.provider(async ({ platform, pluginId, agent, model }) => {
     try {
       const manager = getChannelManager();
-      const result = await manager.syncChannelSettings(platform, agent, model);
+      const result = await manager.syncChannelSettings(platform, agent, model, pluginId);
       if (!result.success) {
         return { success: false, msg: result.error };
       }

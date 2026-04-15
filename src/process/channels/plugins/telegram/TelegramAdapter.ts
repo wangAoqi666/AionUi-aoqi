@@ -29,7 +29,7 @@ import type {
  * Convert Telegram context to unified incoming message
  * Supports both regular messages and callback queries
  */
-export function toUnifiedIncomingMessage(ctx: Context): IUnifiedIncomingMessage | null {
+export function toUnifiedIncomingMessage(ctx: Context, pluginId = 'telegram_default'): IUnifiedIncomingMessage | null {
   // Handle callback query (button press)
   if (ctx.callbackQuery) {
     const callbackQuery = ctx.callbackQuery;
@@ -42,6 +42,7 @@ export function toUnifiedIncomingMessage(ctx: Context): IUnifiedIncomingMessage 
     return {
       id: callbackQuery.id,
       platform: 'telegram',
+      pluginId,
       chatId,
       user,
       content: {
@@ -65,6 +66,7 @@ export function toUnifiedIncomingMessage(ctx: Context): IUnifiedIncomingMessage 
   return {
     id: message.message_id.toString(),
     platform: 'telegram',
+    pluginId,
     chatId: message.chat.id.toString(),
     user,
     content,
