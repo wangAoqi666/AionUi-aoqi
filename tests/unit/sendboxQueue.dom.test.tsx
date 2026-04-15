@@ -11,6 +11,7 @@ import SendBox from '@/renderer/components/chat/sendbox';
 
 const mockWarmupInvoke = vi.fn().mockResolvedValue(undefined);
 const mockWarning = vi.fn();
+const mockError = vi.fn();
 const mockHandlePasteFocus = vi.fn();
 const mockOnPaste = vi.fn();
 const mockBlurActiveElement = vi.fn();
@@ -241,7 +242,10 @@ vi.mock('@arco-design/web-react', () => ({
     }) => React.createElement('textarea', props, children),
   },
   Message: {
-    useMessage: () => [{ warning: mockWarning }, React.createElement('div', { 'data-testid': 'message-context' })],
+    useMessage: () => [
+      { warning: mockWarning, error: mockError },
+      React.createElement('div', { 'data-testid': 'message-context' }),
+    ],
   },
   Tag: ({ children, onClose }: { children: React.ReactNode; closable?: boolean; onClose?: () => void }) =>
     React.createElement(
@@ -321,6 +325,7 @@ describe('SendBox queue and interaction behaviors', () => {
     };
     pasteServiceArgs = null;
     mockShouldBlockMobileInputFocus.mockReturnValue(false);
+    mockError.mockReset();
 
     HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
       font: '',
@@ -419,6 +424,43 @@ describe('SendBox queue and interaction behaviors', () => {
     await waitFor(() => {
       expect(onStop).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('surfaces a friendly error when native modules prevent sending', async () => {
+    const onSend = vi.fn().mockRejectedValue(new Error('NODE_MODULE_VERSION 127'));
+    renderControlledSendBox({
+      initialValue: 'hello world',
+      onSend,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'send' }));
+
+    await waitFor(() => {
+      expect(mockError).toHaveBeenCalledWith('conversation.createFailed');
+    });
+  });
+
+  it('keeps the multiline footer in a shrinkable layout so desktop tools do not force horizontal scrolling', () => {
+    const { container } = renderControlledSendBox({
+      defaultMultiLine: true,
+      lockMultiLine: true,
+      tools: (
+        <div>
+          <span>permission</span>
+          <span>reasoning</span>
+          <span>workspace</span>
+        </div>
+      ),
+    });
+
+    const footer = container.querySelector('.sendbox-footer');
+    const tools = container.querySelector('.sendbox-tools--footer');
+    const actions = container.querySelector('.sendbox-action-cluster--footer');
+
+    expect(footer).toBeTruthy();
+    expect(footer?.className).toContain('min-w-0');
+    expect(tools?.className).toContain('sendbox-tools--footer');
+    expect(actions?.className).toContain('sendbox-action-cluster--footer');
   });
 
   it('disables sending while uploads are still in progress', () => {

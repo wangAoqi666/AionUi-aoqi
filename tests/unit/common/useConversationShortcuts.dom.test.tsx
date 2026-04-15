@@ -108,6 +108,26 @@ describe('useConversationShortcuts', () => {
     expect(navigate).toHaveBeenCalledTimes(2);
   });
 
+  it('passes the selected folder workspace when opening a new conversation via shortcut', () => {
+    setElectronRuntime(true);
+    localStorage.setItem('conversation-selected-agent-space', 'folder:/work/project-a');
+    mockedUseVisibleConversationIds.mockReturnValue(['1', '2', '3']);
+    const navigate = vi.fn() as unknown as NavigateFunction;
+    renderHook(() => useConversationShortcuts({ navigate }), {
+      wrapper: createWrapper('/conversation/2'),
+    });
+
+    const event = createCancelableKeydown({ key: 't', ctrlKey: true });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith('/guid', {
+      state: { workspace: '/work/project-a' },
+    });
+  });
+
   it('does not navigate on Ctrl+Tab when the current conversation is not in the visible list', () => {
     setElectronRuntime(true);
     mockedUseVisibleConversationIds.mockReturnValue(['1', '2', '3']);

@@ -25,6 +25,13 @@ vi.mock('@office-ai/platform', () => ({
       on: vi.fn(),
     })),
   },
+  storage: {
+    buildStorage: vi.fn(() => ({
+      get: vi.fn(),
+      set: vi.fn(),
+      remove: vi.fn(),
+    })),
+  },
 }));
 
 // Mock electron modules
@@ -64,6 +71,10 @@ vi.mock('electron-log', () => ({
     error: vi.fn(),
     warn: vi.fn(),
   },
+}));
+
+vi.mock('@process/bridge/applicationBridgeCore', () => ({
+  getApplicationDisplayVersion: vi.fn(() => '1.0.0'),
 }));
 
 describe('Auto-Update IPC Bridge Integration', () => {

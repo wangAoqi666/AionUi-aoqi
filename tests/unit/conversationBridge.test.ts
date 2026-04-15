@@ -78,6 +78,15 @@ vi.mock('../../src/process/task/agentUtils', () => ({
   prepareFirstMessage: vi.fn(async (msg: string) => msg),
 }));
 
+const mockCleanupConversation = vi.fn(async () => true);
+
+vi.mock('@process/channels/core/ChannelManager', () => ({
+  getChannelManager: vi.fn(() => ({
+    isInitialized: vi.fn(() => true),
+    cleanupConversation: mockCleanupConversation,
+  })),
+}));
+
 import { initConversationBridge } from '../../src/process/bridge/conversationBridge';
 import type { IConversationService } from '../../src/process/services/IConversationService';
 import type { IWorkerTaskManager } from '../../src/process/task/IWorkerTaskManager';
@@ -225,6 +234,125 @@ describe('conversationBridge', () => {
 
       expect(result).toEqual(conversation);
       expect(rejectingTaskManager.getOrBuildTask).toHaveBeenCalledWith('new-id');
+    });
+
+    it('sanitizes runtime-bound fields before cloning and kills the removed source task', async () => {
+      const conversation = {
+        id: 'new-id',
+        type: 'openclaw-gateway',
+        name: 'test',
+        extra: {
+          workspace: '/formal/ws',
+          customWorkspace: true,
+          backend: 'claude',
+          agentName: 'Factory Droid',
+          gateway: { cliPath: '/usr/local/bin/droid' },
+          sessionKey: 'old-session',
+          runtimeValidation: {
+            expectedWorkspace: '/tmp/ws',
+            expectedIdentityHash: 'stale-hash',
+            switchedAt: 1,
+          },
+        },
+      } as unknown as TChatConversation;
+      vi.mocked(service.createWithMigration).mockResolvedValue(conversation);
+      vi.mocked(service.getConversation).mockResolvedValue(undefined);
+
+      const result = await handlers['createWithConversation']({
+        conversation,
+        sourceConversationId: 'old-id',
+        migrateCron: true,
+      });
+
+      expect(result).toEqual(conversation);
+      expect(service.createWithMigration).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceConversationId: 'old-id',
+          migrateCron: true,
+          conversation: expect.objectContaining({
+            extra: expect.objectContaining({
+              sessionKey: undefined,
+              runtimeValidation: expect.objectContaining({
+                expectedWorkspace: '/formal/ws',
+                expectedCliPath: '/usr/local/bin/droid',
+                expectedIdentityHash: 'hash',
+              }),
+            }),
+          }),
+        })
+      );
+      expect(taskManager.kill).toHaveBeenCalledWith('old-id');
+    });
+
+    it('cleans up channel resources when migration removes the source conversation', async () => {
+      const sourceConversation = {
+        ...makeConversation('old-id'),
+        source: 'telegram',
+      } as unknown as TChatConversation;
+      const conversation = {
+        ...makeConversation('new-id'),
+        source: 'telegram',
+      } as unknown as TChatConversation;
+      vi.mocked(service.createWithMigration).mockResolvedValue(conversation);
+      vi.mocked(service.getConversation).mockResolvedValueOnce(sourceConversation).mockResolvedValueOnce(undefined);
+
+      const result = await handlers['createWithConversation']({
+        conversation,
+        sourceConversationId: 'old-id',
+        migrateCron: false,
+      });
+
+      expect(result).toEqual(conversation);
+      expect(mockCleanupConversation).toHaveBeenCalledWith('old-id');
+      expect(taskManager.kill).toHaveBeenCalledWith('old-id');
+    });
+  });
+
+  describe('update', () => {
+    it('sanitizes runtime state and kills the cached task when workspace binding changes', async () => {
+      const existing = {
+        id: 'conv-1',
+        type: 'acp',
+        name: 'test',
+        extra: {
+          workspace: '/tmp/ws',
+          customWorkspace: false,
+          backend: 'claude',
+          acpSessionId: 'session-1',
+          acpSessionConversationId: 'conv-1',
+          acpSessionWorkspace: '/tmp/ws',
+          acpSessionUpdatedAt: 123,
+        },
+      } as unknown as TChatConversation;
+      vi.mocked(service.getConversation).mockResolvedValue(existing);
+
+      const result = await handlers['update']({
+        id: 'conv-1',
+        updates: {
+          extra: {
+            workspace: '/formal/ws',
+            customWorkspace: true,
+          },
+        },
+      });
+
+      expect(result).toBe(true);
+      expect(service.updateConversation).toHaveBeenCalledWith(
+        'conv-1',
+        expect.objectContaining({
+          extra: expect.objectContaining({
+            workspace: '/formal/ws',
+            customWorkspace: true,
+            backend: 'claude',
+            acpSessionId: undefined,
+            acpSessionConversationId: undefined,
+            acpSessionWorkspace: undefined,
+            acpSessionUpdatedAt: undefined,
+          }),
+        }),
+        false
+      );
+      expect(taskManager.kill).toHaveBeenCalledWith('conv-1');
     });
   });
 

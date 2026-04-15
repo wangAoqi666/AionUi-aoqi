@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockGetConversation = vi.hoisted(() => vi.fn());
+const mockCreateConversation = vi.hoisted(() => vi.fn());
+
 vi.mock('electron', () => ({ app: { isPackaged: false, getPath: vi.fn(() => '/tmp') } }));
 vi.mock('@/common/utils', () => ({ uuid: vi.fn(() => 'test-uuid') }));
 vi.mock('@process/utils', () => ({ copyFilesToDirectory: vi.fn(async () => []) }));
@@ -7,10 +10,19 @@ vi.mock('@process/utils/initStorage', () => ({
   getCronSkillsDir: vi.fn(() => '/mock/cronSkills'),
   ProcessConfig: { get: vi.fn(async () => false) },
 }));
+vi.mock('@process/services/conversationServiceSingleton', () => ({
+  conversationServiceSingleton: {
+    getConversation: (...args: unknown[]) => mockGetConversation(...args),
+    createConversation: (...args: unknown[]) => mockCreateConversation(...args),
+  },
+}));
 vi.mock('@process/utils/message', () => ({ addMessage: vi.fn() }));
 vi.mock('@/common', () => ({
   ipcBridge: {
-    conversation: { responseStream: { emit: vi.fn() } },
+    conversation: {
+      responseStream: { emit: vi.fn() },
+      listChanged: { emit: vi.fn() },
+    },
     geminiConversation: { responseStream: { emit: vi.fn() } },
     acpConversation: { responseStream: { emit: vi.fn() } },
     openclawConversation: { responseStream: { emit: vi.fn() } },
@@ -84,6 +96,45 @@ describe('WorkerTaskManagerJobExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     busyGuard = new CronBusyGuard();
+  });
+
+  it('inherits the owner workspace when preparing a new-conversation run', async () => {
+    const taskManager = makeTaskManager();
+    const executor = new WorkerTaskManagerJobExecutor(taskManager, busyGuard);
+    const job = makeJob('owner-conv');
+    job.target.executionMode = 'new_conversation';
+    job.metadata.agentConfig = {
+      backend: 'claude',
+      name: 'Claude',
+      cliPath: '/usr/bin/claude',
+    };
+
+    mockGetConversation.mockResolvedValue({
+      id: 'owner-conv',
+      extra: {
+        workspace: '/work/project-a',
+        customWorkspace: true,
+      },
+    });
+    mockCreateConversation.mockResolvedValue({
+      id: 'run-conv-1',
+      extra: {
+        workspace: '/work/project-a',
+        customWorkspace: true,
+      },
+    });
+
+    await expect(executor.prepareConversation(job)).resolves.toBe('run-conv-1');
+
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra: expect.objectContaining({
+          workspace: '/work/project-a',
+          customWorkspace: true,
+          cronJobId: 'job-1',
+        }),
+      })
+    );
   });
 
   it('throws a contextual error when getOrBuildTask rejects (conversation deleted)', async () => {

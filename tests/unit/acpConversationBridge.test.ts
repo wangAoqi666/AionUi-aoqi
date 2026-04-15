@@ -2,6 +2,35 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getPath: vi.fn(() => '/tmp') } }));
 
+const refreshFactoryDroidCatalogMock = vi.hoisted(() => vi.fn(async () => []));
+const processConfigGetMock = vi.hoisted(() => vi.fn(async () => undefined));
+const probeDroidStatusMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    available: true,
+    loginStatus: 'authenticated',
+    cliSource: 'bundled',
+    cliPath: '/usr/local/bin/droid',
+    cliVersion: 'droid 0.1.4',
+    sdkVersion: '0.1.4',
+    protocolVersion: '1.2.0',
+    modelCount: 21,
+  }))
+);
+const checkDroidCliUpdateMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    currentVersion: '0.99.0',
+    latestVersion: '0.99.0',
+    updateAvailable: false,
+    source: 'bundled',
+    registry: 'https://registry.npmmirror.com',
+  }))
+);
+const getFactoryModelsMock = vi.hoisted(() => vi.fn(() => []));
+const getDroidByokConfigsMock = vi.hoisted(() => vi.fn(async () => []));
+const testDroidByokConfigMock = vi.hoisted(() => vi.fn(async () => null));
+const saveDroidByokConfigMock = vi.hoisted(() => vi.fn(async () => null));
+const removeDroidByokConfigMock = vi.hoisted(() => vi.fn(async () => undefined));
+
 const handlers: Record<string, (...args: any[]) => any> = {};
 function makeChannel(name: string) {
   return {
@@ -24,6 +53,13 @@ vi.mock('../../src/common', () => ({
       checkAgentHealth: makeChannel('checkAgentHealth'),
       getMode: makeChannel('getMode'),
       getModelInfo: makeChannel('getModelInfo'),
+      getDroidModelCatalog: makeChannel('getDroidModelCatalog'),
+      getDroidStatus: makeChannel('getDroidStatus'),
+      checkDroidCliUpdate: makeChannel('checkDroidCliUpdate'),
+      getDroidByokConfig: makeChannel('getDroidByokConfig'),
+      testDroidByokConfig: makeChannel('testDroidByokConfig'),
+      saveDroidByokConfig: makeChannel('saveDroidByokConfig'),
+      removeDroidByokConfig: makeChannel('removeDroidByokConfig'),
       probeModelInfo: makeChannel('probeModelInfo'),
       setModel: makeChannel('setModel'),
       setMode: makeChannel('setMode'),
@@ -70,6 +106,29 @@ vi.mock('../../src/process/utils/mainLogger', () => ({
   mainWarn: vi.fn(),
 }));
 
+vi.mock('../../src/process/utils/initStorage', () => ({
+  refreshFactoryDroidCatalog: refreshFactoryDroidCatalogMock,
+  ProcessConfig: {
+    get: processConfigGetMock,
+  },
+}));
+
+vi.mock('../../src/process/agent/droid/modelProbe', () => ({
+  checkDroidCliUpdate: checkDroidCliUpdateMock,
+  probeDroidStatus: probeDroidStatusMock,
+}));
+
+vi.mock('../../src/process/bridge/services/DroidByokService', () => ({
+  getDroidByokConfigs: getDroidByokConfigsMock,
+  testDroidByokConfig: testDroidByokConfigMock,
+  saveDroidByokConfig: saveDroidByokConfigMock,
+  removeDroidByokConfig: removeDroidByokConfigMock,
+}));
+
+vi.mock('../../src/common/config/factoryModels', () => ({
+  getFactoryModels: getFactoryModelsMock,
+}));
+
 import { initAcpConversationBridge } from '../../src/process/bridge/acpConversationBridge';
 import type { IWorkerTaskManager } from '../../src/process/task/IWorkerTaskManager';
 
@@ -92,6 +151,30 @@ describe('acpConversationBridge', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshFactoryDroidCatalogMock.mockResolvedValue([]);
+    processConfigGetMock.mockResolvedValue(undefined);
+    probeDroidStatusMock.mockResolvedValue({
+      available: true,
+      loginStatus: 'authenticated',
+      cliSource: 'bundled',
+      cliPath: '/usr/local/bin/droid',
+      cliVersion: 'droid 0.1.4',
+      sdkVersion: '0.1.4',
+      protocolVersion: '1.2.0',
+      modelCount: 21,
+    });
+    checkDroidCliUpdateMock.mockResolvedValue({
+      currentVersion: '0.99.0',
+      latestVersion: '0.99.0',
+      updateAvailable: false,
+      source: 'bundled',
+      registry: 'https://registry.npmmirror.com',
+    });
+    getFactoryModelsMock.mockReturnValue([]);
+    getDroidByokConfigsMock.mockResolvedValue([]);
+    testDroidByokConfigMock.mockResolvedValue(null);
+    saveDroidByokConfigMock.mockResolvedValue(null);
+    removeDroidByokConfigMock.mockResolvedValue(undefined);
     taskManager = makeTaskManager();
     initAcpConversationBridge(taskManager);
   });
@@ -112,6 +195,181 @@ describe('acpConversationBridge', () => {
     await handlers['getMode']({ conversationId: 'c1' });
 
     expect(taskManager.getTask).toHaveBeenCalledWith('c1');
+  });
+
+  it('getDroidModelCatalog returns the refreshed catalog when refresh=true', async () => {
+    const refreshedCatalog = [
+      {
+        id: 'gpt-5.4-fast',
+        name: 'GPT-5.4 Fast',
+        reasoningLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoning: 'medium',
+      },
+    ];
+    refreshFactoryDroidCatalogMock.mockResolvedValue(refreshedCatalog);
+
+    const result = await handlers['getDroidModelCatalog']({ refresh: true });
+
+    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      success: true,
+      data: { catalog: refreshedCatalog },
+    });
+  });
+
+  it('getDroidModelCatalog falls back to the in-memory catalog when refresh fails', async () => {
+    const fallbackCatalog = [
+      {
+        id: 'glm-5',
+        name: 'Droid Core (GLM-5)',
+        reasoningLevels: ['none'],
+        defaultReasoning: 'none',
+      },
+    ];
+    refreshFactoryDroidCatalogMock.mockRejectedValue(new Error('probe failed'));
+    getFactoryModelsMock.mockReturnValue(fallbackCatalog);
+
+    const result = await handlers['getDroidModelCatalog']({ refresh: true });
+
+    expect(result).toEqual({
+      success: true,
+      data: { catalog: fallbackCatalog },
+      msg: 'probe failed',
+    });
+  });
+
+  it('getDroidStatus returns the probed Droid status', async () => {
+    processConfigGetMock.mockResolvedValue({
+      droid: {
+        cliPath: '/custom/bin/droid',
+      },
+    });
+
+    const result = await handlers['getDroidStatus']();
+
+    expect(processConfigGetMock).toHaveBeenCalledWith('acp.config');
+    expect(probeDroidStatusMock).toHaveBeenCalledWith({
+      cwd: expect.any(String),
+      execPath: '/custom/bin/droid',
+    });
+    expect(result).toEqual({
+      success: true,
+      data: {
+        available: true,
+        loginStatus: 'authenticated',
+        cliSource: 'bundled',
+        cliPath: '/usr/local/bin/droid',
+        cliVersion: 'droid 0.1.4',
+        sdkVersion: '0.1.4',
+        protocolVersion: '1.2.0',
+        modelCount: 21,
+      },
+    });
+  });
+
+  it('checkDroidCliUpdate returns the probed CLI update info', async () => {
+    processConfigGetMock.mockResolvedValue({
+      droid: {
+        cliPath: '/custom/bin/droid',
+      },
+    });
+
+    const result = await handlers['checkDroidCliUpdate']();
+
+    expect(checkDroidCliUpdateMock).toHaveBeenCalledWith({
+      cwd: expect.any(String),
+      execPath: '/custom/bin/droid',
+    });
+    expect(result).toEqual({
+      success: true,
+      data: {
+        currentVersion: '0.99.0',
+        latestVersion: '0.99.0',
+        updateAvailable: false,
+        source: 'bundled',
+        registry: 'https://registry.npmmirror.com',
+      },
+    });
+  });
+
+  it('getDroidByokConfig returns the stored configs', async () => {
+    const config = {
+      id: 'cfg-1',
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      displayName: 'Claude Sonnet 4.6 [BYOK]',
+      provider: 'anthropic' as const,
+      maxOutputTokens: 8192,
+    };
+    getDroidByokConfigsMock.mockResolvedValue([config]);
+
+    const result = await handlers['getDroidByokConfig']();
+
+    expect(result).toEqual({
+      success: true,
+      data: { configs: [config] },
+    });
+  });
+
+  it('testDroidByokConfig delegates to the BYOK service', async () => {
+    const payload = {
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      displayName: '',
+    };
+    const config = {
+      id: 'cfg-1',
+      ...payload,
+      displayName: 'Claude Sonnet 4.6 [BYOK]',
+      provider: 'anthropic' as const,
+      maxOutputTokens: 8192,
+    };
+    testDroidByokConfigMock.mockResolvedValue(config);
+
+    const result = await handlers['testDroidByokConfig'](payload);
+
+    expect(testDroidByokConfigMock).toHaveBeenCalledWith(payload);
+    expect(result).toEqual({
+      success: true,
+      data: { config },
+    });
+  });
+
+  it('saveDroidByokConfig refreshes the catalog after persisting', async () => {
+    const payload = {
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      displayName: 'Claude Sonnet 4.6 [BYOK]',
+    };
+    const config = {
+      id: 'cfg-1',
+      ...payload,
+      provider: 'anthropic' as const,
+      maxOutputTokens: 8192,
+    };
+    saveDroidByokConfigMock.mockResolvedValue(config);
+
+    const result = await handlers['saveDroidByokConfig'](payload);
+
+    expect(saveDroidByokConfigMock).toHaveBeenCalledWith(payload);
+    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      success: true,
+      data: { config },
+    });
+  });
+
+  it('removeDroidByokConfig refreshes the catalog after deletion', async () => {
+    const result = await handlers['removeDroidByokConfig']({ id: 'cfg-1' });
+
+    expect(removeDroidByokConfigMock).toHaveBeenCalledWith('cfg-1');
+    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      success: true,
+    });
   });
 
   // --- refreshCustomAgents ---

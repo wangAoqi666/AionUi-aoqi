@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import path from 'path';
 
 const mockGetPath = vi.fn();
 const mockGetAppPath = vi.fn().mockReturnValue('/app/path');
@@ -22,29 +21,29 @@ describe('ElectronPlatformServices.paths.getLogsDir', () => {
     vi.clearAllMocks();
   });
 
-  it('returns app.getPath("logs") when it succeeds', async () => {
+  it('derives the log directory from the home path in dev mode', async () => {
     mockGetPath.mockImplementation((name: string) => {
-      if (name === 'logs') return '/Users/test/Library/Logs/AionUi';
-      if (name === 'userData') return '/Users/test/Library/Application Support/AionUi';
+      if (name === 'home') return '/Users/test';
       return `/mock/${name}`;
     });
 
+    const { getDefaultLogDir } = await import('../../../src/common/config/appPathConfig');
     const { ElectronPlatformServices } = await import('../../../src/common/platform/ElectronPlatformServices');
     const svc = new ElectronPlatformServices();
-    expect(svc.paths.getLogsDir()).toBe('/Users/test/Library/Logs/AionUi');
+    expect(svc.paths.getLogsDir()).toBe(getDefaultLogDir('/Users/test', false));
   });
 
-  it('falls back to userData/logs when app.getPath("logs") throws', async () => {
-    const userData = '/Users/test/Library/Application Support/AionUi';
+  it('does not depend on app.getPath("logs") to resolve the directory', async () => {
     mockGetPath.mockImplementation((name: string) => {
       if (name === 'logs') throw new Error("Failed to get 'logs' path");
-      if (name === 'userData') return userData;
+      if (name === 'home') return '/Users/test';
       return `/mock/${name}`;
     });
 
     vi.resetModules();
+    const { getDefaultLogDir } = await import('../../../src/common/config/appPathConfig');
     const { ElectronPlatformServices } = await import('../../../src/common/platform/ElectronPlatformServices');
     const svc = new ElectronPlatformServices();
-    expect(svc.paths.getLogsDir()).toBe(path.join(userData, 'logs'));
+    expect(svc.paths.getLogsDir()).toBe(getDefaultLogDir('/Users/test', false));
   });
 });

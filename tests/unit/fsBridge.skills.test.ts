@@ -159,8 +159,12 @@ describe('fsBridge skills functionality', () => {
         arch: 'x64',
       })),
       getAssistantsDir: vi.fn(() => '/mock/userData/assistants'),
-      getSkillsDir: vi.fn(() => '/mock/userData/config/skills'),
+      getSkillsDir: vi.fn(() => '/mock/home/.factory/skills'),
       getBuiltinSkillsCopyDir: vi.fn(() => path.resolve('/mock/userData/builtin-skills')),
+      getFactoryRootDir: vi.fn(() => '/mock/home/.factory'),
+      getFactoryRulesDir: vi.fn(() => '/mock/home/.factory/rules'),
+      getFactoryMemoriesFile: vi.fn(() => '/mock/home/.factory/memories.md'),
+      getFactoryAgentsFile: vi.fn(() => '/mock/home/.factory/AGENTS.md'),
       ProcessEnv: { set: vi.fn() },
     }));
 
@@ -194,6 +198,8 @@ describe('fsBridge skills functionality', () => {
             createZip: createCommandMock('create-zip-file'),
             cancelZip: createCommandMock('cancel-zip-file'),
             getFileMetadata: createCommandMock('get-file-metadata'),
+            getFactoryGlobalPaths: createCommandMock('factory.get-global-paths'),
+            listFactoryRuleFiles: createCommandMock('factory.list-rule-files'),
             copyFilesToWorkspace: createCommandMock('copy-files-to-workspace'),
             removeEntry: createCommandMock('remove-entry'),
             renameEntry: createCommandMock('rename-entry'),
@@ -302,7 +308,7 @@ describe('fsBridge skills functionality', () => {
     it('should correctly parse SKILL.md and distinguish builtin vs custom', async () => {
       // Setup filesystem mock state
       const builtinBase = path.resolve('/mock/userData/builtin-skills');
-      const userBase = path.resolve('/mock/userData/config/skills');
+      const userBase = path.resolve('/mock/home/.factory/skills');
 
       const yamlFrontmatterBuiltin = `---\nname: BuiltinTest\ndescription: 'A builtin test skill'\n---\n# Markdown content`;
       const yamlFrontmatterCustom = `---\nname: CustomTest\ndescription: "A custom test skill"\n---\n`;
@@ -440,7 +446,7 @@ describe('fsBridge skills functionality', () => {
     it('should successfully copy a valid skill directory to user config and fail if missing SKILL.md', async () => {
       const srcPath = path.resolve('/mock/source/valid-skill');
       const badPath = path.resolve('/mock/source/invalid-skill');
-      const targetBase = path.resolve('/mock/userData/config/skills');
+      const targetBase = path.resolve('/mock/home/.factory/skills');
 
       mockFsStore[srcPath] = { isDirectory: true };
       mockFsStore[path.join(srcPath, 'SKILL.md')] = {
@@ -479,7 +485,7 @@ describe('fsBridge skills functionality', () => {
 
   describe('exportSkillWithSymlink', () => {
     it('should successfully create a symlink to external path', async () => {
-      const srcPath = path.resolve('/mock/userData/config/skills/MySkill');
+      const srcPath = path.resolve('/mock/home/.factory/skills/MySkill');
       const targetDir = path.resolve('/mock/home/.claude/skills');
       const targetPath = path.join(targetDir, 'MySkill');
 
@@ -496,7 +502,7 @@ describe('fsBridge skills functionality', () => {
     });
 
     it('should fail if target already exists', async () => {
-      const srcPath = path.resolve('/mock/userData/config/skills/MySkill');
+      const srcPath = path.resolve('/mock/home/.factory/skills/MySkill');
       const targetDir = path.resolve('/mock/home/.claude/skills');
       const targetPath = path.join(targetDir, 'MySkill');
 
@@ -515,7 +521,7 @@ describe('fsBridge skills functionality', () => {
 
   describe('deleteSkill', () => {
     it('should delete existing skill from user directory', async () => {
-      const userBase = path.resolve('/mock/userData/config/skills');
+      const userBase = path.resolve('/mock/home/.factory/skills');
       const skillPath = path.join(userBase, 'SkillToDelete');
 
       mockFsStore[userBase] = { isDirectory: true };

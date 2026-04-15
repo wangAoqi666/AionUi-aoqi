@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation } from 'react-router-dom';
+import { GLOBAL_SIDER_SEARCH_SLOT_ID } from '@/renderer/components/layout/Sider/SiderSearchEntry';
 
 const mockDispatchWorkspaceToggleEvent = vi.fn();
 const mockShowPreviewPanel = vi.fn();
@@ -73,12 +74,18 @@ import Titlebar from '@/renderer/components/layout/Titlebar';
 
 const LocationProbe: React.FC = () => {
   const location = useLocation();
-  return <div data-testid='location-path'>{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid='location-path'>{location.pathname}</div>
+      <div data-testid='location-state'>{JSON.stringify(location.state ?? null)}</div>
+    </>
+  );
 };
 
 describe('Titlebar controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockLayout.isMobile = false;
     mockLayout.siderCollapsed = true;
     mockLayout.setSiderCollapsed = vi.fn();
@@ -173,5 +180,34 @@ describe('Titlebar controls', () => {
 
     expect(mockLayout.getSectionRoute).toHaveBeenCalledWith('tasks');
     expect(screen.getByTestId('location-path')).toHaveTextContent('/scheduled/job-42');
+  });
+
+  it('uses the selected folder workspace for the mobile new conversation button', () => {
+    localStorage.setItem('conversation-selected-agent-space', 'folder:/work/project-a');
+    mockLayout.isMobile = true;
+
+    render(
+      <MemoryRouter initialEntries={['/conversation/conv-1']}>
+        <Titlebar workspaceAvailable={true} />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByLabelText('conversation.workspace.createNewConversation'));
+
+    expect(screen.getByTestId('location-path')).toHaveTextContent('/guid');
+    expect(screen.getByTestId('location-state')).toHaveTextContent('/work/project-a');
+  });
+
+  it('shows the titlebar search slot for the desktop conversation section when sider is expanded', () => {
+    mockLayout.siderCollapsed = false;
+
+    render(
+      <MemoryRouter initialEntries={['/guid']}>
+        <Titlebar workspaceAvailable={false} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('titlebar-search-slot')).toHaveAttribute('id', GLOBAL_SIDER_SEARCH_SLOT_ID);
   });
 });

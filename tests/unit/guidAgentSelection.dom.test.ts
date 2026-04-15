@@ -97,6 +97,7 @@ vi.mock('../../src/renderer/utils/model/agentModes', () => ({
 }));
 
 import { useGuidAgentSelection } from '../../src/renderer/pages/guid/hooks/useGuidAgentSelection';
+import { resetDroidModelCatalog, setDroidModelCatalog, type FactoryModel } from '../../src/common/config/factoryModels';
 
 // ---------------------------------------------------------------------------
 // Test data
@@ -131,6 +132,17 @@ const CLAUDE_CACHED_MODEL: AcpModelInfo = {
   canSwitch: true,
 };
 
+const DROID_CACHED_MODEL: AcpModelInfo = {
+  source: 'models',
+  currentModelId: 'gpt-5.4',
+  currentModelLabel: 'GPT-5.4',
+  availableModels: [
+    { id: 'gpt-5.4', label: 'GPT-5.4' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  ],
+  canSwitch: true,
+};
+
 const MODEL_LIST: IProvider[] = [
   {
     id: 'p1',
@@ -142,6 +154,21 @@ const MODEL_LIST: IProvider[] = [
   } as IProvider,
 ];
 
+const RUNTIME_DROID_MODELS: FactoryModel[] = [
+  {
+    id: 'claude-opus-4-6-fast',
+    name: 'Claude Opus 4.6 Fast',
+    reasoningLevels: ['off', 'low', 'medium', 'high'],
+    defaultReasoning: 'high',
+  },
+  {
+    id: 'gpt-5.4-fast',
+    name: 'GPT-5.4 Fast',
+    reasoningLevels: ['low', 'medium', 'high', 'xhigh'],
+    defaultReasoning: 'medium',
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -150,12 +177,14 @@ function setupMocks(overrides?: {
   cachedModels?: Record<string, AcpModelInfo>;
   acpConfig?: Record<string, unknown>;
   geminiConfig?: Record<string, unknown>;
+  availableAgents?: AvailableAgent[];
 }) {
   const cachedModels = overrides?.cachedModels ?? { claude: CLAUDE_CACHED_MODEL };
   const acpConfig = overrides?.acpConfig ?? { claude: { preferredMode: 'bypassPermissions' } };
   const geminiConfig = overrides?.geminiConfig ?? {};
+  const availableAgents = overrides?.availableAgents ?? AVAILABLE_AGENTS;
 
-  ipcMock.getAvailableAgents.mockResolvedValue({ success: true, data: AVAILABLE_AGENTS });
+  ipcMock.getAvailableAgents.mockResolvedValue({ success: true, data: availableAgents });
   ipcMock.probeModelInfo.mockResolvedValue({ success: false });
   ipcMock.getAssistants.mockResolvedValue([]);
 
@@ -187,6 +216,7 @@ describe('useGuidAgentSelection – preset agent config resolution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetSwrCache();
+    resetDroidModelCatalog();
     setupMocks();
   });
 
@@ -341,6 +371,103 @@ describe('useGuidAgentSelection – preset agent config resolution', () => {
       const savedConfig = acpConfigCall?.[1] as Record<string, unknown>;
       expect(savedConfig).toHaveProperty('claude');
       expect((savedConfig.claude as Record<string, unknown>).preferredMode).toBe('bypassPermissions');
+    });
+  });
+
+  it('uses the refreshed droid catalog for droid model options', async () => {
+    setDroidModelCatalog(RUNTIME_DROID_MODELS);
+    setupMocks({
+      availableAgents: [{ backend: 'droid', name: 'Factory Droid' }],
+      cachedModels: {
+        droid: {
+          ...DROID_CACHED_MODEL,
+          currentModelId: 'claude-opus-4-6-fast',
+          currentModelLabel: 'Claude Opus 4.6 Fast',
+        },
+      },
+      acpConfig: {
+        droid: { preferredModelId: 'claude-opus-4-6-fast' },
+      },
+    });
+
+    const { result } = renderHook(() => useGuidAgentSelection(hookOptions));
+
+    await waitFor(() => {
+      expect(result.current.selectedAgentKey).toBe('droid');
+      expect(result.current.selectedAcpModel).toBe('claude-opus-4-6-fast');
+    });
+
+    expect(result.current.currentAcpCachedModelInfo?.availableModels).toEqual([
+      { id: 'claude-opus-4-6-fast', label: 'Claude Opus 4.6 Fast' },
+      { id: 'gpt-5.4-fast', label: 'GPT-5.4 Fast' },
+    ]);
+  });
+
+  it('falls back to a valid droid model when the saved preference is no longer in the refreshed catalog', async () => {
+    setDroidModelCatalog(RUNTIME_DROID_MODELS);
+    setupMocks({
+      availableAgents: [{ backend: 'droid', name: 'Factory Droid' }],
+      cachedModels: {
+        droid: {
+          ...DROID_CACHED_MODEL,
+          currentModelId: 'removed-cached-model',
+          currentModelLabel: 'Removed Cached Model',
+        },
+      },
+      acpConfig: {
+        droid: { preferredModelId: 'removed-preferred-model' },
+      },
+    });
+
+    const { result } = renderHook(() => useGuidAgentSelection(hookOptions));
+
+    await waitFor(() => {
+      expect(result.current.selectedAgentKey).toBe('droid');
+      expect(result.current.selectedAcpModel).toBe('claude-opus-4-6-fast');
+    });
+
+    await waitFor(() => {
+      const acpConfigCall = configStorageMock.set.mock.calls.find(
+        ([key, value]: [string, unknown]) =>
+          key === 'acp.config' &&
+          (value as { droid?: { preferredModelId?: string } })?.droid?.preferredModelId === 'claude-opus-4-6-fast'
+      );
+      expect(acpConfigCall).toBeDefined();
+    });
+  });
+
+  it('sanitizes and persists incompatible droid spec settings after loading saved preferences', async () => {
+    setupMocks({
+      availableAgents: [{ backend: 'droid', name: 'Factory Droid' }],
+      cachedModels: { droid: DROID_CACHED_MODEL },
+      acpConfig: {
+        droid: {
+          preferredModelId: 'gpt-5.4',
+          specModeModelId: 'claude-sonnet-4-6',
+          specModeReasoningEffort: 'low',
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useGuidAgentSelection(hookOptions));
+
+    await waitFor(() => {
+      expect(result.current.selectedAgentKey).toBe('droid');
+      expect(result.current.selectedAcpModel).toBe('gpt-5.4');
+    });
+
+    await waitFor(() => {
+      expect(result.current.pendingConfigOptions).toEqual({});
+    });
+
+    await waitFor(() => {
+      const acpConfigCall = configStorageMock.set.mock.calls.find(([key]: [string]) => key === 'acp.config');
+      expect(acpConfigCall).toBeDefined();
+      expect(acpConfigCall?.[1]).toEqual({
+        droid: {
+          preferredModelId: 'gpt-5.4',
+        },
+      });
     });
   });
 });

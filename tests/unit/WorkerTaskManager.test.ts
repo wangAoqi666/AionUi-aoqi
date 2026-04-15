@@ -179,6 +179,31 @@ describe('WorkerTaskManager', () => {
     expect(factory.create).toHaveBeenCalledTimes(1);
   });
 
+  it('deduplicates concurrent builds for the same conversation id', async () => {
+    let resolveConversation: ((value: ReturnType<typeof makeConversation>) => void) | undefined;
+    const pendingConversation = new Promise<ReturnType<typeof makeConversation>>((resolve) => {
+      resolveConversation = resolve;
+    });
+    const agent = makeAgent();
+    const factory = makeFactory(agent);
+    vi.mocked(repo.getConversation).mockReturnValue(pendingConversation as any);
+
+    const mgr = new WorkerTaskManager(factory as any, repo);
+    const firstBuild = mgr.getOrBuildTask('c1');
+    const secondBuild = mgr.getOrBuildTask('c1');
+
+    expect(repo.getConversation).toHaveBeenCalledTimes(1);
+
+    resolveConversation?.(makeConversation('c1'));
+
+    const [firstTask, secondTask] = await Promise.all([firstBuild, secondBuild]);
+
+    expect(factory.create).toHaveBeenCalledTimes(1);
+    expect(firstTask).toBe(agent);
+    expect(secondTask).toBe(agent);
+    expect(mgr.listTasks()).toEqual([{ id: 'c1', type: 'gemini' }]);
+  });
+
   // --- getOrBuildTask: failure paths ---
 
   it('rejects with error when repo returns undefined', async () => {

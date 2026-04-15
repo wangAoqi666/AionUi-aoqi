@@ -262,6 +262,25 @@ describe('usePresetAssistantResolver', () => {
     expect(result.current.resolvePresetAgentType({ backend: 'custom', customAgentId: 'agent-beta' })).toBe('qwen');
   });
 
+  it('resolvePresetAgentType locks builtin assistants to Factory Droid', () => {
+    const builtinAgents = [
+      ...customAgents,
+      {
+        id: 'builtin-cowork',
+        name: 'Cowork',
+        isPreset: true,
+        isBuiltin: true,
+        enabled: true,
+        presetAgentType: 'gemini',
+      } as AcpBackendConfig,
+    ];
+    const { result } = renderHook(() =>
+      usePresetAssistantResolver({ customAgents: builtinAgents, localeKey: 'en-US' })
+    );
+
+    expect(result.current.resolvePresetAgentType({ backend: 'custom', customAgentId: 'builtin-cowork' })).toBe('droid');
+  });
+
   it('resolvePresetAgentType defaults to gemini for unknown custom agent', () => {
     const { result } = renderHook(() => usePresetAssistantResolver({ customAgents, localeKey: 'en-US' }));
 

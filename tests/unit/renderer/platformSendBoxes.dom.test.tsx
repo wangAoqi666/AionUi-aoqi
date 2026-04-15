@@ -32,9 +32,12 @@ const mockUseConversationCommandQueue = vi.fn(() => ({
 }));
 
 const mockConversationGetInvoke = vi.fn();
+const mockConversationListChangedOn = vi.fn();
 const mockConversationStopInvoke = vi.fn();
 const mockConversationSendInvoke = vi.fn();
 const mockAcpSendInvoke = vi.fn();
+const mockAcpGetModeInvoke = vi.fn();
+const mockAcpSetModeInvoke = vi.fn();
 const mockGeminiSendInvoke = vi.fn();
 const mockOpenClawSendInvoke = vi.fn();
 const mockOpenClawRuntimeInvoke = vi.fn();
@@ -50,6 +53,7 @@ const mockArcoSuccess = vi.fn();
 const mockAssertBridgeSuccess = vi.fn();
 const mockSetSendBoxHandler = vi.fn();
 const mockClearFiles = vi.fn();
+const mockUseAcpMessage = vi.fn();
 
 let uuidCounter = 0;
 
@@ -57,12 +61,15 @@ vi.mock('@/common', () => ({
   ipcBridge: {
     conversation: {
       get: { invoke: (...args: unknown[]) => mockConversationGetInvoke(...args) },
+      listChanged: { on: (...args: unknown[]) => mockConversationListChangedOn(...args) },
       stop: { invoke: (...args: unknown[]) => mockConversationStopInvoke(...args) },
       sendMessage: { invoke: (...args: unknown[]) => mockConversationSendInvoke(...args) },
       responseStream: { on: vi.fn(() => vi.fn()) },
     },
     acpConversation: {
+      getMode: { invoke: (...args: unknown[]) => mockAcpGetModeInvoke(...args) },
       sendMessage: { invoke: (...args: unknown[]) => mockAcpSendInvoke(...args) },
+      setMode: { invoke: (...args: unknown[]) => mockAcpSetModeInvoke(...args) },
     },
     geminiConversation: {
       sendMessage: { invoke: (...args: unknown[]) => mockGeminiSendInvoke(...args) },
@@ -93,15 +100,18 @@ vi.mock('@/renderer/components/chat/sendbox', () => ({
     loading,
     onSend,
     onStop,
+    tools,
   }: {
     disabled?: boolean;
     loading?: boolean;
     onSend: (message: string) => Promise<void> | void;
     onStop?: () => Promise<void> | void;
+    tools?: React.ReactNode;
   }) =>
     React.createElement(
       'div',
       {},
+      React.createElement('div', { 'data-testid': 'sendbox-tools' }, tools),
       React.createElement('div', { 'data-testid': 'sendbox-loading' }, String(Boolean(loading))),
       React.createElement(
         'button',
@@ -135,7 +145,8 @@ vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({
 
 vi.mock('@/renderer/components/chat/ThoughtDisplay', () => ({
   __esModule: true,
-  default: () => React.createElement('div', { 'data-testid': 'thought-display' }),
+  default: ({ running }: { running?: boolean }) =>
+    React.createElement('div', { 'data-testid': 'thought-display', 'data-running': String(Boolean(running)) }),
 }));
 
 vi.mock('@/renderer/components/media/FilePreview', () => ({
@@ -155,7 +166,8 @@ vi.mock('@/renderer/components/media/FileAttachButton', () => ({
 
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({
   __esModule: true,
-  default: () => React.createElement('div'),
+  default: ({ initialMode }: { initialMode?: string }) =>
+    React.createElement('div', { 'data-testid': 'agent-mode-selector' }, initialMode ?? ''),
 }));
 
 vi.mock('@/renderer/components/agent/AcpConfigSelector', () => ({
@@ -250,16 +262,7 @@ vi.mock('@/renderer/pages/conversation/platforms/assertBridgeSuccess', () => ({
 }));
 
 vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpMessage', () => ({
-  useAcpMessage: vi.fn(() => ({
-    thought: { subject: '', description: '' },
-    running: false,
-    acpStatus: null,
-    aiProcessing: false,
-    setAiProcessing: vi.fn(),
-    resetState: vi.fn(),
-    tokenUsage: 0,
-    contextLimit: 0,
-  })),
+  useAcpMessage: (...args: unknown[]) => mockUseAcpMessage(...args),
 }));
 
 vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', () => ({
@@ -380,9 +383,12 @@ describe('platform send box queue integration', () => {
         workspace: 'C:/workspace',
       },
     });
+    mockConversationListChangedOn.mockImplementation(() => vi.fn());
     mockConversationStopInvoke.mockResolvedValue(undefined);
     mockConversationSendInvoke.mockResolvedValue({ success: true });
     mockAcpSendInvoke.mockResolvedValue({ success: true });
+    mockAcpGetModeInvoke.mockResolvedValue({ success: true, data: { mode: 'default', initialized: false } });
+    mockAcpSetModeInvoke.mockResolvedValue({ success: true, data: { mode: 'default' } });
     mockGeminiSendInvoke.mockResolvedValue({ success: true });
     mockOpenClawSendInvoke.mockResolvedValue({ success: true });
     mockOpenClawRuntimeInvoke.mockResolvedValue({
@@ -408,6 +414,18 @@ describe('platform send box queue integration', () => {
       },
     });
     mockDatabaseMessagesInvoke.mockResolvedValue([]);
+    mockUseAcpMessage.mockReturnValue({
+      thought: { subject: '', description: '' },
+      running: false,
+      hasHydratedRunningState: true,
+      acpStatus: null,
+      aiProcessing: false,
+      setAiProcessing: vi.fn(),
+      resetState: vi.fn(),
+      tokenUsage: 0,
+      contextLimit: 0,
+      hasThinkingMessage: false,
+    });
   });
 
   afterEach(() => {
@@ -509,6 +527,103 @@ describe('platform send box queue integration', () => {
         files: [],
       });
     });
+  });
+
+  it('re-applies the selected ACP mode before dispatching the turn', async () => {
+    const callOrder: string[] = [];
+    mockAcpSetModeInvoke.mockImplementation(async () => {
+      callOrder.push('set-mode');
+      return { success: true, data: { mode: 'spec' } };
+    });
+    mockAcpSendInvoke.mockImplementation(async () => {
+      callOrder.push('send');
+      return { success: true };
+    });
+
+    render(<AcpSendBox conversation_id='conv-acp' backend='droid' sessionMode='spec' />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'trigger-send' }));
+
+    await waitFor(() => {
+      expect(mockAcpSetModeInvoke).toHaveBeenCalledWith({
+        conversationId: 'conv-acp',
+        mode: 'spec',
+      });
+      expect(mockAcpSendInvoke).toHaveBeenCalledTimes(1);
+    });
+
+    expect(callOrder).toEqual(['set-mode', 'send']);
+  });
+
+  it('syncs the visible ACP mode pill when the conversation mode changes externally', async () => {
+    let listChangedHandler: ((event: { conversationId: string; action: string }) => void) | undefined;
+    mockConversationListChangedOn.mockImplementation(
+      (handler: (event: { conversationId: string; action: string }) => void) => {
+        listChangedHandler = handler;
+        return vi.fn();
+      }
+    );
+    mockAcpGetModeInvoke
+      .mockResolvedValueOnce({ success: true, data: { mode: 'spec', initialized: false } })
+      .mockResolvedValueOnce({ success: true, data: { mode: 'yolo', initialized: true } });
+
+    render(<AcpSendBox conversation_id='conv-acp' backend='droid' sessionMode='spec' />);
+
+    expect(screen.getByTestId('agent-mode-selector')).toHaveTextContent('spec');
+
+    listChangedHandler?.({ conversationId: 'conv-acp', action: 'updated' });
+
+    await waitFor(() => {
+      expect(mockAcpGetModeInvoke).toHaveBeenCalledWith({ conversationId: 'conv-acp' });
+      expect(screen.getByTestId('agent-mode-selector')).toHaveTextContent('yolo');
+    });
+  });
+
+  it('keeps the ACP processing indicator visible while the turn is still running', () => {
+    mockUseAcpMessage.mockReturnValue({
+      thought: { subject: '', description: '' },
+      running: true,
+      hasHydratedRunningState: true,
+      acpStatus: null,
+      aiProcessing: false,
+      setAiProcessing: vi.fn(),
+      resetState: vi.fn(),
+      tokenUsage: 0,
+      contextLimit: 0,
+      hasThinkingMessage: true,
+    });
+
+    render(<AcpSendBox conversation_id='conv-acp' backend='droid' />);
+
+    expect(screen.getByTestId('thought-display')).toHaveAttribute('data-running', 'true');
+  });
+
+  it.each([
+    ['acp', <AcpSendBox conversation_id='conv-acp' backend='claude' />],
+    [
+      'gemini',
+      <GeminiSendBox
+        conversation_id='conv-gemini'
+        modelSelection={{
+          currentModel: { useModel: 'gemini-2.5' },
+          getDisplayModelName: (modelId: string) => modelId,
+          providers: ['google'],
+          geminiModeLookup: {},
+          getAvailableModels: () => [],
+          handleSelectModel: vi.fn(),
+        }}
+      />,
+    ],
+    ['nanobot', <NanobotSendBox conversation_id='conv-nanobot' />],
+    ['openclaw', <OpenClawSendBox conversation_id='conv-openclaw' />],
+  ])('renders a full-width dock wrapper for %s', (_name, element) => {
+    render(element);
+
+    const wrapper = screen.getByTestId('sendbox-loading').parentElement?.parentElement;
+    expect(wrapper).toBeTruthy();
+    expect(wrapper).toHaveClass('w-full', 'flex', 'flex-col', 'mt-auto', 'mb-8px');
+    expect(wrapper?.className).not.toContain('max-w-800px');
+    expect(wrapper?.className).not.toContain('mx-auto');
   });
 
   it.each([

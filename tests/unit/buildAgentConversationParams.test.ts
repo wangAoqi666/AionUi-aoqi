@@ -70,6 +70,35 @@ describe('buildAgentConversationParams', () => {
     });
   });
 
+  it('routes preset droid assistants through ACP with droid backend', () => {
+    const params = buildAgentConversationParams({
+      backend: 'custom',
+      name: 'Preset Droid',
+      agentName: 'Preset Droid',
+      workspace: '/workspace',
+      model: {} as any,
+      customAgentId: 'assistant-droid',
+      isPreset: true,
+      presetAgentType: 'droid',
+      presetResources: {
+        rules: 'DROID RULES',
+      },
+    });
+
+    expect(params).toEqual({
+      type: 'acp',
+      name: 'Preset Droid',
+      model: {},
+      extra: expect.objectContaining({
+        workspace: '/workspace',
+        customWorkspace: true,
+        presetAssistantId: 'assistant-droid',
+        presetContext: 'DROID RULES',
+        backend: 'droid',
+      }),
+    });
+  });
+
   it('builds remote params with remote agent id', () => {
     const params = buildAgentConversationParams({
       backend: 'remote',

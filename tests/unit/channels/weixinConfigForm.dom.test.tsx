@@ -1,14 +1,20 @@
 /**
  * DOM tests for WeixinConfigForm login state machine.
  */
+import type { IChannelPluginStatus } from '@process/channels/types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
-const { mockEnablePlugin, mockDisablePlugin, mockGetPluginStatus } = vi.hoisted(() => ({
+const { mockEnablePlugin, mockDisablePlugin, mockGetPluginStatus, noopModelSelection } = vi.hoisted(() => ({
   mockEnablePlugin: vi.fn(async () => ({ success: true })),
   mockDisablePlugin: vi.fn(async () => ({ success: true })),
   mockGetPluginStatus: vi.fn(async () => ({ success: true, data: [] })),
+  noopModelSelection: {
+    currentModel: undefined,
+    isLoading: false,
+    onSelectModel: vi.fn(),
+  },
 }));
 
 vi.mock('@arco-design/web-react', async (importOriginal) => {
@@ -27,7 +33,8 @@ vi.mock('@arco-design/web-react', async (importOriginal) => {
 // Mock i18next
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback: string) => fallback ?? key,
+    t: (key: string, fallback?: string | { defaultValue?: string }) =>
+      typeof fallback === 'string' ? fallback : (fallback?.defaultValue ?? key),
   }),
 }));
 
@@ -64,12 +71,20 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   },
 }));
 
-vi.mock('@/common/config/storage', () => ({
-  ConfigStorage: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
-}));
+vi.mock('@/common/config/storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/common/config/storage')>();
+  return {
+    ...actual,
+    ConfigStorage: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
+  };
+});
 
 vi.mock('@/renderer/pages/conversation/platforms/gemini/GeminiModelSelector', () => ({
   default: ({ label }: { label?: string }) => <div data-testid='model-selector'>{label}</div>,
+}));
+
+vi.mock('@/renderer/components/settings/SettingsModal/contents/channels/useChannelInstanceModelSelection', () => ({
+  useChannelInstanceModelSelection: () => noopModelSelection,
 }));
 
 vi.mock('qrcode.react', () => ({
@@ -78,12 +93,6 @@ vi.mock('qrcode.react', () => ({
 
 import WeixinConfigForm from '@/renderer/components/settings/SettingsModal/contents/channels/WeixinConfigForm';
 import { ConfigStorage } from '@/common/config/storage';
-
-const noopModelSelection = {
-  currentModel: undefined,
-  isLoading: false,
-  onSelectModel: vi.fn(),
-} as any;
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -112,10 +121,23 @@ class MockEventSource {
   }
 }
 
+const createPluginStatus = (overrides: Partial<IChannelPluginStatus> = {}): IChannelPluginStatus => ({
+  id: 'weixin_default',
+  type: 'weixin',
+  name: 'WeChat',
+  enabled: true,
+  connected: true,
+  status: 'running',
+  activeUsers: 0,
+  hasToken: true,
+  ...overrides,
+});
+
 describe('WeixinConfigForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     MockEventSource.instances.length = 0;
+    localStorage.clear();
     Object.defineProperty(window, 'EventSource', {
       value: MockEventSource,
       writable: true,
@@ -134,6 +156,41 @@ describe('WeixinConfigForm', () => {
   it('renders login button in idle state', () => {
     render(<WeixinConfigForm pluginStatus={null} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />);
     expect(screen.getByText('Scan to Login')).toBeTruthy();
+  });
+
+  it('shows an empty-state hint when no sidebar workspace is available', () => {
+    render(<WeixinConfigForm pluginStatus={null} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />);
+
+    expect(screen.getByText('Open or create a workspace in the sidebar first.')).toBeTruthy();
+  });
+
+  it('lists sidebar workspaces and persists the selected published workspace', async () => {
+    localStorage.setItem('conversation-opened-folder-spaces', JSON.stringify(['/tmp/workspace-a', '/tmp/workspace-b']));
+    localStorage.setItem(
+      'conversation-agent-space-display-names',
+      JSON.stringify({ '/tmp/workspace-b': '绘画里的工作空间' })
+    );
+
+    render(<WeixinConfigForm pluginStatus={null} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByPlaceholderText('Select a workspace'));
+    });
+
+    const namedWorkspaceOption = await screen.findByRole('option', { name: '绘画里的工作空间' });
+    expect(screen.getByRole('option', { name: 'workspace-a' })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(namedWorkspaceOption);
+    });
+
+    await waitFor(() => {
+      expect(ConfigStorage.set).toHaveBeenCalledWith('assistant.channel.publishInstances', {
+        weixin_default: { workspace: '/tmp/workspace-b' },
+      });
+    });
+    expect(localStorage.getItem('conversation-opened-folder-spaces')).toContain('/tmp/workspace-b');
+    expect(screen.getByText('/tmp/workspace-b')).toBeTruthy();
   });
 
   it('shows auto-follow label when a non-gemini agent is selected', async () => {
@@ -163,8 +220,8 @@ describe('WeixinConfigForm', () => {
 
   it('displays QR image when qrcodeUrl is set', async () => {
     let qrCallback: ((data: { qrcodeUrl: string }) => void) | null = null;
-    mockWeixinLoginOnQR.mockImplementation((cb: any) => {
-      qrCallback = cb;
+    mockWeixinLoginOnQR.mockImplementation((cb: unknown) => {
+      qrCallback = cb as (data: { qrcodeUrl: string }) => void;
       return vi.fn();
     });
     mockWeixinLoginStart.mockReturnValue(new Promise(() => {}));
@@ -188,12 +245,12 @@ describe('WeixinConfigForm', () => {
     let qrCallback: ((data: { qrcodeUrl: string }) => void) | null = null;
     let scannedCallback: (() => void) | null = null;
 
-    mockWeixinLoginOnQR.mockImplementation((cb: any) => {
-      qrCallback = cb;
+    mockWeixinLoginOnQR.mockImplementation((cb: unknown) => {
+      qrCallback = cb as (data: { qrcodeUrl: string }) => void;
       return vi.fn();
     });
-    mockWeixinLoginOnScanned.mockImplementation((cb: any) => {
-      scannedCallback = cb;
+    mockWeixinLoginOnScanned.mockImplementation((cb: unknown) => {
+      scannedCallback = cb as () => void;
       return vi.fn();
     });
     mockWeixinLoginStart.mockReturnValue(new Promise(() => {}));
@@ -214,22 +271,10 @@ describe('WeixinConfigForm', () => {
   });
 
   it('shows already-connected state when pluginStatus.hasToken is true', () => {
-    const pluginStatus = {
-      id: 'weixin_default',
-      type: 'weixin',
-      enabled: true,
-      connected: true,
-      hasToken: true,
-      name: 'WeChat',
-      status: 'running' as const,
-    };
+    const pluginStatus = createPluginStatus();
 
     render(
-      <WeixinConfigForm
-        pluginStatus={pluginStatus as any}
-        modelSelection={noopModelSelection}
-        onStatusChange={vi.fn()}
-      />
+      <WeixinConfigForm pluginStatus={pluginStatus} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />
     );
 
     expect(screen.getByText('Connected')).toBeTruthy();
@@ -238,22 +283,14 @@ describe('WeixinConfigForm', () => {
   });
 
   it('does not show connected state when plugin has token but is disabled', () => {
-    const pluginStatus = {
-      id: 'weixin_default',
-      type: 'weixin',
+    const pluginStatus = createPluginStatus({
       enabled: false,
       connected: false,
-      hasToken: true,
-      name: 'WeChat',
-      status: 'stopped' as const,
-    };
+      status: 'stopped',
+    });
 
     render(
-      <WeixinConfigForm
-        pluginStatus={pluginStatus as any}
-        modelSelection={noopModelSelection}
-        onStatusChange={vi.fn()}
-      />
+      <WeixinConfigForm pluginStatus={pluginStatus} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />
     );
 
     expect(screen.queryByText('Connected')).toBeNull();
@@ -378,22 +415,10 @@ describe('WeixinConfigForm', () => {
   it('stays connected when handleDisconnect fails', async () => {
     mockDisablePlugin.mockResolvedValueOnce({ success: false, msg: 'Disable failed' });
 
-    const pluginStatus = {
-      id: 'weixin_default',
-      type: 'weixin',
-      enabled: true,
-      connected: true,
-      hasToken: true,
-      name: 'WeChat',
-      status: 'running' as const,
-    };
+    const pluginStatus = createPluginStatus();
 
     render(
-      <WeixinConfigForm
-        pluginStatus={pluginStatus as any}
-        modelSelection={noopModelSelection}
-        onStatusChange={vi.fn()}
-      />
+      <WeixinConfigForm pluginStatus={pluginStatus} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />
     );
 
     await act(async () => {
@@ -424,20 +449,12 @@ describe('WeixinConfigForm', () => {
   });
 
   it('allows disconnecting from the connected state', async () => {
-    const initialPluginStatus = {
-      id: 'weixin_default',
-      type: 'weixin',
-      enabled: true,
-      connected: true,
-      hasToken: true,
-      name: 'WeChat',
-      status: 'running' as const,
-    };
+    const initialPluginStatus = createPluginStatus();
 
     const onStatusChange = vi.fn();
 
     const TestHarness = () => {
-      const [status, setStatus] = React.useState(initialPluginStatus as any);
+      const [status, setStatus] = React.useState<IChannelPluginStatus | null>(initialPluginStatus);
 
       return (
         <WeixinConfigForm

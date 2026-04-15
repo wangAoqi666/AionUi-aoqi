@@ -1,7 +1,7 @@
 /**
  * Tests that SystemActions handles 'weixin' platform in all three ternary chains.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -13,7 +13,9 @@ vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
 }));
 
-const mockGet = vi.fn();
+const { mockGet } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+}));
 vi.mock('@process/utils/initStorage', () => ({
   ProcessConfig: { get: mockGet },
 }));
@@ -29,16 +31,68 @@ vi.mock('@process/model/providerListStore', () => ({
   getProviderList: vi.fn(async () => []),
 }));
 
+vi.mock('@process/agent/acp/AcpDetector', () => ({
+  acpDetector: { getDetectedAgents: vi.fn(() => []) },
+}));
+
+vi.mock('@/process/services/conversationServiceSingleton', () => ({
+  conversationServiceSingleton: {},
+}));
+
+vi.mock('@process/task/workerTaskManagerSingleton', () => ({
+  workerTaskManager: { kill: vi.fn() },
+}));
+
+vi.mock('@process/channels/agent/ChannelMessageService', () => ({
+  getChannelMessageService: vi.fn(() => ({ clearContext: vi.fn() })),
+}));
+
+vi.mock('@process/channels/core/ChannelManager', () => ({
+  getChannelManager: vi.fn(() => ({ getSessionManager: vi.fn(() => null) })),
+}));
+
+vi.mock('@process/channels/plugins/telegram/TelegramKeyboards', () => ({
+  createAgentSelectionKeyboard: vi.fn(),
+  createHelpKeyboard: vi.fn(),
+  createMainMenuKeyboard: vi.fn(),
+  createSessionControlKeyboard: vi.fn(),
+}));
+
+vi.mock('@process/channels/plugins/lark/LarkCards', () => ({
+  createAgentSelectionCard: vi.fn(),
+  createFeaturesCard: vi.fn(),
+  createHelpCard: vi.fn(),
+  createMainMenuCard: vi.fn(),
+  createPairingGuideCard: vi.fn(),
+  createSessionStatusCard: vi.fn(),
+  createSettingsCard: vi.fn(),
+  createTipsCard: vi.fn(),
+}));
+
+vi.mock('@process/channels/plugins/dingtalk/DingTalkCards', () => ({
+  createAgentSelectionCard: vi.fn(),
+  createFeaturesCard: vi.fn(),
+  createHelpCard: vi.fn(),
+  createMainMenuCard: vi.fn(),
+  createPairingGuideCard: vi.fn(),
+  createSessionStatusCard: vi.fn(),
+  createSettingsCard: vi.fn(),
+  createTipsCard: vi.fn(),
+}));
+
+let getChannelDefaultModel: typeof import('@process/channels/actions/SystemActions').getChannelDefaultModel;
+
 describe('SystemActions weixin platform handling', () => {
+  beforeAll(async () => {
+    ({ getChannelDefaultModel } = await import('@process/channels/actions/SystemActions'));
+  });
+
   beforeEach(() => {
-    vi.resetModules();
     vi.clearAllMocks();
     mockGet.mockResolvedValue(undefined);
   });
 
   it('getChannelDefaultModel reads assistant.weixin.defaultModel for weixin platform', async () => {
-    const { getChannelDefaultModel } = await import('@process/channels/actions/SystemActions');
-
     mockGet.mockImplementation((key: string) => {
       if (key === 'assistant.weixin.defaultModel') return Promise.resolve({ id: 'p1', useModel: 'gemini-2.0-flash' });
       return Promise.resolve(undefined);
@@ -56,8 +110,6 @@ describe('SystemActions weixin platform handling', () => {
   });
 
   it('getChannelDefaultModel still reads assistant.telegram.defaultModel for telegram', async () => {
-    const { getChannelDefaultModel } = await import('@process/channels/actions/SystemActions');
-
     mockGet.mockResolvedValue(undefined);
     await getChannelDefaultModel('telegram');
     expect(mockGet).toHaveBeenCalledWith('assistant.telegram.defaultModel');
@@ -65,8 +117,6 @@ describe('SystemActions weixin platform handling', () => {
   });
 
   it('uses local Gemini OAuth credentials when the saved weixin model is Google Auth', async () => {
-    const { getChannelDefaultModel } = await import('@process/channels/actions/SystemActions');
-
     mockGet.mockImplementation((key: string) => {
       if (key === 'model.config') return Promise.resolve([]);
       if (key === 'assistant.weixin.defaultModel') {
@@ -89,8 +139,6 @@ describe('SystemActions weixin platform handling', () => {
   });
 
   it('falls back to a Gemini API-key provider when Google Auth is selected but local creds are missing', async () => {
-    const { getChannelDefaultModel } = await import('@process/channels/actions/SystemActions');
-
     mockGet.mockImplementation((key: string) => {
       if (key === 'model.config') {
         return Promise.resolve([
@@ -118,8 +166,6 @@ describe('SystemActions weixin platform handling', () => {
   });
 
   it('falls back to Google Auth credentials when no API-key provider exists', async () => {
-    const { getChannelDefaultModel } = await import('@process/channels/actions/SystemActions');
-
     mockGet.mockImplementation((key: string) => {
       if (key === 'model.config') return Promise.resolve([]);
       return Promise.resolve(undefined);

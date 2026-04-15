@@ -36,9 +36,15 @@ vi.mock('../../src/renderer/utils/workspace/workspaceHistory', () => ({
   updateWorkspaceTime: vi.fn(),
 }));
 
-vi.mock('../../src/common/types/acpTypes', () => ({
-  isAcpRoutedPresetType: vi.fn(() => false),
-}));
+vi.mock('../../src/common/types/acpTypes', async () => {
+  const actual = await vi.importActual<typeof import('../../src/common/types/acpTypes')>(
+    '../../src/common/types/acpTypes'
+  );
+  return {
+    ...actual,
+    isAcpRoutedPresetType: vi.fn(() => false),
+  };
+});
 
 vi.mock('@arco-design/web-react', () => ({
   Message: { info: vi.fn(), error: vi.fn() },
@@ -211,6 +217,54 @@ describe('useGuidSend', () => {
 
       expect(deps.closeAllTabs).toHaveBeenCalled();
       expect(deps.openTab).toHaveBeenCalledWith({ id: 'new-conv', extra: { workspace: '' } });
+    });
+  });
+
+  describe('builtin preset assistants', () => {
+    it('keeps builtin presets on Factory Droid and preserves preset identity', async () => {
+      const deps = makeDeps({
+        selectedAgent: 'custom',
+        selectedAgentKey: 'custom:builtin-cowork',
+        selectedAgentInfo: {
+          backend: 'custom',
+          name: 'Cowork',
+          customAgentId: 'builtin-cowork',
+          isPreset: true,
+        },
+        isPresetAgent: true,
+        currentModel: {} as GuidSendDeps['currentModel'],
+        resolvePresetRulesAndSkills: vi.fn().mockResolvedValue({ rules: 'builtin droid rules' }),
+        resolveEnabledSkills: vi.fn(() => ['paper-sync']),
+        getEffectiveAgentType: vi.fn(() => ({
+          agentType: 'droid',
+          isFallback: false,
+          originalType: 'droid',
+          isAvailable: false,
+        })),
+        isMainAgentAvailable: vi.fn(() => false),
+        getAvailableFallbackAgent: vi.fn(() => 'gemini'),
+        findAgentByKey: vi.fn((key: string) =>
+          key === 'droid' ? { backend: 'droid', name: 'Factory Droid', cliPath: '/usr/local/bin/droid' } : undefined
+        ),
+      });
+      const { result } = renderHook(() => useGuidSend(deps));
+
+      await act(async () => {
+        await result.current.handleSend();
+      });
+
+      expect(deps.getAvailableFallbackAgent).not.toHaveBeenCalled();
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'acp',
+          extra: expect.objectContaining({
+            backend: 'droid',
+            presetAssistantId: 'builtin-cowork',
+            presetContext: 'builtin droid rules',
+            enabledSkills: ['paper-sync'],
+          }),
+        })
+      );
     });
   });
 

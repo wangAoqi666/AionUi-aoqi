@@ -23,8 +23,14 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 const mockNavigate = vi.hoisted(() => vi.fn());
-const mockGetAvailableAgents = vi.hoisted(() => vi.fn());
+const mockGetDroidStatus = vi.hoisted(() => vi.fn());
+const mockCheckDroidCliUpdate = vi.hoisted(() => vi.fn());
+const mockMessageSuccess = vi.hoisted(() => vi.fn());
+const mockMessageWarning = vi.hoisted(() => vi.fn());
+const mockMessageInfo = vi.hoisted(() => vi.fn());
+const mockMessageError = vi.hoisted(() => vi.fn());
 const mockSwrMutate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockUseSWR = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en-US' } }),
@@ -37,90 +43,62 @@ vi.mock('react-router-dom', () => ({
 vi.mock('../../src/common', () => ({
   ipcBridge: {
     acpConversation: {
-      getAvailableAgents: { invoke: mockGetAvailableAgents },
+      getDroidStatus: { invoke: mockGetDroidStatus },
+      checkDroidCliUpdate: { invoke: mockCheckDroidCliUpdate },
     },
   },
 }));
 
 vi.mock('swr', () => ({
-  default: vi.fn(() => ({ data: undefined, mutate: mockSwrMutate, isLoading: false })),
+  default: (...args: unknown[]) => mockUseSWR(...args),
   mutate: mockSwrMutate,
 }));
 
 vi.mock('@arco-design/web-react', () => ({
-  Link: ({ children, href }: { children: React.ReactNode; href?: string }) => <a href={href}>{children}</a>,
   Typography: {
     Text: ({ children, ...props }: { children: React.ReactNode; [k: string]: unknown }) => (
       <span {...props}>{children}</span>
     ),
   },
-  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  Avatar: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Space: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button onClick={onClick}>{children}</button>
-  ),
-  Switch: ({ checked, onChange }: { checked?: boolean; onChange?: (v: boolean) => void }) => (
-    <button role='switch' aria-checked={checked} onClick={() => onChange?.(!checked)}>
-      switch
+  Alert: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
+  Badge: ({ text }: { text: React.ReactNode }) => <span>{text}</span>,
+  Button: ({
+    children,
+    onClick,
+    loading: _loading,
+    ...props
+  }: {
+    children?: React.ReactNode;
+    onClick?: () => void;
+    loading?: boolean;
+    [k: string]: unknown;
+  }) => (
+    <button onClick={onClick} {...props}>
+      {children}
     </button>
   ),
-}));
-
-vi.mock('@/renderer/components/base/AionModal', () => ({
-  default: ({ children, visible }: { children: React.ReactNode; visible: boolean }) =>
-    visible ? <div>{children}</div> : null,
-}));
-
-vi.mock('@/common/config/storage', () => ({
-  ConfigStorage: { get: vi.fn().mockResolvedValue([]), set: vi.fn().mockResolvedValue(undefined) },
+  Message: {
+    success: mockMessageSuccess,
+    warning: mockMessageWarning,
+    info: mockMessageInfo,
+    error: mockMessageError,
+  },
+  Spin: () => <div data-testid='spin'>loading</div>,
 }));
 
 vi.mock('@icon-park/react', () => ({
-  Home: () => <span data-testid='icon-home'>HomeIcon</span>,
   Setting: () => <span data-testid='icon-setting'>SettingIcon</span>,
-  Robot: () => <span data-testid='icon-robot'>RobotIcon</span>,
-  Plus: () => <span data-testid='icon-plus'>PlusIcon</span>,
-  Close: () => <span data-testid='icon-close'>CloseIcon</span>,
-}));
-
-vi.mock('@/renderer/utils/model/agentLogo', () => ({
-  getAgentLogo: vi.fn(() => null),
-  resolveAgentLogo: vi.fn(() => null),
-}));
-
-vi.mock('@/renderer/utils/platform', () => ({
-  resolveExtensionAssetUrl: vi.fn(() => undefined),
-}));
-
-vi.mock('@/renderer/hooks/agent/useHubAgents', () => ({
-  useHubAgents: () => ({ agents: [], loading: false, install: vi.fn(), retryInstall: vi.fn(), update: vi.fn() }),
-}));
-
-vi.mock('../../src/renderer/pages/settings/AgentSettings/AgentHubModal', () => ({
-  AgentHubModal: ({ visible }: { visible: boolean }) => (visible ? <div data-testid='hub-modal' /> : null),
-}));
-
-vi.mock('@/renderer/utils/model/availableAgents', () => ({
-  AVAILABLE_AGENTS_SWR_KEY: 'acp.agents.available',
-}));
-
-vi.mock('@/renderer/hooks/context/ThemeContext', () => ({
-  useThemeContext: () => ({ theme: 'light' }),
-}));
-
-vi.mock('../../src/renderer/pages/settings/AgentSettings/InlineAgentEditor', () => ({
-  default: () => <div data-testid='inline-agent-editor' />,
+  Refresh: () => <span data-testid='icon-refresh'>RefreshIcon</span>,
 }));
 
 // ---------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import React from 'react';
-import LocalAgents from '../../src/renderer/pages/settings/AgentSettings/LocalAgents';
+import LocalAgents, { resetLocalAgentsCache } from '../../src/renderer/pages/settings/AgentSettings/LocalAgents';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -129,58 +107,210 @@ import LocalAgents from '../../src/renderer/pages/settings/AgentSettings/LocalAg
 describe('LocalAgents', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAvailableAgents.mockResolvedValue({ success: true, data: [] });
+    vi.useRealTimers();
+    resetLocalAgentsCache();
+    mockGetDroidStatus.mockResolvedValue({ success: true, data: {} });
+    mockCheckDroidCliUpdate.mockResolvedValue({
+      success: true,
+      data: {
+        currentVersion: '0.99.0',
+        latestVersion: '0.99.0',
+        updateAvailable: false,
+        source: 'bundled',
+        registry: 'https://registry.npmmirror.com',
+      },
+    });
     mockSwrMutate.mockResolvedValue(undefined);
+    mockUseSWR.mockReturnValue({
+      data: {
+        available: true,
+        loginStatus: 'authenticated',
+        cliSource: 'bundled',
+        cliPath: '/usr/local/bin/droid',
+        cliVersion: 'droid 0.1.4',
+        sdkVersion: '0.1.4',
+        protocolVersion: '1.2.0',
+        modelCount: 21,
+      },
+      error: undefined,
+      isLoading: false,
+      isValidating: false,
+      mutate: mockSwrMutate,
+    });
   });
 
-  it('renders description and detect custom agent link', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders Factory Droid summary and status fields', async () => {
     await act(async () => {
       render(<LocalAgents />);
     });
 
-    expect(screen.getByText('settings.agentManagement.localAgentsDescription')).toBeTruthy();
-    expect(screen.getByText('settings.agentManagement.detectCustomAgent')).toBeTruthy();
+    expect(screen.queryByText('settings.agentManagement.factoryDroidOnlyDescription')).toBeNull();
+    expect(screen.getByText('settings.droidByok.factoryDroid')).toBeTruthy();
+    expect(screen.getByText('settings.agentManagement.runtimeStatus')).toBeTruthy();
+    expect(screen.getByText('settings.agentManagement.loginStatus')).toBeTruthy();
+    expect(screen.getByText('droid 0.1.4')).toBeTruthy();
+    expect(screen.getAllByText('0.1.4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1.2.0').length).toBeGreaterThan(0);
+    expect(screen.getByText('21')).toBeTruthy();
+    expect(screen.getByText('settings.agentManagement.actionCenter')).toBeTruthy();
+    expect(screen.getAllByText('settings.agentManagement.cliSourceBundled').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('/usr/local/bin/droid').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('settings.agentManagement.bundledRuntimeHint').length).toBeGreaterThan(0);
+    expect(mockCheckDroidCliUpdate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('settings.agentManagement.cliUpdateUpToDate')).toBeNull();
   });
 
-  it('renders detected section heading', async () => {
+  it('refreshes status when refresh button is clicked', async () => {
     await act(async () => {
       render(<LocalAgents />);
     });
 
-    expect(screen.getByText('settings.agentManagement.detected')).toBeTruthy();
+    await act(async () => {
+      screen.getByText('settings.agentManagement.refreshStatus').click();
+    });
+
+    expect(mockSwrMutate).toHaveBeenCalledTimes(1);
   });
 
-  it('renders empty state when no agents detected', async () => {
+  it('opens model settings when the settings button is clicked', async () => {
     await act(async () => {
       render(<LocalAgents />);
     });
 
-    expect(screen.getByText('settings.agentManagement.localAgentsEmpty')).toBeTruthy();
+    await act(async () => {
+      screen.getByText('settings.agentManagement.openModelSettings').click();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/model');
   });
 
-  it('hides "install from market" card in non-development environment', async () => {
-    const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      await act(async () => {
-        render(<LocalAgents />);
-      });
-      expect(screen.queryByText('settings.agentManagement.installFromMarket')).toBeNull();
-    } finally {
-      process.env.NODE_ENV = originalEnv;
-    }
+  it('checks cli updates when the check button is clicked', async () => {
+    mockCheckDroidCliUpdate.mockResolvedValue({
+      success: true,
+      data: {
+        currentVersion: '0.99.0',
+        latestVersion: '1.0.0',
+        updateAvailable: true,
+        source: 'bundled',
+        registry: 'https://registry.npmmirror.com',
+      },
+    });
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    await act(async () => {
+      screen.getByText('settings.agentManagement.checkCliUpdate').click();
+    });
+
+    expect(mockCheckDroidCliUpdate).toHaveBeenCalledTimes(2);
+    expect(mockMessageWarning).toHaveBeenCalledWith('settings.agentManagement.cliUpdateAvailable');
+    expect(screen.getByText('settings.agentManagement.cliUpdateAvailable')).toBeTruthy();
+    expect(screen.getByText('settings.agentManagement.currentCliVersion: 0.99.0')).toBeTruthy();
   });
 
-  it('shows "install from market" card in development environment', async () => {
-    const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
-    try {
-      await act(async () => {
-        render(<LocalAgents />);
-      });
-      expect(screen.getAllByText('settings.agentManagement.installFromMarket').length).toBeGreaterThan(0);
-    } finally {
-      process.env.NODE_ENV = originalEnv;
-    }
+  it('auto-checks updates on mount and warns when a new version is found', async () => {
+    mockCheckDroidCliUpdate.mockResolvedValue({
+      success: true,
+      data: {
+        currentVersion: '0.99.0',
+        latestVersion: '1.0.0',
+        updateAvailable: true,
+        source: 'bundled',
+        registry: 'https://registry.npmmirror.com',
+      },
+    });
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    expect(mockCheckDroidCliUpdate).toHaveBeenCalledTimes(1);
+    expect(mockMessageWarning).toHaveBeenCalledWith('settings.agentManagement.cliUpdateAvailable');
+    expect(screen.getByText('settings.agentManagement.cliUpdateAvailable')).toBeTruthy();
+  });
+
+  it('stops the cli update spinner when the check times out', async () => {
+    vi.useFakeTimers();
+    mockCheckDroidCliUpdate.mockImplementation(() => new Promise(() => {}));
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    expect(mockCheckDroidCliUpdate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      screen.getByText('settings.agentManagement.checkCliUpdate').click();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+
+    expect(mockMessageError).toHaveBeenCalledWith('settings.agentManagement.cliUpdateCheckTimeout');
+  });
+
+  it('does not auto-check while status is still loading', async () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: undefined,
+      isLoading: true,
+      isValidating: false,
+      mutate: mockSwrMutate,
+    });
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    expect(mockCheckDroidCliUpdate).not.toHaveBeenCalled();
+  });
+
+  it('shows the status error message when loading fails', async () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error('status failed'),
+      isLoading: false,
+      isValidating: false,
+      mutate: mockSwrMutate,
+    });
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    expect(screen.getAllByText('status failed').length).toBeGreaterThan(0);
+  });
+
+  it('does not report cli unavailable inside login status when runtime is unavailable', async () => {
+    mockUseSWR.mockReturnValue({
+      data: {
+        available: false,
+        loginStatus: 'unavailable',
+        cliSource: 'system',
+        cliPath: null,
+        cliVersion: null,
+        sdkVersion: '0.1.4',
+        protocolVersion: '1.2.0',
+        modelCount: 0,
+        error: 'missing cli',
+      },
+      error: undefined,
+      isLoading: false,
+      isValidating: false,
+      mutate: mockSwrMutate,
+    });
+
+    await act(async () => {
+      render(<LocalAgents />);
+    });
+
+    expect(screen.getAllByText('settings.agentManagement.loginStatusWaitingRuntime').length).toBeGreaterThan(0);
   });
 });

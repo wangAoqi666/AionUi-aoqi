@@ -27,7 +27,10 @@ vi.mock('@process/services/i18n', () => ({
 vi.mock('@process/utils/message', () => ({ addMessage: vi.fn() }));
 vi.mock('@/common', () => ({
   ipcBridge: {
-    conversation: { responseStream: { emit: vi.fn() } },
+    conversation: {
+      responseStream: { emit: vi.fn() },
+      listChanged: { emit: vi.fn() },
+    },
   },
 }));
 vi.mock('@process/utils/initStorage', () => ({
@@ -176,6 +179,63 @@ describe('CronService', () => {
     expect(emitter.emitJobRemoved).not.toHaveBeenCalled();
   });
 
+  it('removes new-conversation jobs when their owner conversation no longer exists', async () => {
+    const job = makeJob({
+      id: 'orphan-new-conv',
+      target: {
+        payload: { kind: 'message', text: 'hello' },
+        executionMode: 'new_conversation',
+      },
+    });
+    vi.mocked(repo.listAll).mockReturnValue([job]);
+    vi.mocked(repo.listEnabled).mockReturnValue([]);
+    vi.mocked(conversationRepo.getConversation).mockReturnValue(undefined);
+    vi.mocked(conversationRepo.getConversationsByCronJob).mockResolvedValue([
+      {
+        id: 'child-conv-1',
+        extra: { cronJobId: 'orphan-new-conv' },
+        source: 'aionui',
+      } as Awaited<ReturnType<IConversationRepository['getConversationsByCronJob']>>[number],
+    ]);
+
+    await service.init();
+
+    expect(conversationRepo.deleteConversation).not.toHaveBeenCalled();
+    expect(conversationRepo.updateConversation).toHaveBeenCalledWith(
+      'child-conv-1',
+      expect.objectContaining({
+        extra: {},
+      })
+    );
+    expect(repo.delete).toHaveBeenCalledWith('orphan-new-conv');
+    expect(emitter.emitJobRemoved).toHaveBeenCalledWith('orphan-new-conv');
+  });
+
+  it('clears stale cron markers from conversations whose jobs no longer exist', async () => {
+    vi.mocked(repo.listAll).mockReturnValue([]);
+    vi.mocked(repo.listEnabled).mockReturnValue([]);
+    vi.mocked(conversationRepo.listAllConversations).mockResolvedValue([
+      {
+        id: 'conv-stale',
+        extra: { cronJobId: 'deleted-job', workspace: '/tmp/workspace', customWorkspace: true },
+        source: 'aionui',
+      } as Awaited<ReturnType<IConversationRepository['listAllConversations']>>[number],
+    ]);
+
+    await service.init();
+
+    expect(conversationRepo.deleteConversation).not.toHaveBeenCalled();
+    expect(conversationRepo.updateConversation).toHaveBeenCalledWith(
+      'conv-stale',
+      expect.objectContaining({
+        extra: {
+          workspace: '/tmp/workspace',
+          customWorkspace: true,
+        },
+      })
+    );
+  });
+
   // --- addJob ---
 
   it('addJob inserts into repo and emits jobCreated', async () => {
@@ -200,7 +260,7 @@ describe('CronService', () => {
     expect(job.name).toBe('my-job');
   });
 
-  it('addJob tags conversation with cronJobId', async () => {
+  it('addJob refreshes the owner conversation modifyTime', async () => {
     vi.mocked(repo.listByConversation).mockReturnValue([]);
     vi.mocked(conversationRepo.getConversation).mockReturnValue({
       id: 'conv-1',
@@ -220,7 +280,7 @@ describe('CronService', () => {
     expect(conversationRepo.updateConversation).toHaveBeenCalledWith(
       'conv-1',
       expect.objectContaining({
-        extra: expect.objectContaining({ cronJobId: expect.any(String) }),
+        modifyTime: expect.any(Number),
       })
     );
   });
@@ -245,9 +305,8 @@ describe('CronService', () => {
     );
   });
 
-  it('addJob throws when conversation already has a scheduled job', async () => {
-    const existing = makeJob({ name: 'existing-job', id: 'existing-id' });
-    vi.mocked(repo.listByConversation).mockReturnValue([existing]);
+  it('addJob allows multiple scheduled tasks for the same owner conversation', async () => {
+    vi.mocked(repo.listByConversation).mockReturnValue([makeJob({ id: 'existing-id', name: 'existing-job' })]);
 
     await expect(
       service.addJob({
@@ -257,8 +316,14 @@ describe('CronService', () => {
         conversationId: 'conv-1',
         agentType: 'gemini',
         createdBy: 'user',
+        executionMode: 'existing',
       })
-    ).rejects.toThrow();
+    ).resolves.toEqual(
+      expect.objectContaining({
+        name: 'new-job',
+        metadata: expect.objectContaining({ conversationId: 'conv-1' }),
+      })
+    );
   });
 
   // --- updateJob ---
@@ -294,6 +359,65 @@ describe('CronService', () => {
     await service.removeJob('job-1');
 
     expect(deleteCronSkillFile).toHaveBeenCalledWith('job-1');
+  });
+
+  it('removeJob keeps run conversations and only clears their cron markers', async () => {
+    const job = makeJob({
+      id: 'job-keep-history',
+      target: {
+        payload: { kind: 'message', text: 'hello' },
+        executionMode: 'new_conversation',
+      },
+    });
+    vi.mocked(repo.getById).mockResolvedValue(job);
+    vi.mocked(conversationRepo.getConversation).mockResolvedValue({
+      id: 'conv-1',
+      extra: {},
+      source: 'aionui',
+    } as Awaited<ReturnType<IConversationRepository['getConversation']>>);
+    vi.mocked(conversationRepo.getConversationsByCronJob).mockResolvedValue([
+      {
+        id: 'child-conv-1',
+        extra: { cronJobId: 'job-keep-history' },
+        source: 'aionui',
+      } as Awaited<ReturnType<IConversationRepository['getConversationsByCronJob']>>[number],
+    ]);
+
+    await service.removeJob('job-keep-history');
+
+    expect(conversationRepo.deleteConversation).not.toHaveBeenCalled();
+    expect(conversationRepo.updateConversation).toHaveBeenCalledWith(
+      'child-conv-1',
+      expect.objectContaining({
+        extra: {},
+      })
+    );
+    expect(repo.delete).toHaveBeenCalledWith('job-keep-history');
+  });
+
+  it('removeJob keeps the owner conversation and removes its legacy cron marker', async () => {
+    const job = makeJob({ id: 'job-owner-keep', metadata: { ...makeJob().metadata, conversationId: 'owner-conv-1' } });
+    vi.mocked(repo.getById).mockResolvedValue(job);
+    vi.mocked(conversationRepo.getConversation).mockResolvedValue({
+      id: 'owner-conv-1',
+      extra: { cronJobId: 'job-owner-keep', workspace: '/tmp/workspace', customWorkspace: true },
+      source: 'aionui',
+    } as Awaited<ReturnType<IConversationRepository['getConversation']>>);
+    vi.mocked(conversationRepo.getConversationsByCronJob).mockResolvedValue([]);
+
+    await service.removeJob('job-owner-keep');
+
+    expect(conversationRepo.deleteConversation).not.toHaveBeenCalled();
+    expect(conversationRepo.updateConversation).toHaveBeenCalledWith(
+      'owner-conv-1',
+      expect.objectContaining({
+        extra: {
+          workspace: '/tmp/workspace',
+          customWorkspace: true,
+        },
+      })
+    );
+    expect(repo.delete).toHaveBeenCalledWith('job-owner-keep');
   });
 
   // --- executeJob (via startTimer interval) ---

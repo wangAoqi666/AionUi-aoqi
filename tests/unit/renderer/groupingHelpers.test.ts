@@ -7,6 +7,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TChatConversation } from '@/common/config/storage';
 import {
+  TEMP_AGENT_SPACE_ID,
+  buildAgentSpaces,
   buildGroupedHistory,
   getConversationPinnedAt,
   isCronJobConversation,
@@ -362,6 +364,115 @@ describe('groupConversationsByWorkspace', () => {
     expect(result[0].items).toHaveLength(2);
     expect(result[0].items[0].type).toBe('conversation');
     expect(result[0].items[1].type).toBe('conversation');
+  });
+});
+
+describe('buildAgentSpaces', () => {
+  it('groups non-custom conversations into a shared temp space and custom workspaces into folder spaces', () => {
+    const conversations: TChatConversation[] = [
+      {
+        id: 'temp-1',
+        title: 'Temp 1',
+        createdAt: 1000,
+        updatedAt: 1000,
+        extra: { workspace: '/tmp/claude-temp-1000', customWorkspace: false },
+        userMsgCount: 0,
+      },
+      {
+        id: 'folder-1',
+        title: 'Folder 1',
+        createdAt: 3000,
+        updatedAt: 3000,
+        extra: { workspace: '/path/project-a', customWorkspace: true },
+        userMsgCount: 0,
+      },
+      {
+        id: 'folder-2',
+        title: 'Folder 2',
+        createdAt: 2000,
+        updatedAt: 2000,
+        extra: { workspace: '/path/project-a', customWorkspace: true },
+        userMsgCount: 0,
+      },
+    ];
+
+    const spaces = buildAgentSpaces(conversations, [], mockT);
+
+    expect(spaces[0]?.id).toBe(TEMP_AGENT_SPACE_ID);
+    expect(spaces[0]?.conversations.map((conversation) => conversation.id)).toEqual(['temp-1']);
+    expect(spaces[1]?.workspacePath).toBe('/path/project-a');
+    expect(spaces[1]?.conversations.map((conversation) => conversation.id)).toEqual(['folder-1', 'folder-2']);
+  });
+
+  it('keeps explicitly opened folders even when they do not have conversations yet', () => {
+    const spaces = buildAgentSpaces([], ['/path/project-b'], mockT);
+
+    expect(spaces).toHaveLength(2);
+    expect(spaces[0]?.id).toBe(TEMP_AGENT_SPACE_ID);
+    expect(spaces[1]?.workspacePath).toBe('/path/project-b');
+    expect(spaces[1]?.conversations).toHaveLength(0);
+  });
+
+  it('uses custom folder display names without changing workspace paths', () => {
+    const spaces = buildAgentSpaces([], ['/path/project-b'], mockT, {
+      '/path/project-b': '合同智能体',
+    });
+
+    expect(spaces[1]?.displayName).toBe('合同智能体');
+    expect(spaces[1]?.workspacePath).toBe('/path/project-b');
+  });
+
+  it('hides non-pinned cron conversations from spaces while preserving pinned ones', () => {
+    const conversations: TChatConversation[] = [
+      {
+        id: 'temp-normal',
+        title: 'Temp normal',
+        createdAt: 1000,
+        updatedAt: 1000,
+        extra: {},
+        userMsgCount: 0,
+      },
+      {
+        id: 'temp-cron',
+        title: 'Temp cron',
+        createdAt: 2000,
+        updatedAt: 2000,
+        extra: { cronJobId: 'job-temp' },
+        userMsgCount: 0,
+      },
+      {
+        id: 'temp-pinned-cron',
+        title: 'Temp pinned cron',
+        createdAt: 3000,
+        updatedAt: 3000,
+        extra: { cronJobId: 'job-pinned', pinned: true, pinnedAt: 3000 },
+        userMsgCount: 0,
+      },
+      {
+        id: 'folder-normal',
+        title: 'Folder normal',
+        createdAt: 4000,
+        updatedAt: 4000,
+        extra: { workspace: '/path/project-c', customWorkspace: true },
+        userMsgCount: 0,
+      },
+      {
+        id: 'folder-cron',
+        title: 'Folder cron',
+        createdAt: 5000,
+        updatedAt: 5000,
+        extra: { workspace: '/path/project-c', customWorkspace: true, cronJobId: 'job-folder' },
+        userMsgCount: 0,
+      },
+    ];
+
+    const spaces = buildAgentSpaces(conversations, [], mockT);
+
+    expect(spaces[0]?.conversations.map((conversation) => conversation.id)).toEqual([
+      'temp-pinned-cron',
+      'temp-normal',
+    ]);
+    expect(spaces[1]?.conversations.map((conversation) => conversation.id)).toEqual(['folder-normal']);
   });
 });
 

@@ -30,11 +30,14 @@ vi.mock('@/common/utils/presetAssistantResources', () => ({
   loadPresetAssistantResources,
 }));
 
-const { buildPresetAssistantParams } =
-  await import('../../src/renderer/pages/conversation/utils/createConversationParams');
+const getBuildPresetAssistantParams = async () => {
+  const module = await import('../../src/renderer/pages/conversation/utils/createConversationParams');
+  return module.buildPresetAssistantParams;
+};
 
 describe('createConversationParams', () => {
   beforeEach(() => {
+    vi.resetModules();
     loadPresetAssistantResources.mockReset();
     configGet.mockReset();
   });
@@ -56,12 +59,13 @@ describe('createConversationParams', () => {
         enabled: true,
       },
     ]);
+    const buildPresetAssistantParams = await getBuildPresetAssistantParams();
 
     const params = await buildPresetAssistantParams(
       {
         backend: 'custom',
         name: 'Preset Assistant',
-        customAgentId: 'builtin-cowork',
+        customAgentId: 'assistant-cowork',
         isPreset: true,
         presetAgentType: 'gemini',
       },
@@ -71,7 +75,7 @@ describe('createConversationParams', () => {
 
     expect(resolveLocaleKey('tr')).toBe('tr-TR');
     expect(loadPresetAssistantResources).toHaveBeenCalledWith({
-      customAgentId: 'builtin-cowork',
+      customAgentId: 'assistant-cowork',
       localeKey: 'tr-TR',
     });
     expect(params.extra.presetRules).toBe('preset rules');
@@ -85,6 +89,7 @@ describe('createConversationParams', () => {
       skills: '',
       enabledSkills: undefined,
     });
+    const buildPresetAssistantParams = await getBuildPresetAssistantParams();
 
     const params = await buildPresetAssistantParams(
       {
@@ -101,5 +106,31 @@ describe('createConversationParams', () => {
     expect(params.type).toBe('acp');
     expect(params.extra.presetContext).toBe('acp preset rules');
     expect(params.extra.backend).toBe('codebuddy');
+  });
+
+  it('forces builtin preset assistants onto Factory Droid even when stored config is stale', async () => {
+    loadPresetAssistantResources.mockResolvedValue({
+      rules: 'droid preset rules',
+      skills: '',
+      enabledSkills: ['paper-sync'],
+    });
+    const buildPresetAssistantParams = await getBuildPresetAssistantParams();
+
+    const params = await buildPresetAssistantParams(
+      {
+        backend: 'custom',
+        name: 'Factory Droid Assistant',
+        customAgentId: 'builtin-cowork',
+        isPreset: true,
+        presetAgentType: 'gemini',
+      },
+      '/tmp/workspace',
+      'zh'
+    );
+
+    expect(params.type).toBe('acp');
+    expect(params.extra.presetContext).toBe('droid preset rules');
+    expect(params.extra.enabledSkills).toEqual(['paper-sync']);
+    expect(params.extra.backend).toBe('droid');
   });
 });

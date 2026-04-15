@@ -17,6 +17,13 @@ vi.mock('@office-ai/platform', () => ({
       on: vi.fn(),
     })),
   },
+  storage: {
+    buildStorage: vi.fn(() => ({
+      get: vi.fn(),
+      set: vi.fn(),
+      remove: vi.fn(),
+    })),
+  },
 }));
 
 vi.mock('electron', () => ({

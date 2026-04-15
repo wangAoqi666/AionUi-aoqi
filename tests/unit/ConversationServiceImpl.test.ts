@@ -50,6 +50,13 @@ import { ConversationServiceImpl } from '../../src/process/services/Conversation
 import type { CronJob } from '../../src/process/services/cron/CronStore';
 import type { TChatConversation } from '../../src/common/config/storage';
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockCronService.listJobsByConversation.mockResolvedValue([]);
+  mockCronService.removeJob.mockResolvedValue(undefined);
+  mockCronService.updateJob.mockResolvedValue(undefined);
+});
+
 function makeCronJob(overrides?: Partial<CronJob>): CronJob {
   return {
     id: 'job-1',
@@ -99,7 +106,11 @@ describe('ConversationServiceImpl.getConversation', () => {
 });
 
 describe('ConversationServiceImpl.deleteConversation', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCronService.listJobsByConversation.mockResolvedValue([]);
+    mockCronService.removeJob.mockResolvedValue(undefined);
+  });
 
   it('calls repo.deleteConversation', async () => {
     const repo = makeRepo();
@@ -108,14 +119,29 @@ describe('ConversationServiceImpl.deleteConversation', () => {
     expect(repo.deleteConversation).toHaveBeenCalledWith('c1');
   });
 
-  it('delegates directly to repo without cron cleanup', async () => {
+  it('removes owner cron jobs before deleting the conversation', async () => {
     const repo = makeRepo();
+    const job1 = makeCronJob({ id: 'job-1', metadata: { ...makeCronJob().metadata, conversationId: 'conv-1' } });
+    const job2 = makeCronJob({ id: 'job-2', metadata: { ...makeCronJob().metadata, conversationId: 'conv-1' } });
+    mockCronService.listJobsByConversation.mockResolvedValue([job1, job2]);
+
     const svc = new ConversationServiceImpl(repo);
     await svc.deleteConversation('conv-1');
 
-    // deleteConversation only calls repo — cron cleanup is handled at the bridge layer
+    expect(mockCronService.listJobsByConversation).toHaveBeenCalledWith('conv-1');
+    expect(mockCronService.removeJob).toHaveBeenCalledWith('job-1');
+    expect(mockCronService.removeJob).toHaveBeenCalledWith('job-2');
     expect(repo.deleteConversation).toHaveBeenCalledWith('conv-1');
-    expect(mockCronService.listJobsByConversation).not.toHaveBeenCalled();
+  });
+
+  it('deletes non-owner conversations without cron cleanup', async () => {
+    const repo = makeRepo();
+    const svc = new ConversationServiceImpl(repo);
+    await svc.deleteConversation('child-conv-1');
+
+    expect(mockCronService.listJobsByConversation).toHaveBeenCalledWith('child-conv-1');
+    expect(mockCronService.removeJob).not.toHaveBeenCalled();
+    expect(repo.deleteConversation).toHaveBeenCalledWith('child-conv-1');
   });
 });
 

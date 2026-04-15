@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
+import type { TChatConversation } from '@/common/config/storage';
 
 // Hoisted mocks
 const mockNavigate = vi.hoisted(() => vi.fn());
@@ -15,6 +16,9 @@ const mockOnJobUpdated = vi.hoisted(() => vi.fn(() => vi.fn()));
 const mockOnJobRemoved = vi.hoisted(() => vi.fn(() => vi.fn()));
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
 const mockMessageError = vi.hoisted(() => vi.fn());
+const mockLocationState = vi.hoisted(() => ({ search: '' }));
+const mockConversationUpdate = vi.hoisted(() => vi.fn());
+const mockConversationHistory = vi.hoisted(() => vi.fn(() => undefined));
 
 // Mock react-i18next
 vi.mock('react-i18next', () => ({
@@ -58,6 +62,7 @@ vi.mock('react-i18next', () => ({
 // Mock react-router-dom
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
+  useLocation: () => mockLocationState,
 }));
 
 // Mock @icon-park/react
@@ -70,6 +75,10 @@ vi.mock('@icon-park/react', () => ({
 
 vi.mock('@renderer/hooks/context/LayoutContext', () => ({
   useLayoutContext: () => ({ isMobile: false }),
+}));
+
+vi.mock('@renderer/hooks/context/ConversationHistoryContext', () => ({
+  useOptionalConversationHistoryContext: () => mockConversationHistory(),
 }));
 
 vi.mock('@renderer/utils/model/agentLogo', () => ({
@@ -86,6 +95,9 @@ vi.mock('@/common', () => ({
       onJobCreated: { on: (...args: unknown[]) => mockOnJobCreated(...args) },
       onJobUpdated: { on: (...args: unknown[]) => mockOnJobUpdated(...args) },
       onJobRemoved: { on: (...args: unknown[]) => mockOnJobRemoved(...args) },
+    },
+    conversation: {
+      update: { invoke: (...args: unknown[]) => mockConversationUpdate(...args) },
     },
   },
 }));
@@ -226,11 +238,27 @@ const createMockJob = (overrides: Partial<ICronJob> = {}): ICronJob => ({
   ...overrides,
 });
 
+const createMockConversation = (id: string, workspace: string, customWorkspace: boolean): TChatConversation =>
+  ({
+    id,
+    name: `${id}-conversation`,
+    type: 'acp',
+    createTime: Date.now(),
+    modifyTime: Date.now(),
+    extra: {
+      workspace,
+      customWorkspace,
+      backend: 'claude',
+    },
+  }) as TChatConversation;
+
 describe('ScheduledTasksPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLocationState.search = '';
     mockGetKeepAwake.mockResolvedValue(false);
     mockListJobs.mockResolvedValue([]);
+    mockConversationHistory.mockReturnValue(undefined);
   });
 
   it('should render loading state initially', async () => {
@@ -265,6 +293,44 @@ describe('ScheduledTasksPage', () => {
       expect(screen.getByText('Daily Summary')).toBeInTheDocument();
       expect(screen.getByText('Weekly Report')).toBeInTheDocument();
     });
+  });
+
+  it('should filter to temporary-space jobs when space=temp is selected', async () => {
+    mockLocationState.search = '?space=temp';
+    mockConversationHistory.mockReturnValue({
+      conversations: [
+        createMockConversation('temp-conv', '/tmp/workspace', false),
+        createMockConversation('folder-conv', '/project/workspace', true),
+      ],
+    });
+    mockListJobs.mockResolvedValue([
+      createMockJob({
+        id: 'temp-job',
+        name: 'Temporary Space Task',
+        metadata: {
+          ...createMockJob().metadata,
+          conversationId: 'temp-conv',
+        },
+      }),
+      createMockJob({
+        id: 'folder-job',
+        name: 'Folder Space Task',
+        metadata: {
+          ...createMockJob().metadata,
+          conversationId: 'folder-conv',
+        },
+      }),
+    ]);
+
+    const { default: ScheduledTasksPage } = await import('@renderer/pages/cron/ScheduledTasksPage');
+    render(<ScheduledTasksPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Temporary Space Task')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Folder Space Task')).not.toBeInTheDocument();
+    expect(screen.getAllByText('conversation.workspace.temporarySpace').length).toBeGreaterThan(0);
   });
 
   it('should display agent and execution mode metadata in cards', async () => {
@@ -363,13 +429,16 @@ describe('ScheduledTasksPage', () => {
     render(<ScheduledTasksPage />);
 
     await waitFor(() => {
-      const tags = screen.getAllByTestId('tag');
-      expect(tags[0]).toHaveAttribute('data-color', 'green'); // Active
-      expect(tags[0]).toHaveTextContent('Active');
-      expect(tags[1]).toHaveAttribute('data-color', 'gray'); // Paused
-      expect(tags[1]).toHaveTextContent('Paused');
-      expect(tags[2]).toHaveAttribute('data-color', 'red'); // Error
-      expect(tags[2]).toHaveTextContent('Error');
+      const activeTag = screen.getByText('Active').closest('[data-testid="tag"]');
+      const pausedTag = screen.getByText('Paused').closest('[data-testid="tag"]');
+      const errorTag = screen.getByText('Error').closest('[data-testid="tag"]');
+
+      expect(activeTag).toHaveAttribute('data-color', 'green');
+      expect(activeTag).toHaveTextContent('Active');
+      expect(pausedTag).toHaveAttribute('data-color', 'gray');
+      expect(pausedTag).toHaveTextContent('Paused');
+      expect(errorTag).toHaveAttribute('data-color', 'red');
+      expect(errorTag).toHaveTextContent('Error');
     });
   });
 

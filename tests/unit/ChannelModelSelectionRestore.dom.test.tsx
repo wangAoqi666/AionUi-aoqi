@@ -1,21 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, act } from '@testing-library/react';
-
-// Mock window.matchMedia for Arco Design responsive observer
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -33,22 +18,14 @@ vi.mock('@arco-design/web-react', async (importOriginal) => {
   };
 });
 
-vi.mock('@icon-park/react', () => ({
-  CheckOne: () => <span data-testid='check-icon' />,
+const mockLoadChannelInstanceSettings = vi.fn();
+const mockUpdateChannelInstanceSettings = vi.fn();
+
+vi.mock('@/renderer/components/settings/SettingsModal/contents/channels/channelInstanceSettings', () => ({
+  loadChannelInstanceSettings: (...args: unknown[]) => mockLoadChannelInstanceSettings(...args),
+  updateChannelInstanceSettings: (...args: unknown[]) => mockUpdateChannelInstanceSettings(...args),
 }));
 
-// Track ConfigStorage.get call count to verify retry behavior
-const mockConfigStorageGet = vi.fn();
-const mockConfigStorageSet = vi.fn();
-
-vi.mock('@/common/config/storage', () => ({
-  ConfigStorage: {
-    get: (...args: unknown[]) => mockConfigStorageGet(...args),
-    set: (...args: unknown[]) => mockConfigStorageSet(...args),
-  },
-}));
-
-// Control the providers returned by the hook
 let mockProviders: Array<{ id: string; name: string; model: string[]; platform?: string }> = [];
 
 vi.mock('@/renderer/hooks/agent/useModelProviderList', () => ({
@@ -61,7 +38,7 @@ vi.mock('@/renderer/hooks/agent/useModelProviderList', () => ({
 }));
 
 vi.mock('@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection', () => ({
-  useGeminiModelSelection: ({ initialModel }: { initialModel: unknown }) => ({
+  useGeminiModelSelection: ({ initialModel }: { initialModel: { useModel?: string } | undefined }) => ({
     currentModel: initialModel,
     providers: mockProviders,
     geminiModeLookup: new Map(),
@@ -74,100 +51,53 @@ vi.mock('@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection'
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
   channel: {
-    getPluginStatus: { invoke: vi.fn().mockResolvedValue({ success: true, data: [] }) },
-    pluginStatusChanged: { on: vi.fn().mockReturnValue(() => {}) },
-  },
-  webui: {
-    getStatus: { invoke: vi.fn().mockResolvedValue({ success: false }) },
+    syncChannelSettings: { invoke: vi.fn(async () => ({ success: true })) },
   },
 }));
 
-vi.mock('@/renderer/components/base/AionScrollArea', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+import { useChannelInstanceModelSelection } from '@/renderer/components/settings/SettingsModal/contents/channels/useChannelInstanceModelSelection';
 
-vi.mock('../../src/renderer/components/settings/SettingsModal/settingsViewContext', () => ({
-  useSettingsViewMode: () => 'modal',
-}));
+const Probe: React.FC = () => {
+  const selection = useChannelInstanceModelSelection('telegram_default', 'telegram');
+  return <div data-testid='current-model'>{selection.currentModel?.useModel || 'none'}</div>;
+};
 
-vi.mock('../../src/renderer/components/settings/SettingsModal/contents/channels/ChannelItem', () => ({
-  default: ({ channel }: { channel: { id: string; title: string } }) => (
-    <div data-testid={`channel-${channel.id}`}>{channel.title}</div>
-  ),
-}));
-
-vi.mock('../../src/renderer/components/settings/SettingsModal/contents/channels/TelegramConfigForm', () => ({
-  default: () => <div>TelegramForm</div>,
-}));
-vi.mock('../../src/renderer/components/settings/SettingsModal/contents/channels/LarkConfigForm', () => ({
-  default: () => <div>LarkForm</div>,
-}));
-vi.mock('../../src/renderer/components/settings/SettingsModal/contents/channels/DingTalkConfigForm', () => ({
-  default: () => <div>DingTalkForm</div>,
-}));
-vi.mock('../../src/renderer/components/settings/SettingsModal/contents/channels/WeixinConfigForm', () => ({
-  default: () => <div>WeixinForm</div>,
-}));
-
-describe('useChannelModelSelection restore retry limit', () => {
+describe('useChannelInstanceModelSelection restore retry limit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProviders = [];
   });
 
-  it('should stop retrying ConfigStorage.get after MAX_RESTORE_RETRIES when provider is stale', async () => {
-    // Simulate a stale saved model referencing a provider that no longer exists
-    mockConfigStorageGet.mockResolvedValue({ id: 'deleted-provider', useModel: 'some-model' });
-
-    // Providers are loaded but don't include the saved provider
+  it('stops retrying after MAX_RESTORE_RETRIES when the saved provider is stale', async () => {
+    mockLoadChannelInstanceSettings.mockResolvedValue({
+      defaultModel: { id: 'deleted-provider', useModel: 'some-model' },
+    });
     mockProviders = [{ id: 'provider-1', name: 'Provider One', model: ['model-a', 'model-b'] }];
 
-    const { default: ChannelModalContent } =
-      await import('@/renderer/components/settings/SettingsModal/contents/channels/ChannelModalContent');
+    const { rerender } = render(<Probe />);
 
-    await act(async () => {
-      render(<ChannelModalContent />);
-    });
-
-    // The hook runs for 4 channels (telegram, lark, dingtalk, weixin).
-    // Initial render triggers the first attempt for each channel.
-    // The saved provider 'deleted-provider' won't be found in mockProviders.
-    const initialCallCount = mockConfigStorageGet.mock.calls.length;
-    expect(initialCallCount).toBeGreaterThan(0);
-
-    // Simulate multiple SWR revalidations by triggering re-renders with
-    // the same providers reference (effects re-run on providers change).
-    // Each re-render should increment the retry count until the limit is hit.
-    for (let i = 0; i < 10; i++) {
-      // Create a new providers array reference to trigger the useEffect
+    for (let index = 0; index < 10; index += 1) {
       mockProviders = [{ id: 'provider-1', name: 'Provider One', model: ['model-a', 'model-b'] }];
       await act(async () => {
-        // Force re-render by triggering state updates
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        rerender(<Probe />);
       });
     }
 
-    // After MAX_RESTORE_RETRIES (5), the effect should stop calling ConfigStorage.get.
-    // With 4 channels × at most 5 retries each = at most 20 calls.
-    // Without the fix, this would be 4 × 10+ = 40+ calls.
-    const totalCalls = mockConfigStorageGet.mock.calls.length;
-    expect(totalCalls).toBeLessThanOrEqual(4 * 5);
+    expect(mockLoadChannelInstanceSettings.mock.calls.length).toBeLessThanOrEqual(5);
+    expect(screen.getByTestId('current-model').textContent).toBe('none');
   });
 
-  it('should restore successfully when provider exists', async () => {
-    mockConfigStorageGet.mockResolvedValue({ id: 'provider-1', useModel: 'model-a' });
-
+  it('restores the saved model when the provider exists', async () => {
+    mockLoadChannelInstanceSettings.mockResolvedValue({
+      defaultModel: { id: 'provider-1', useModel: 'model-a' },
+    });
     mockProviders = [{ id: 'provider-1', name: 'Provider One', model: ['model-a', 'model-b'] }];
 
-    const { default: ChannelModalContent } =
-      await import('@/renderer/components/settings/SettingsModal/contents/channels/ChannelModalContent');
+    render(<Probe />);
 
-    await act(async () => {
-      render(<ChannelModalContent />);
+    await waitFor(() => {
+      expect(screen.getByTestId('current-model').textContent).toBe('model-a');
     });
-
-    // Each of the 4 channels should call ConfigStorage.get exactly once
-    // (restored=true after finding the provider, so no retries)
-    expect(mockConfigStorageGet).toHaveBeenCalledTimes(4);
+    expect(mockLoadChannelInstanceSettings).toHaveBeenCalledTimes(1);
   });
 });

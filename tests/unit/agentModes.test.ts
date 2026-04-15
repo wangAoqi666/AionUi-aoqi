@@ -35,6 +35,19 @@ describe('AGENT_MODES.claude', () => {
   });
 });
 
+describe('AGENT_MODES.droid', () => {
+  const droidModes = AGENT_MODES.droid;
+
+  it('includes SPEC mode for Factory Droid', () => {
+    const values = droidModes.map((mode) => mode.value);
+    expect(values).toEqual(['default', 'spec', 'acceptEdits', 'auto', 'yolo']);
+  });
+
+  it('uses SPEC as the visible label', () => {
+    expect(droidModes.find((mode) => mode.value === 'spec')?.label).toBe('SPEC');
+  });
+});
+
 describe('getAgentModes', () => {
   it('returns claude modes for "claude" backend', () => {
     const modes = getAgentModes('claude');

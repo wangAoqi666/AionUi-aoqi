@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import os from 'os';
 import path from 'path';
+import { AGENT_FACTORY_SERVER_DIR, getDefaultLogDir } from '../../../src/common/config/appPathConfig';
 
 describe('NodePlatformServices.paths', () => {
   beforeEach(() => {
@@ -16,9 +17,9 @@ describe('NodePlatformServices.paths', () => {
     expect(new NodePlatformServices().paths.getDataDir()).toBe('/custom/data');
   });
 
-  it('getDataDir falls back to homedir/.aionui-server', async () => {
+  it('getDataDir falls back to homedir/.agent-factory-server', async () => {
     const { NodePlatformServices } = await import('../../../src/common/platform/NodePlatformServices');
-    expect(new NodePlatformServices().paths.getDataDir()).toBe(path.join(os.homedir(), '.aionui-server'));
+    expect(new NodePlatformServices().paths.getDataDir()).toBe(path.join(os.homedir(), AGENT_FACTORY_SERVER_DIR));
   });
 
   it('getLogsDir uses LOGS_DIR env var when set', async () => {
@@ -27,9 +28,9 @@ describe('NodePlatformServices.paths', () => {
     expect(new NodePlatformServices().paths.getLogsDir()).toBe('/custom/logs');
   });
 
-  it('getLogsDir falls back to homedir/.aionui-server/logs', async () => {
+  it('getLogsDir falls back to the platform default log directory', async () => {
     const { NodePlatformServices } = await import('../../../src/common/platform/NodePlatformServices');
-    expect(new NodePlatformServices().paths.getLogsDir()).toBe(path.join(os.homedir(), '.aionui-server', 'logs'));
+    expect(new NodePlatformServices().paths.getLogsDir()).toBe(getDefaultLogDir(os.homedir(), false));
   });
 
   it('getAppPath returns process.cwd()', async () => {

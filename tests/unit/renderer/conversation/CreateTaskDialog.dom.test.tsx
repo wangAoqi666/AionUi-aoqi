@@ -6,9 +6,16 @@ import type { ICronJob } from '@/common/adapter/ipcBridge';
 // Mock react-i18next
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: Record<string, string>) => {
+    t: (key: string, options?: Record<string, string | number>) => {
       if (key === 'cron.page.scheduleDesc.manual') return 'Manual';
+      if (key === 'cron.page.scheduleDesc.everyMinute') return 'Every minute';
+      if (key === 'cron.page.scheduleDesc.everyMinutes') return `Every ${options?.count} minutes`;
       if (key === 'cron.page.scheduleDesc.hourly') return 'Every hour';
+      if (key === 'cron.page.scheduleDesc.hourlyAtMinute') return `Every hour at minute ${options?.minute}`;
+      if (key === 'cron.page.scheduleDesc.everyHoursAtMinute') {
+        return `Every ${options?.count} hours at minute ${options?.minute}`;
+      }
+      if (key === 'cron.page.scheduleDesc.customCron') return `Custom cron: ${options?.expr}`;
       if (key === 'cron.page.scheduleDesc.dailyAt') return `Daily at ${options?.time}`;
       if (key === 'cron.page.scheduleDesc.weekdaysAt') return `Weekdays at ${options?.time}`;
       if (key === 'cron.page.scheduleDesc.weeklyAt') return `Weekly on ${options?.day} at ${options?.time}`;
@@ -29,6 +36,9 @@ vi.mock('react-i18next', () => ({
       }
       return key;
     },
+    i18n: {
+      language: 'en-US',
+    },
   }),
 }));
 
@@ -40,6 +50,52 @@ vi.mock('@icon-park/react', () => ({
 // Mock ipcBridge
 const mockAddJob = vi.fn();
 const mockUpdateJob = vi.fn();
+const mockConversationCreate = vi.fn();
+const mockFormValidate = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    name: 'Test Task',
+    description: 'Test Description',
+    prompt: 'Test Prompt',
+    agent: 'cli:claude',
+  })
+);
+const mockFormSetFieldsValue = vi.hoisted(() => vi.fn());
+const mockFormResetFields = vi.hoisted(() => vi.fn());
+const mockFormInstance = vi.hoisted(() => ({
+  setFieldsValue: mockFormSetFieldsValue,
+  resetFields: mockFormResetFields,
+  validate: mockFormValidate,
+}));
+const mockCliAgents = vi.hoisted(() => [
+  { backend: 'droid', name: 'Factory Droid', cliPath: '/usr/bin/droid' },
+  { backend: 'claude', name: 'Claude', cliPath: '/usr/bin/claude' },
+  { backend: 'openai', name: 'OpenAI', cliPath: '/usr/bin/openai' },
+]);
+const mockPresetAssistants = vi.hoisted(() => [
+  {
+    customAgentId: 'assistant-1',
+    name: 'Assistant 1',
+    backend: 'claude',
+    presetAgentType: 'custom',
+    avatar: '🤖',
+  },
+]);
+const mockConversationHistory = vi.hoisted(() => ({
+  conversations: [
+    {
+      id: 'conv-1',
+      name: 'Owner Conversation',
+      type: 'acp',
+      createTime: 0,
+      modifyTime: 0,
+      extra: {
+        workspace: '/work/project-a',
+        customWorkspace: true,
+        backend: 'droid',
+      },
+    },
+  ],
+}));
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -47,11 +103,28 @@ vi.mock('@/common', () => ({
       addJob: { invoke: (...args: unknown[]) => mockAddJob(...args) },
       updateJob: { invoke: (...args: unknown[]) => mockUpdateJob(...args) },
     },
+    conversation: {
+      create: { invoke: (...args: unknown[]) => mockConversationCreate(...args) },
+    },
+    dialog: {
+      showOpen: { invoke: vi.fn() },
+    },
   },
 }));
 
 // Mock Arco Design components
 vi.mock('@arco-design/web-react', () => ({
+  Button: ({
+    children,
+    onClick,
+    disabled,
+    type: _type,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { type?: string }) => (
+    <button onClick={onClick} disabled={disabled} {...props}>
+      {children}
+    </button>
+  ),
   Form: Object.assign(
     ({ children, form: _form }: { children: React.ReactNode; form?: unknown; layout?: string }) => (
       <form data-testid='mock-form'>{children}</form>
@@ -63,18 +136,7 @@ vi.mock('@arco-design/web-react', () => ({
           {children}
         </div>
       ),
-      useForm: () => [
-        {
-          setFieldsValue: vi.fn(),
-          resetFields: vi.fn(),
-          validate: vi.fn().mockResolvedValue({
-            name: 'Test Task',
-            description: 'Test Description',
-            prompt: 'Test Prompt',
-            agent: 'cli:claude',
-          }),
-        },
-      ],
+      useForm: () => [mockFormInstance],
     }
   ),
   Input: Object.assign(
@@ -82,7 +144,11 @@ vi.mock('@arco-design/web-react', () => ({
       <input placeholder={placeholder} {...props} />
     ),
     {
-      TextArea: ({ placeholder, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
+      TextArea: ({
+        placeholder,
+        autoSize: _autoSize,
+        ...props
+      }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { autoSize?: boolean | { minRows?: number } }) => (
         <textarea placeholder={placeholder} {...props} />
       ),
     }
@@ -93,16 +159,18 @@ vi.mock('@arco-design/web-react', () => ({
       onChange,
       children,
       placeholder,
+      'data-testid': testId,
     }: {
       value?: string;
       onChange?: (value: string) => void;
       children?: React.ReactNode;
       placeholder?: string;
+      'data-testid'?: string;
     }) => (
       <select
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
-        data-testid='mock-select'
+        data-testid={testId ?? 'mock-select'}
         aria-label={placeholder}
       >
         {children}
@@ -174,6 +242,11 @@ vi.mock('@arco-design/web-react', () => ({
   ),
 }));
 
+vi.mock('@renderer/components/settings/DirectorySelectionModal', () => ({
+  default: ({ visible }: { visible: boolean }) =>
+    visible ? <div data-testid='directory-selection-modal'>Directory Selection</div> : null,
+}));
+
 // Mock ModalWrapper
 vi.mock('@renderer/components/base/ModalWrapper', () => ({
   default: ({
@@ -203,21 +276,13 @@ vi.mock('@renderer/components/base/ModalWrapper', () => ({
 // Mock hooks
 vi.mock('@renderer/pages/conversation/hooks/useConversationAgents', () => ({
   useConversationAgents: () => ({
-    cliAgents: [
-      { backend: 'droid', name: 'Factory Droid', cliPath: '/usr/bin/droid' },
-      { backend: 'claude', name: 'Claude', cliPath: '/usr/bin/claude' },
-      { backend: 'openai', name: 'OpenAI', cliPath: '/usr/bin/openai' },
-    ],
-    presetAssistants: [
-      {
-        customAgentId: 'assistant-1',
-        name: 'Assistant 1',
-        backend: 'claude',
-        presetAgentType: 'custom',
-        avatar: '🤖',
-      },
-    ],
+    cliAgents: mockCliAgents,
+    presetAssistants: mockPresetAssistants,
   }),
+}));
+
+vi.mock('@renderer/hooks/context/ConversationHistoryContext', () => ({
+  useOptionalConversationHistoryContext: () => mockConversationHistory,
 }));
 
 // Mock utils
@@ -277,16 +342,7 @@ describe('CreateTaskDialog - parseCronExpr utility', () => {
     // Trigger the useEffect by setting visible=true
     rerender(<CreateTaskDialog visible={true} onClose={vi.fn()} editJob={editJob} conversationId='conv-1' />);
 
-    // Since we cannot directly test parseCronExpr (not exported), we verify the component behavior
-    // The component should detect hourly frequency from "0 * * * *"
-    // We can check the select element for frequency
-    const frequencySelects = screen.getAllByTestId('mock-select');
-    const frequencySelect = frequencySelects.find((el) => {
-      const options = Array.from(el.querySelectorAll('option')).map((opt) => opt.textContent);
-      return options.includes('cron.page.freq.hourly');
-    });
-
-    expect(frequencySelect).toBeDefined();
+    expect(screen.getByTestId('cron-frequency-select')).toBeInTheDocument();
   });
 
   it('parses daily cron expression (30 9 * * *)', () => {
@@ -545,6 +601,12 @@ describe('CreateTaskDialog - getAgentKeyFromJob utility', () => {
 describe('CreateTaskDialog - schedule preset definitions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFormValidate.mockResolvedValue({
+      name: 'Test Task',
+      description: 'Test Description',
+      prompt: 'Test Prompt',
+      agent: 'cli:claude',
+    });
   });
 
   it('shows the existing-conversation explanation for tasks that keep running in one thread', () => {
@@ -597,6 +659,53 @@ describe('CreateTaskDialog - schedule preset definitions', () => {
     const callArgs = mockAddJob.mock.calls[0][0];
     expect(callArgs.schedule.expr).toBe('');
     expect(callArgs.schedule.description).toContain('Manual');
+  });
+
+  it('generates correct cron expression for every-minute frequency', async () => {
+    const onClose = vi.fn();
+    mockAddJob.mockResolvedValue(undefined);
+
+    render(<CreateTaskDialog visible={true} onClose={onClose} conversationId='conv-1' />);
+
+    fireEvent.change(screen.getByTestId('cron-frequency-select'), { target: { value: 'everyMinute' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('cron.page.form.schedulePreview')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('modal-ok'));
+
+    await waitFor(() => {
+      expect(mockAddJob).toHaveBeenCalled();
+    });
+
+    const callArgs = mockAddJob.mock.calls[0][0];
+    expect(callArgs.schedule.expr).toBe('* * * * *');
+    expect(callArgs.schedule.description).toContain('Every minute');
+  });
+
+  it('generates correct cron expression for advanced minute intervals', async () => {
+    const onClose = vi.fn();
+    mockAddJob.mockResolvedValue(undefined);
+
+    render(<CreateTaskDialog visible={true} onClose={onClose} conversationId='conv-1' />);
+
+    fireEvent.change(screen.getByTestId('cron-frequency-select'), { target: { value: 'advanced' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cron-minute-interval-input')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId('cron-minute-interval-input'), { target: { value: '15' } });
+    fireEvent.click(screen.getByTestId('modal-ok'));
+
+    await waitFor(() => {
+      expect(mockAddJob).toHaveBeenCalled();
+    });
+
+    const callArgs = mockAddJob.mock.calls[0][0];
+    expect(callArgs.schedule.expr).toBe('*/15 * * * *');
+    expect(callArgs.schedule.description).toContain('15');
   });
 
   // Test schedule preset definitions by verifying edit mode correctly reconstructs them
@@ -777,6 +886,12 @@ describe('CreateTaskDialog - schedule preset definitions', () => {
 describe('CreateTaskDialog - component behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFormValidate.mockResolvedValue({
+      name: 'Test Task',
+      description: 'Test Description',
+      prompt: 'Test Prompt',
+      agent: 'cli:claude',
+    });
   });
 
   it('shows a locked Factory Droid card instead of an agent selector for new tasks', () => {
@@ -852,6 +967,7 @@ describe('CreateTaskDialog - component behavior', () => {
     });
 
     expect(mockAddJob.mock.calls[0][0].agentType).toBe('droid');
+    expect(mockAddJob.mock.calls[0][0].conversationId).toBe('conv-1');
     expect(onClose).toHaveBeenCalled();
   });
 

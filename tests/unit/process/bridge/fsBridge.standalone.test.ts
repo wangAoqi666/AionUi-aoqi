@@ -18,6 +18,11 @@ vi.mock('@office-ai/platform', () => ({
 vi.mock('@process/utils/initStorage', () => ({
   getSkillsDir: () => '/mock/skills',
   getBuiltinSkillsDir: () => '/mock/skills/_builtin',
+  getBuiltinSkillsCopyDir: () => '/mock/skills/_builtin',
+  getFactoryRootDir: () => '/mock/.factory',
+  getFactoryRulesDir: () => '/mock/.factory/rules',
+  getFactoryMemoriesFile: () => '/mock/.factory/memories.md',
+  getFactoryAgentsFile: () => '/mock/.factory/AGENTS.md',
   getSystemDir: () => ({
     workDir: '/mock/work',
     cacheDir: '/mock/cache',
@@ -42,6 +47,8 @@ vi.mock('@/common', () => ({
       createZip: { provider: vi.fn() },
       cancelZip: { provider: vi.fn() },
       getFileMetadata: { provider: vi.fn() },
+      getFactoryGlobalPaths: { provider: vi.fn() },
+      listFactoryRuleFiles: { provider: vi.fn() },
       copyFilesToWorkspace: { provider: vi.fn() },
       removeEntry: { provider: vi.fn() },
       renameEntry: { provider: vi.fn() },

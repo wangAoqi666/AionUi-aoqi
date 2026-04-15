@@ -115,3 +115,100 @@ describeOrSkip('migration v20: lead_agent_id, mailbox, team_tasks', () => {
     expect(taskTables).toHaveLength(0);
   });
 });
+
+describeOrSkip('migration v23: plugin-scoped channel data', () => {
+  let driver: BetterSqlite3Driver;
+
+  beforeEach(() => {
+    driver = new BetterSqlite3Driver(':memory:');
+    initSchema(driver);
+    runMigrations(driver, 0, 22);
+  });
+
+  afterEach(() => {
+    driver.close();
+  });
+
+  it('adds plugin instance columns and backfills legacy channel rows', () => {
+    const now = Date.now();
+
+    driver
+      .prepare(
+        `INSERT INTO users (id, username, email, password_hash, avatar_path, jwt_secret, created_at, updated_at, last_login)
+         VALUES (?, ?, NULL, ?, NULL, NULL, ?, ?, NULL)`
+      )
+      .run('user-1', 'user-1', 'hash', now, now);
+
+    driver
+      .prepare(
+        `INSERT INTO conversations (id, user_id, name, type, extra, model, status, source, channel_chat_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`
+      )
+      .run('conv-1', 'user-1', 'WeChat chat', 'acp', '{}', 'finished', 'weixin', 'chat-1', now, now);
+
+    driver
+      .prepare(
+        `INSERT INTO assistant_users (id, platform_user_id, platform_type, display_name, authorized_at, last_active, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`
+      )
+      .run('assistant-user-1', 'wx-user-1', 'weixin', 'Tester', now, now);
+
+    driver
+      .prepare(
+        `INSERT INTO assistant_sessions (id, user_id, agent_type, conversation_id, workspace, chat_id, created_at, last_activity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('assistant-session-1', 'assistant-user-1', 'acp', 'conv-1', '/tmp/workspace', 'chat-1', now, now);
+
+    driver
+      .prepare(
+        `INSERT INTO assistant_pairing_codes (code, platform_user_id, platform_type, display_name, requested_at, expires_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('123456', 'wx-user-1', 'weixin', 'Tester', now, now + 60_000, 'pending');
+
+    runMigrations(driver, 22, 23);
+
+    const assistantUserColumns = (driver.pragma('table_info(assistant_users)') as Array<{ name: string }>).map(
+      (column) => column.name
+    );
+    const assistantSessionColumns = (driver.pragma('table_info(assistant_sessions)') as Array<{ name: string }>).map(
+      (column) => column.name
+    );
+    const pairingColumns = (driver.pragma('table_info(assistant_pairing_codes)') as Array<{ name: string }>).map(
+      (column) => column.name
+    );
+    const conversationColumns = (driver.pragma('table_info(conversations)') as Array<{ name: string }>).map(
+      (column) => column.name
+    );
+
+    expect(assistantUserColumns).toContain('plugin_id');
+    expect(assistantSessionColumns).toContain('plugin_id');
+    expect(pairingColumns).toContain('plugin_id');
+    expect(conversationColumns).toContain('channel_plugin_id');
+
+    const assistantUser = driver
+      .prepare('SELECT plugin_id FROM assistant_users WHERE id = ?')
+      .get('assistant-user-1') as {
+      plugin_id: string;
+    };
+    const assistantSession = driver
+      .prepare('SELECT plugin_id FROM assistant_sessions WHERE id = ?')
+      .get('assistant-session-1') as {
+      plugin_id: string;
+    };
+    const pairingRequest = driver
+      .prepare('SELECT plugin_id FROM assistant_pairing_codes WHERE code = ?')
+      .get('123456') as {
+      plugin_id: string;
+    };
+    const conversation = driver.prepare('SELECT channel_plugin_id FROM conversations WHERE id = ?').get('conv-1') as {
+      channel_plugin_id: string;
+    };
+
+    expect(assistantUser.plugin_id).toBe('weixin_default');
+    expect(assistantSession.plugin_id).toBe('weixin_default');
+    expect(pairingRequest.plugin_id).toBe('weixin_default');
+    expect(conversation.channel_plugin_id).toBe('weixin_default');
+  });
+});

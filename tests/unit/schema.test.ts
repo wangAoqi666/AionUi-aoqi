@@ -6,7 +6,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ISqliteDriver } from '../../src/process/services/database/drivers/ISqliteDriver';
-import { initSchema } from '../../src/process/services/database/schema';
+import { ALL_MIGRATIONS } from '../../src/process/services/database/migrations';
+import { CURRENT_DB_VERSION, initSchema } from '../../src/process/services/database/schema';
 
 function createMockDriver(): ISqliteDriver & { pragma: ReturnType<typeof vi.fn>; exec: ReturnType<typeof vi.fn> } {
   return {
@@ -61,5 +62,10 @@ describe('initSchema', () => {
 
     expect(() => initSchema(driver)).not.toThrow();
     expect(driver.exec).toHaveBeenCalled();
+  });
+
+  it('keeps CURRENT_DB_VERSION in sync with the latest migration', () => {
+    const latestMigrationVersion = Math.max(...ALL_MIGRATIONS.map((migration) => migration.version));
+    expect(CURRENT_DB_VERSION).toBe(latestMigrationVersion);
   });
 });

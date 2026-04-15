@@ -23,6 +23,7 @@ function makeChannel(name: string) {
 vi.mock('../../src/common/adapter/ipcBridge', () => ({
   channel: {
     getPluginStatus: makeChannel('getPluginStatus'),
+    createPluginInstance: makeChannel('createPluginInstance'),
     enablePlugin: makeChannel('enablePlugin'),
     disablePlugin: makeChannel('disablePlugin'),
     testPlugin: makeChannel('testPlugin'),
@@ -38,6 +39,7 @@ vi.mock('../../src/common/adapter/ipcBridge', () => ({
 
 vi.mock('@process/channels/core/ChannelManager', () => ({
   getChannelManager: vi.fn(() => ({
+    createPluginInstance: vi.fn(async () => ({ success: true, pluginId: 'telegram_test' })),
     enablePlugin: vi.fn(async () => ({ success: true })),
     disablePlugin: vi.fn(async () => ({ success: true })),
     testPlugin: vi.fn(async () => ({ success: true })),

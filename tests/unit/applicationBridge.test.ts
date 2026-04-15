@@ -225,6 +225,7 @@ describe('CDP configuration functions', () => {
     vi.doMock('../../src/common', () => ({
       ipcBridge: {
         application: {
+          getVersion: { provider: vi.fn(), emit: vi.fn(), invoke: vi.fn() },
           restart: {
             provider: vi.fn((fn: (...args: any[]) => any) => {
               capturedHandlers['restart'] = fn;
