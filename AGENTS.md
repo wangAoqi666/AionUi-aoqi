@@ -16,17 +16,17 @@
 
 本仓库配备专属智能助手，通过以下文件实现持久化协作：
 
-| 文件                 | 用途                                 |
-| -------------------- | ------------------------------------ |
-| `.factory/RULES.md`  | 长期有效的执行规则，所有任务必须遵守 |
-| `.factory/MEMORY.md` | 长期保留的偏好、背景和上下文信息     |
+| 文件                        | 用途                                 |
+| --------------------------- | ------------------------------------ |
+| `.factory/rules/project.md` | 长期有效的执行规则，所有任务必须遵守 |
+| `.factory/memories.md`      | 长期保留的偏好、背景和上下文信息     |
 
 ### 工作流程
 
-1. **任务开始前**：读取 `.factory/RULES.md` 和 `.factory/MEMORY.md`，加载规则与上下文
-2. **执行任务时**：优先遵循 `RULES.md` 中的规则，结合 `MEMORY.md` 中的背景信息
-3. **用户说"记住这个规矩"**：将新规则追加到 `.factory/RULES.md`
-4. **用户说"记住这点"**：将新记忆追加到 `.factory/MEMORY.md`
+1. **任务开始前**：读取 `.factory/rules/project.md` 和 `.factory/memories.md`，加载规则与上下文
+2. **执行任务时**：优先遵循 `.factory/rules/project.md` 中的规则，结合 `.factory/memories.md` 中的背景信息
+3. **用户说"记住这个规矩"**：将新规则追加到 `.factory/rules/project.md`
+4. **用户说"记住这点"**：将新记忆追加到 `.factory/memories.md`
 
 ---
 
