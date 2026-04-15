@@ -203,5 +203,14 @@ resources/hub
 dist-server/
 .omc/
 .superset/
+
+# Playwright MCP session data
+.playwright-mcp/
+
+# Local build artifacts
+package/local-artifacts/
+
+# Temporary image assets
+agent-factory-home-logo-check.png
 .claude/teams/
 iterations/
