@@ -199,3 +199,44 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+================================================================================
+
+                        二次开发合规声明 (Derivative Work Notice)
+
+本项目（Agent Factory / 智能体工厂）是基于上游项目 AionUi（iOfficeAI/AionUi）
+进行二次开发的衍生作品（Derivative Work），上游项目同样以 Apache License 2.0
+授权发布。
+
+依据 Apache License 2.0 第 4 条（Redistribution）的要求，本项目声明如下：
+
+1. 原始授权与归属
+   - 上游原始作品（Original Work）的版权归属上游作者（iOfficeAI）所有。
+   - 本项目保留并完整附带上游项目的原始许可证文本及版权声明。
+   - 上游项目的商标、服务标记及产品名称（如 "AionUi"）归原权利人所有，
+     本项目的使用仅限于合理且惯常的归属描述，不构成商标授权。
+
+2. 变更声明（Modified Files Notice）
+   - 本项目对上游代码进行了大量修改、重构及新增，涉及但不限于：
+     · 品牌重塑：将用户可见品牌从 "AionUi" 更名为 "智能体工厂 / Agent Factory"
+     · Agent 后端集成：接入 @factory/droid-sdk，新增 Droid CLI 运行时调度、
+       BYOK 密钥管理、渠道实例运行时等功能
+     · 前端重构：消息渲染、设置页面、渠道配置、定时任务等模块全面升级
+     · 构建流程：新增 Droid CLI 打包、CI/CD 流水线优化等
+   - 所有修改过的文件均可在版本控制系统（Git）的提交历史中追溯，
+     符合 Apache 2.0 第 4(b) 条"在修改文件中注明变更"的要求。
+
+3. 新增内容
+   - 本项目新增的代码、文档及资源（非衍生自上游的部分）由
+     河南傲启智能科技（Henan Aoqi Intelligence Technology）创作，
+     同样以 Apache License 2.0 授权发布。
+
+4. NOTICE 文件
+   - 如上游项目附带 NOTICE 文件，其归属声明已在本项目仓库中保留；
+     本项目额外添加的归属声明不构成对许可证的修改。
+
+5. 合规总结
+   - 本项目完整保留上游 Apache 2.0 许可证文本 ✓
+   - 本项目在修改文件中通过 Git 历史记录变更 ✓
+   - 本项目保留上游版权、专利、商标及归属声明 ✓
+   - 本项目新增内容同样以 Apache 2.0 授权 ✓
