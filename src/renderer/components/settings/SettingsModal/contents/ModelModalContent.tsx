@@ -144,12 +144,17 @@ const matchesManagedByokModel = (
   model: FactoryModel | FactoryDroidCustomDisplayModel,
   config: IDroidByokModelConfig
 ): boolean => {
-  return (
-    model.isCustom === true &&
-    model.modelProvider === config.provider &&
-    model.name === config.displayName &&
-    (model.sourceModelId === config.model || model.id === config.model)
-  );
+  if (model.isCustom !== true) return false;
+  if (model.modelProvider !== config.provider) return false;
+  if (model.name !== config.displayName) return false;
+  // Factory BYOK 条目 id 统一以 "custom:" 开头 (见 https://docs.factory.ai/cli/byok/overview.md):
+  // droid CLI 常不回填 sourceModelId, 此时 name+provider 已能唯一识别同一 BYOK 配置.
+  if (typeof model.id === 'string' && model.id.startsWith('custom:')) {
+    if (model.sourceModelId && model.sourceModelId !== config.model) return false;
+    return true;
+  }
+  // 非 custom: 前缀的 isCustom 条目走旧逻辑 (保底兼容)
+  return model.sourceModelId === config.model || model.id === config.model;
 };
 
 const resolveFactoryDroidDisplayModels = (
