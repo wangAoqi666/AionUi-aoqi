@@ -27,6 +27,7 @@ import { Tooltip } from '@arco-design/web-react';
 import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 
 /** Builtin settings tab IDs in display order (must match router paths). */
+// 注: `tools` 入口已隐藏（路由仍保留），因为目前使用率低 / `tools` entry hidden from nav (route preserved) due to low usage
 export const BUILTIN_TAB_IDS = [
   'agent',
   'model',
@@ -35,7 +36,6 @@ export const BUILTIN_TAB_IDS = [
   'rules',
   'memory',
   'agents-md',
-  'tools',
   'display',
   'webui',
   'system',
