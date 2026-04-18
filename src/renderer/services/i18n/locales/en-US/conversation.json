@@ -81,6 +81,25 @@
     "completed": "Thought complete",
     "processing": "Thinking..."
   },
+  "toolAction": {
+    "thinking": "Thinking",
+    "read": "Reading file",
+    "edit": "Editing file",
+    "write": "Writing file",
+    "execute": "Executing",
+    "search": "Searching",
+    "grep": "Searching",
+    "glob": "Finding files",
+    "mcp": "Calling tool",
+    "skill": "Calling skill",
+    "web_search": "Web search",
+    "fetch": "Fetching",
+    "default": "Running",
+    "statusRunning": "Running",
+    "statusSuccess": "Success",
+    "statusFailed": "Failed",
+    "statusCanceled": "Canceled"
+  },
   "tabs": {
     "closeAll": "Close All",
     "closeLeft": "Close to the Left",

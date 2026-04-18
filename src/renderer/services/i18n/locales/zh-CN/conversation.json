@@ -81,6 +81,25 @@
     "completed": "思考完成",
     "processing": "思考中..."
   },
+  "toolAction": {
+    "thinking": "思考中",
+    "read": "读取文件",
+    "edit": "编辑文件",
+    "write": "写入文件",
+    "execute": "执行命令",
+    "search": "搜索",
+    "grep": "检索",
+    "glob": "查找文件",
+    "mcp": "调用工具",
+    "skill": "调用技能",
+    "web_search": "网络搜索",
+    "fetch": "获取内容",
+    "default": "执行中",
+    "statusRunning": "运行中",
+    "statusSuccess": "成功",
+    "statusFailed": "失败",
+    "statusCanceled": "已取消"
+  },
   "tabs": {
     "closeAll": "关闭全部",
     "closeLeft": "关闭左侧",

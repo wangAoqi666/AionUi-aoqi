@@ -89,14 +89,14 @@ describe('MessageToolGroupSummary', () => {
 
     render(<MessageActivitySummaryCard activities={activities} />);
 
-    expect(screen.getByText('common.processing')).toBeInTheDocument();
+    // When running, header shows the latest activity's title (not a generic "processing" label)
     expect(screen.getByText('Read · /tmp/index.html')).toBeInTheDocument();
     expect(screen.queryByText('分析需求')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button'));
 
     expect(screen.getByText('分析需求')).toBeInTheDocument();
-    expect(screen.getByText('Read')).toBeInTheDocument();
+    expect(screen.getAllByText('Read').length).toBeGreaterThan(0);
     expect(screen.getAllByText('/tmp/index.html').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button')).toHaveLength(1);
   });

@@ -85,6 +85,25 @@
     "completed": "思考完了",
     "processing": "思考中..."
   },
+  "toolAction": {
+    "thinking": "思考中",
+    "read": "ファイル読み取り",
+    "edit": "ファイル編集",
+    "write": "ファイル書き込み",
+    "execute": "コマンド実行",
+    "search": "検索",
+    "grep": "検索",
+    "glob": "ファイル検索",
+    "mcp": "ツール呼び出し",
+    "skill": "スキル呼び出し",
+    "web_search": "Web検索",
+    "fetch": "取得中",
+    "default": "実行中",
+    "statusRunning": "実行中",
+    "statusSuccess": "成功",
+    "statusFailed": "失敗",
+    "statusCanceled": "キャンセル"
+  },
   "dropdown": {
     "cliAgents": "CLI Agents",
     "presetAssistants": "プリセットアシスタント"

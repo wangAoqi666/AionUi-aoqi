@@ -1,7 +1,7 @@
 import type { BadgeProps } from '@arco-design/web-react';
 import { Badge } from '@arco-design/web-react';
 import { IconDown, IconRight } from '@arco-design/web-react/icon';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import type { IMessageAcpToolCall, IMessageToolGroup } from '@/common/chat/chatLib';
 import { useTranslation } from 'react-i18next';
 import './MessageToolGroupSummary.css';
@@ -13,6 +13,8 @@ type ToolItem = {
   status: BadgeProps['status'];
   input?: string;
   output?: string;
+  /** Timestamp (ms) when this item first appeared as processing */
+  startedAt?: number;
 };
 
 const formatValue = (value: unknown): string => {
@@ -42,8 +44,6 @@ const ToolGroupMapper = (m: IMessageToolGroup): ToolItem[] => {
     if (type === 'info') desc = confirmationDetails.urls?.join(';') || confirmationDetails.title;
     if (type === 'mcp') desc = confirmationDetails.serverName + ':' + confirmationDetails.toolName;
 
-    // Input: use full description (for error it's JSON.stringify(args), for success it's invocation description)
-    // When confirmationDetails exists (Confirming state), use structured details instead
     let input: string | undefined;
     if (confirmationDetails) {
       const { title: _title, type: _type, ...rest } = confirmationDetails;
@@ -52,8 +52,8 @@ const ToolGroupMapper = (m: IMessageToolGroup): ToolItem[] => {
       input = description;
     }
 
-    // Output: from resultDisplay (available for success/error/executing states)
     const output = getResultDisplayText(resultDisplay);
+    const isProcessing = status !== 'Success' && status !== 'Error' && status !== 'Canceled';
 
     return {
       key: callId,
@@ -68,6 +68,7 @@ const ToolGroupMapper = (m: IMessageToolGroup): ToolItem[] => {
             : 'processing') as BadgeProps['status'],
       input,
       output,
+      startedAt: isProcessing ? (m.createdAt ?? Date.now()) : undefined,
     };
   });
 };
@@ -114,10 +115,8 @@ const ToolAcpMapper = (message: IMessageAcpToolCall): ToolItem | undefined => {
   const update = message.content?.update;
   if (!update) return;
 
-  // Input: from rawInput
   const input = update.rawInput ? formatValue(update.rawInput) : undefined;
 
-  // Output: from content items
   let output: string | undefined;
   if (update.content?.length) {
     output = update.content
@@ -131,6 +130,7 @@ const ToolAcpMapper = (message: IMessageAcpToolCall): ToolItem | undefined => {
   }
 
   const keyParam = buildParamSummary(update.kind, update.rawInput);
+  const isProcessing = update.status !== 'completed' && update.status !== 'failed';
 
   return {
     key: update.toolCallId,
@@ -144,13 +144,48 @@ const ToolAcpMapper = (message: IMessageAcpToolCall): ToolItem | undefined => {
           : ('processing' as BadgeProps['status']),
     input,
     output,
+    startedAt: isProcessing ? (message.createdAt ?? Date.now()) : undefined,
   };
+};
+
+const useElapsedSeconds = (startedAt: number | undefined): number => {
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [startedAt]);
+
+  return elapsed;
 };
 
 const ToolItemDetail: React.FC<{ item: ToolItem }> = ({ item }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const hasDetail = item.input || item.output;
+  const elapsed = useElapsedSeconds(item.status === 'processing' ? item.startedAt : undefined);
+
+  const statusText = (() => {
+    if (item.status === 'processing') {
+      return elapsed > 0
+        ? `${t('conversation.toolAction.statusRunning', { defaultValue: 'Running' })} ${elapsed}s`
+        : t('conversation.toolAction.statusRunning', { defaultValue: 'Running' });
+    }
+    if (item.status === 'success') return t('conversation.toolAction.statusSuccess', { defaultValue: 'Success' });
+    if (item.status === 'error') return t('conversation.toolAction.statusFailed', { defaultValue: 'Failed' });
+    if (item.status === 'default') return t('conversation.toolAction.statusCanceled', { defaultValue: 'Canceled' });
+    return '';
+  })();
 
   return (
     <div className='flex flex-col'>
@@ -167,6 +202,16 @@ const ToolItemDetail: React.FC<{ item: ToolItem }> = ({ item }) => {
           <span className='font-medium text-13px'>{item.name}</span>
           {item.desc !== item.name && <span className='m-l-4px opacity-80 text-13px'>{item.desc}</span>}
         </span>
+        {statusText && (
+          <span
+            className={
+              'flex-shrink-0 text-12px ' +
+              (item.status === 'error' ? 'color-#f53f3f' : item.status === 'success' ? 'color-#00b42a' : 'opacity-60')
+            }
+          >
+            {statusText}
+          </span>
+        )}
         {hasDetail && (
           <span
             className='flex-shrink-0 cursor-pointer hover:color-#4E5969 transition-colors'

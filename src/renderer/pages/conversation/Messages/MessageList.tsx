@@ -113,8 +113,27 @@ const buildToolParamSummary = (kind: string, rawInput?: Record<string, unknown>)
   return undefined;
 };
 
+/** Map a tool kind string to its i18n action label key. */
+const kindToActionKey = (kind: string): string => {
+  const map: Record<string, string> = {
+    read: 'conversation.toolAction.read',
+    edit: 'conversation.toolAction.edit',
+    write: 'conversation.toolAction.write',
+    execute: 'conversation.toolAction.execute',
+    search: 'conversation.toolAction.search',
+    grep: 'conversation.toolAction.grep',
+    glob: 'conversation.toolAction.glob',
+    mcp: 'conversation.toolAction.mcp',
+    skill: 'conversation.toolAction.skill',
+    web_search: 'conversation.toolAction.web_search',
+    fetch: 'conversation.toolAction.fetch',
+  };
+  return map[kind] || 'conversation.toolAction.default';
+};
+
 const getToolActivityMeta = (
-  activity: Extract<AssistantActivityItem, { type: 'tool_summary' }>
+  activity: Extract<AssistantActivityItem, { type: 'tool_summary' }>,
+  t: (key: string, options?: Record<string, unknown>) => string
 ): { title: string; detail?: string; status: ActivityBadgeStatus; count: number } => {
   const count = activity.messages.reduce((total, message) => {
     return total + (message.type === 'tool_group' ? message.content.length : 1);
@@ -127,8 +146,10 @@ const getToolActivityMeta = (
 
   if (latestMessage.type === 'acp_tool_call') {
     const update = latestMessage.content.update;
+    const isRunning = update.status !== 'completed' && update.status !== 'failed';
+    const actionLabel = t(kindToActionKey(update.kind), { defaultValue: update.title });
     return {
-      title: update.title,
+      title: isRunning ? actionLabel : update.title,
       detail: buildToolParamSummary(update.kind, update.rawInput),
       status:
         update.status === 'completed' ? 'success' : update.status === 'failed' ? 'error' : ('processing' as const),
@@ -148,8 +169,21 @@ const getToolActivityMeta = (
   if (confirmationDetails?.type === 'info') detail = confirmationDetails.urls?.join(';') || confirmationDetails.title;
   if (confirmationDetails?.type === 'mcp') detail = `${confirmationDetails.serverName}:${confirmationDetails.toolName}`;
 
+  const isRunning =
+    latestTool.status !== 'Success' && latestTool.status !== 'Error' && latestTool.status !== 'Canceled';
+  // Derive action label from confirmation type or tool name
+  const toolKind =
+    confirmationDetails?.type === 'exec'
+      ? 'execute'
+      : confirmationDetails?.type === 'mcp'
+        ? 'mcp'
+        : confirmationDetails?.type === 'edit'
+          ? 'edit'
+          : latestTool.name.toLowerCase();
+  const actionLabel = t(kindToActionKey(toolKind), { defaultValue: latestTool.name });
+
   return {
-    title: latestTool.name,
+    title: isRunning ? actionLabel : latestTool.name,
     detail,
     status:
       latestTool.status === 'Success'
@@ -183,7 +217,7 @@ const getActivityMeta = (
   }
 
   if (activity.type === 'tool_summary') {
-    return getToolActivityMeta(activity);
+    return getToolActivityMeta(activity, t);
   }
 
   return {
@@ -217,16 +251,17 @@ export const MessageActivitySummaryCard: React.FC<{ activities: AssistantActivit
     const items = activities.map((activity) => getActivityMeta(activity, t));
     const latest = items.at(-1);
     const hasRunning = items.some((item) => item.status === 'processing');
-    const hasError = items.some((item) => item.status === 'error');
+    // Use latest item's status for done state — a later success overrides an earlier error
+    const latestDoneStatus = latest?.status ?? 'success';
 
     return {
       title: hasRunning
-        ? t('common.processing', { defaultValue: 'Processing...' })
-        : hasError
+        ? (latest?.title ?? t('conversation.toolAction.default', { defaultValue: 'Running' }))
+        : latestDoneStatus === 'error'
           ? t('common.failed', { defaultValue: 'Failed' })
           : t('conversation.thinking.completed', { defaultValue: 'Completed' }),
       detail: latest ? (latest.detail ? `${latest.title} · ${latest.detail}` : latest.title) : '',
-      status: hasRunning ? 'processing' : hasError ? 'error' : 'success',
+      status: hasRunning ? 'processing' : latestDoneStatus === 'error' ? 'error' : 'success',
       count: items.reduce((total, item) => total + item.count, 0),
     };
   }, [activities, t]);

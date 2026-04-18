@@ -22,7 +22,7 @@ const t = (key: string, options?: { defaultValue?: string }) => {
 };
 
 describe('getBuiltinSettingsNavItems', () => {
-  it('returns mobile settings tabs in the same order as desktop sider', () => {
+  it('returns mobile settings tabs in the same order as desktop sider (tools hidden)', () => {
     const items = getBuiltinSettingsNavItems(false, t);
 
     expect(items.map((item) => item.id)).toEqual([
@@ -33,7 +33,6 @@ describe('getBuiltinSettingsNavItems', () => {
       'rules',
       'memory',
       'agents-md',
-      'tools',
       'display',
       'webui',
       'system',
@@ -48,7 +47,6 @@ describe('getBuiltinSettingsNavItems', () => {
       'Rules',
       'Memory',
       'AGENTS.md',
-      'Tools',
       'Display',
       'WebUI',
       'System',

@@ -85,6 +85,25 @@
     "completed": "Düşünme tamamlandı",
     "processing": "Düşünüyor..."
   },
+  "toolAction": {
+    "thinking": "Düşünüyor",
+    "read": "Dosya okunuyor",
+    "edit": "Dosya düzenleniyor",
+    "write": "Dosya yazılıyor",
+    "execute": "Komut çalıştırılıyor",
+    "search": "Aranıyor",
+    "grep": "Aranıyor",
+    "glob": "Dosya aranıyor",
+    "mcp": "Araç çağrılıyor",
+    "skill": "Beceri çağrılıyor",
+    "web_search": "Web araması",
+    "fetch": "İçerik alınıyor",
+    "default": "Çalışıyor",
+    "statusRunning": "Çalışıyor",
+    "statusSuccess": "Başarılı",
+    "statusFailed": "Başarısız",
+    "statusCanceled": "İptal edildi"
+  },
   "tabs": {
     "closeAll": "Tümünü Kapat",
     "closeLeft": "Sol tarafı kapat",

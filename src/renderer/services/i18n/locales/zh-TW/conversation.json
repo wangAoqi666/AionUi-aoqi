@@ -85,6 +85,25 @@
     "completed": "思考完成",
     "processing": "思考中..."
   },
+  "toolAction": {
+    "thinking": "思考中",
+    "read": "讀取檔案",
+    "edit": "編輯檔案",
+    "write": "寫入檔案",
+    "execute": "執行命令",
+    "search": "搜尋",
+    "grep": "檢索",
+    "glob": "尋找檔案",
+    "mcp": "呼叫工具",
+    "skill": "呼叫技能",
+    "web_search": "網路搜尋",
+    "fetch": "取得內容",
+    "default": "執行中",
+    "statusRunning": "執行中",
+    "statusSuccess": "成功",
+    "statusFailed": "失敗",
+    "statusCanceled": "已取消"
+  },
   "dropdown": {
     "cliAgents": "CLI Agents",
     "presetAssistants": "預設助手"
