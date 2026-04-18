@@ -20,6 +20,7 @@ import classNames from 'classnames';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertLatexDelimiters } from '@renderer/utils/chat/latexDelimiters';
+import { autoWrapTreeBlocks } from '@renderer/utils/chat/treeTextFormatter';
 import LocalImageView from '@renderer/components/media/LocalImageView';
 import { extractRichMessageSegments, JsonRenderView } from './JsonRender';
 import CodeBlock from './CodeBlock';
@@ -55,6 +56,7 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({
     if (typeof childrenProp === 'string') {
       let text = childrenProp.replace(/file:\/\//g, '');
       text = convertLatexDelimiters(text);
+      text = autoWrapTreeBlocks(text);
       return text;
     }
     return childrenProp;
