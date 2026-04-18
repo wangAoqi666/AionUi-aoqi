@@ -113,13 +113,16 @@ describe('WorkerTaskManager', () => {
 
   // --- clear ---
 
-  it('clear kills all tasks and empties the list', () => {
+  it('clear kills all tasks and empties the list', async () => {
+    vi.useFakeTimers();
     const agent1 = makeAgent('c1', 'gemini');
     const agent2 = makeAgent('c2', 'acp');
     const mgr = new WorkerTaskManager(makeFactory() as any, repo);
     mgr.addTask('c1', agent1 as any);
     mgr.addTask('c2', agent2 as any);
-    mgr.clear();
+    const clearPromise = mgr.clear();
+    vi.advanceTimersByTime(5000);
+    await clearPromise;
     expect(agent1.kill).toHaveBeenCalled();
     expect(agent2.kill).toHaveBeenCalled();
     expect(mgr.listTasks()).toHaveLength(0);

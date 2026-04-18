@@ -98,12 +98,26 @@ export class WorkerTaskManager implements IWorkerTaskManager {
     this.taskList.splice(index, 1);
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
     clearInterval(this.idleCheckTimer);
     this.idleCheckTimer = undefined;
     this.pendingTaskBuilds.clear();
-    this.taskList.forEach((item) => item.task.kill());
+    const tasks = [...this.taskList];
     this.taskList = [];
+    // Trigger kill on all tasks — kill() returns void but may start async
+    // cleanup internally (e.g. AcpAgentManager has a 1.5s hard timeout,
+    // and killChild() on Windows uses taskkill with up to 5s timeout).
+    for (const item of tasks) {
+      try {
+        item.task.kill();
+      } catch {
+        // Ignore errors from individual kills
+      }
+    }
+    // Wait long enough for internal async cleanup to complete
+    if (tasks.length > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 5000));
+    }
   }
 
   listTasks(): Array<{ id: string; type: AgentType }> {
