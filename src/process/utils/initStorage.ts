@@ -4,9 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdirSync as _mkdirSync, existsSync, readdirSync, readFileSync } from 'fs';
+import { mkdirSync as _mkdirSync, existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
+import { createHash } from 'crypto';
 import { getPlatformServices } from '@/common/platform';
 import { application } from '@/common/adapter/ipcBridge';
 import type { TMessage } from '@/common/chat/chatLib';
@@ -676,6 +677,145 @@ const migrateOfficialFactoryStructure = async (): Promise<void> => {
   await migrateLegacyProjectFactoryFiles();
 };
 
+type BuiltinSyncSignature = {
+  /** Aggregate signature for the bundled skills directory */
+  skillsDir: string;
+  /** Aggregate signature for the preset rules / skills files per assistant */
+  assistants: string;
+};
+
+type BuiltinSyncManifest = BuiltinSyncSignature & {
+  version: number;
+  syncedAt: number;
+};
+
+const BUILTIN_SYNC_MANIFEST_VERSION = 1;
+const BUILTIN_SYNC_MANIFEST_NAME = '.builtin-sync-manifest.json';
+
+/**
+ * Compute a cheap signature of a directory (recursive) based on
+ * every file's relative path, mtime (floor ms) and size.
+ * A hash of `undefined` is returned when the directory is missing.
+ *
+ * 递归计算目录签名（相对路径 + mtime + size）：廉价、不读文件内容，
+ * 足以捕获 app 升级 / 用户手动删文件 / dev 热修改等情况。
+ */
+function computeDirSignatureSync(dir: string): string {
+  if (!existsSync(dir)) {
+    return 'missing';
+  }
+
+  const files: Array<{ p: string; m: number; s: number }> = [];
+  const walk = (current: string) => {
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }> = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true }) as unknown as typeof entries;
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const entryName = typeof entry.name === 'string' ? entry.name : String(entry.name);
+      const abs = path.join(current, entryName);
+      if (entry.isDirectory()) {
+        walk(abs);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      try {
+        const stat = statSync(abs);
+        files.push({
+          p: path.relative(dir, abs),
+          m: Math.floor(stat.mtimeMs),
+          s: stat.size,
+        });
+      } catch {
+        // best-effort
+      }
+    }
+  };
+  walk(dir);
+  files.sort((a, b) => a.p.localeCompare(b.p));
+  return createHash('sha1').update(JSON.stringify(files)).digest('hex');
+}
+
+/**
+ * Compute a signature over every preset rule/skill source file used by
+ * initBuiltinAssistantRules. Matches exactly the files that would be
+ * copied into the assistants cache directory.
+ *
+ * 计算每个 preset 所引用 rule/skill 源文件的签名，精确对应 initBuiltinAssistantRules 会写的文件。
+ */
+function computeAssistantsSignatureSync(
+  presetRulesBaseDir: string,
+  presetSkillsBaseDir: string,
+  resolveBuiltinDir: (dirPath: string) => string
+): string {
+  const entries: Array<{ p: string; m: number; s: number }> = [];
+  const pushIfExists = (filePath: string) => {
+    if (!filePath || !existsSync(filePath)) return;
+    try {
+      const stat = statSync(filePath);
+      entries.push({ p: filePath, m: Math.floor(stat.mtimeMs), s: stat.size });
+    } catch {
+      // skip
+    }
+  };
+
+  for (const preset of ASSISTANT_PRESETS) {
+    const rulesDir = preset.resourceDir ? resolveBuiltinDir(preset.resourceDir) : presetRulesBaseDir;
+    const skillsDir = preset.resourceDir ? resolveBuiltinDir(preset.resourceDir) : presetSkillsBaseDir;
+
+    for (const ruleFile of Object.values(preset.ruleFiles)) {
+      if (!rulesDir || !ruleFile) continue;
+      pushIfExists(path.join(rulesDir, ruleFile));
+    }
+
+    if (preset.skillFiles) {
+      for (const skillFile of Object.values(preset.skillFiles)) {
+        if (!skillsDir || !skillFile) continue;
+        pushIfExists(path.join(skillsDir, skillFile));
+      }
+    }
+  }
+
+  entries.sort((a, b) => a.p.localeCompare(b.p));
+  return createHash('sha1').update(JSON.stringify(entries)).digest('hex');
+}
+
+const getBuiltinSyncManifestPath = (): string => {
+  return path.join(cacheDir, BUILTIN_SYNC_MANIFEST_NAME);
+};
+
+function readBuiltinSyncManifest(): BuiltinSyncManifest | null {
+  const manifestPath = getBuiltinSyncManifestPath();
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const raw = readFileSync(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw) as BuiltinSyncManifest;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.version !== BUILTIN_SYNC_MANIFEST_VERSION) return null;
+    if (typeof parsed.skillsDir !== 'string' || typeof parsed.assistants !== 'string') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeBuiltinSyncManifest(signature: BuiltinSyncSignature): Promise<void> {
+  const manifest: BuiltinSyncManifest = {
+    version: BUILTIN_SYNC_MANIFEST_VERSION,
+    syncedAt: Date.now(),
+    ...signature,
+  };
+  const manifestPath = getBuiltinSyncManifestPath();
+  try {
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  } catch (error) {
+    console.warn('[AionUi] Failed to write builtin-sync manifest:', error);
+  }
+}
+
 /**
  * 初始化内置助手的规则和技能文件到用户目录
  * Initialize builtin assistant rule and skill files to user directory
@@ -732,6 +872,35 @@ const initBuiltinAssistantRules = async (): Promise<void> => {
   }
   const builtinSkillsCopyDir = getBuiltinSkillsCopyDir();
   const userSkillsDir = getSkillsDir();
+
+  // ────────────────────────────────────────────────────────────────
+  // Incremental sync guard. Skip the expensive copy/write loop when
+  // nothing on disk has changed since the last successful sync.
+  // 增量同步：若源目录与 preset 源文件自上次同步后没有变化，直接跳过。
+  // ────────────────────────────────────────────────────────────────
+  const currentSignature: BuiltinSyncSignature = {
+    skillsDir: computeDirSignatureSync(builtinSkillsDir),
+    assistants: computeAssistantsSignatureSync(rulesDir, builtinSkillsDir, resolveBuiltinDir),
+  };
+
+  const manifest = readBuiltinSyncManifest();
+  const signatureMatches =
+    manifest &&
+    manifest.skillsDir === currentSignature.skillsDir &&
+    manifest.assistants === currentSignature.assistants;
+
+  // Still require cache directories to exist (user may have deleted them
+  // externally); signature match only governs whether we run the full copy.
+  // 即使签名匹配，也要保证缓存目录存在；否则必须重新同步。
+  const cacheLooksHealthy =
+    existsSync(getBuiltinSkillsCopyDir()) &&
+    existsSync(getAssistantsDir()) &&
+    existsSync(getSkillsDir()) &&
+    existsSync(getCronSkillsDir());
+
+  if (signatureMatches && cacheLooksHealthy) {
+    return;
+  }
 
   // Sync builtin skills to a dedicated directory (config/builtin-skills/).
   // This directory is fully managed by the app: overwrite existing, remove stale.
@@ -878,6 +1047,10 @@ const initBuiltinAssistantRules = async (): Promise<void> => {
       }
     }
   }
+
+  // Persist the successful sync signature so subsequent starts can skip.
+  // 同步成功后持久化签名，下次启动可直接跳过。
+  await writeBuiltinSyncManifest(currentSignature);
 };
 
 /**
@@ -1367,11 +1540,17 @@ const initStorage = async () => {
   }
   mark('5.4 factoryDroidModelsHydrated');
 
-  // 5.5 Refresh the catalog in the background so startup never blocks on CLI probing
-  void refreshFactoryDroidCatalog().catch((error) => {
-    console.error('[AionUi] Failed to refresh Factory Droid catalog:', error);
-  });
-  mark('5.5 factoryDroidCatalogRefreshScheduled');
+  // 5.5 Catalog refresh is intentionally NOT scheduled here anymore.
+  //     Probing the Droid CLI triggers Keychain access on macOS (which can
+  //     pop a password dialog on first run) and spawns a child process that
+  //     competes with storage IO during the critical init path. The main
+  //     entry now schedules the refresh via `scheduleStartupProbes` only
+  //     after the renderer reports did-finish-load, so the window paints
+  //     first and the user can approve the Keychain prompt on a visible UI.
+  //     See `src/process/utils/startupProbes.ts` + `src/index.ts`.
+  // 5.5 目录刷新不再在启动链路触发：它会启动 droid CLI 并访问 Mac 钥匙串，
+  //     首次运行会弹出密码框；现在统一改为窗口 did-finish-load 之后再异步调度。
+  mark('5.5 factoryDroidCatalogRefreshDeferred');
 
   // 6. 初始化数据库（better-sqlite3）
   try {

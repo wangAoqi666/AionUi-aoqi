@@ -26,6 +26,8 @@ import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { loadShellEnvironmentAsync, logEnvironmentDiagnostics, mergePaths } from './process/utils/shellEnv';
 import { initializeAcpDetector, registerWindowMaximizeListeners, disposeAllTeamSessions } from '@process/bridge';
+import { scheduleStartupProbes, type StartupProbeSpec } from './process/utils/startupProbes';
+import { refreshFactoryDroidCatalog } from './process/utils/initStorage';
 import { wasLaunchedAtLogin } from '@process/bridge/applicationBridge';
 import { onCloseToTrayChanged, onLanguageChanged } from './process/bridge/systemSettingsBridge';
 import { setInitialLanguage } from '@process/services/i18n';
@@ -385,6 +387,82 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
   });
 };
 
+/**
+ * Build the list of non-critical startup probes. Each entry is independently
+ * timeboxed inside `runStartupProbe` so one hanging probe never blocks
+ * another or the UI.
+ * 非关键启动探测列表：每项在 runStartupProbe 内独立超时。
+ */
+const buildStartupProbeSpecs = (markLabel: (label: string) => void): StartupProbeSpec[] => [
+  {
+    name: 'acp-detector',
+    timeoutMs: 8000,
+    run: async () => {
+      await initializeAcpDetector();
+      markLabel('initializeAcpDetector');
+    },
+  },
+  {
+    name: 'factory-droid-catalog',
+    timeoutMs: 10000,
+    run: async () => {
+      await refreshFactoryDroidCatalog();
+      markLabel('refreshFactoryDroidCatalog');
+    },
+  },
+];
+
+/**
+ * Schedule deferred startup probes. In GUI mode we wait for the renderer to
+ * signal did-finish-load + a short grace period so the first paint and any
+ * system-level prompts (macOS Keychain) happen with the main window already
+ * visible. In WebUI mode we trigger immediately because there's no window.
+ *
+ * Multiple calls are idempotent (single-flight guard in startupProbes.ts).
+ */
+const scheduleDeferredStartupProbes = (
+  markLabel: (label: string) => void,
+  options: { triggerImmediately?: boolean } = {}
+): void => {
+  const specs = buildStartupProbeSpecs(markLabel);
+  const runNow = () => scheduleStartupProbes(specs);
+
+  if (options.triggerImmediately) {
+    runNow();
+    return;
+  }
+
+  // Belt-and-suspenders: fire on did-finish-load OR after a safety timer,
+  // whichever comes first. Both paths go through the single-flight guard.
+  const safetyTimer = setTimeout(() => {
+    console.log('[AionUi:ready] startup probes fired by safety timer (window may be slow or hidden)');
+    runNow();
+  }, 6000);
+  try {
+    safetyTimer.unref?.();
+  } catch {
+    /* some runtimes don't expose Timer.unref */
+  }
+
+  const windowRef = mainWindow;
+  if (windowRef && !windowRef.isDestroyed()) {
+    windowRef.webContents.once('did-finish-load', () => {
+      clearTimeout(safetyTimer);
+      // Extra delay so the renderer can render its first interactive frame
+      // before we kick off probes that may pop native dialogs (Keychain).
+      setTimeout(() => {
+        markLabel('scheduleStartupProbes');
+        runNow();
+      }, 1200);
+    });
+  } else {
+    // No window bound yet (tray-only mode) — fall back to immediate run so
+    // detector results are still available when user opens the UI later.
+    clearTimeout(safetyTimer);
+    runNow();
+  }
+};
+
 const handleAppReady = async (): Promise<void> => {
   const t0 = performance.now();
   const mark = (label: string) => console.log(`[AionUi:ready] ${label} +${Math.round(performance.now() - t0)}ms`);
@@ -515,12 +593,13 @@ const handleAppReady = async (): Promise<void> => {
     appReadyDone = true;
     mark('createWindow');
 
-    // Run ACP detection in parallel with renderer loading.
-    // By the time React mounts and calls getAvailableAgents (~300ms+),
-    // detection (~700ms) is usually already done.
-    initializeAcpDetector()
-      .then(() => mark('initializeAcpDetector'))
-      .catch((error) => console.error('[ACP] Detection failed:', error));
+    // All non-critical startup probes (ACP detection, Droid catalog refresh)
+    // are deferred until the renderer reports did-finish-load + a short grace
+    // period. This keeps the window paint path free of CLI probing / Keychain
+    // access, which on macOS can pop a password dialog before the UI is
+    // visible.
+    // 所有非关键探测改由窗口 did-finish-load 后统一调度；详见 scheduleDeferredStartupProbes
+    scheduleDeferredStartupProbes(mark);
 
     // 读取语言设置并初始化主进程 i18n，然后刷新托盘菜单
     // Read language setting and initialize main process i18n, then refresh tray menu
@@ -555,9 +634,12 @@ const handleAppReady = async (): Promise<void> => {
     }
   }
 
-  // WebUI mode also needs ACP detection for remote agent access
+  // WebUI mode also needs ACP detection for remote agent access.
+  // In WebUI mode there is no renderer window, so run the probes directly
+  // (still timed-out + non-blocking internally).
+  // WebUI 模式没有渲染窗口，无法依赖 did-finish-load，改为直接启动但仍带超时保护。
   if (isWebUIMode) {
-    await initializeAcpDetector();
+    scheduleDeferredStartupProbes(() => {}, { triggerImmediately: true });
   }
 
   if (!isResetPasswordMode) {

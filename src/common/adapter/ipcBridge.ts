@@ -194,6 +194,14 @@ export const application = {
   ),
   // DevTools state change notification
   devToolsStateChanged: bridge.buildEmitter<{ isOpen: boolean }>('app.devtools-state-changed'),
+  // Non-critical startup probe status stream (Droid catalog, ACP detector, ...)
+  // 后台启动探测状态：名称 + 状态 + 可选耗时/错误，供 renderer 做无阻塞提示
+  startupProbeStatus: bridge.buildEmitter<{
+    name: string;
+    status: 'running' | 'done' | 'error' | 'timeout';
+    durationMs?: number;
+    error?: string;
+  }>('app.startup-probe-status'),
 };
 
 // Manual (opt-in) updates via GitHub Releases
