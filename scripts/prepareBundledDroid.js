@@ -291,6 +291,26 @@ function prepareBundledDroid() {
   const binaryName = getBinaryName(platform);
   const targetBinaryPath = path.join(targetDir, binaryName);
 
+  // Allow explicit skip to avoid network hangs (e.g. when npm registry / wget proxy stalls)
+  if (process.env.AIONUI_SKIP_DROID_BUNDLE === '1') {
+    removeDirectorySafe(targetDir);
+    ensureDirectory(targetDir);
+    const manifest = {
+      platform,
+      arch,
+      requestedVersion,
+      generatedAt: new Date().toISOString(),
+      sourceType: 'none',
+      source: {},
+      files: [],
+      skipped: true,
+      reason: 'Skipped via AIONUI_SKIP_DROID_BUNDLE=1',
+    };
+    writeJson(path.join(targetDir, 'manifest.json'), manifest);
+    console.warn('Factory CLI bundle skipped (AIONUI_SKIP_DROID_BUNDLE=1)');
+    return { prepared: false, reason: 'skipped' };
+  }
+
   removeDirectorySafe(targetDir);
   ensureDirectory(targetDir);
 

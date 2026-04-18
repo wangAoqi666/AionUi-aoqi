@@ -178,6 +178,26 @@ function prepareAionrs() {
 
   console.log(`Preparing aionrs for ${runtimeKey} (version: ${version})`);
 
+  // Allow explicit skip to avoid network hangs (e.g. when asset naming mismatches)
+  if (process.env.AIONUI_SKIP_AIONRS === '1') {
+    removeDirectorySafe(targetDir);
+    ensureDirectory(targetDir);
+    const manifest = {
+      platform,
+      arch,
+      version,
+      generatedAt: new Date().toISOString(),
+      sourceType: 'none',
+      source: {},
+      files: [],
+      skipped: true,
+      reason: 'Skipped via AIONUI_SKIP_AIONRS=1',
+    };
+    writeJson(path.join(targetDir, 'manifest.json'), manifest);
+    console.warn('  Skipped aionrs bundling (AIONUI_SKIP_AIONRS=1)');
+    return { prepared: false, reason: 'skipped' };
+  }
+
   removeDirectorySafe(targetDir);
   ensureDirectory(targetDir);
 
