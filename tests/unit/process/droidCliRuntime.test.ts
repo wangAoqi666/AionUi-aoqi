@@ -25,10 +25,6 @@ describe('droid cli runtime', () => {
         return '0.99.0';
       }
 
-      if (execPath === 'which' && args[0] === 'droid') {
-        return '/usr/local/bin/droid';
-      }
-
       throw new Error(`unexpected command: ${execPath} ${args.join(' ')}`);
     });
 
@@ -50,11 +46,14 @@ describe('droid cli runtime', () => {
     const { resolveWorkingDroidCli } = await import('@/process/agent/droid/cliRuntime');
 
     expect(resolveWorkingDroidCli()).toEqual({
-      execPath: '/usr/local/bin/droid',
+      execPath: 'droid',
       source: 'system',
       version: '0.99.0',
-      cliPath: '/usr/local/bin/droid',
+      cliPath: null,
     });
+
+    expect(execFileSyncMock).not.toHaveBeenCalledWith('which', expect.anything(), expect.anything());
+    expect(execFileSyncMock).not.toHaveBeenCalledWith('where', expect.anything(), expect.anything());
   });
 
   it('prefers an installed system droid before the bundled fallback', async () => {
@@ -62,11 +61,6 @@ describe('droid cli runtime', () => {
       if (execPath === 'droid' && args[0] === '--version') {
         expect(options?.env?.PATH?.startsWith('/bundled')).toBe(false);
         return '0.99.0';
-      }
-
-      if (execPath === 'which' && args[0] === 'droid') {
-        expect(options?.env?.PATH?.startsWith('/bundled')).toBe(false);
-        return '/usr/local/bin/droid';
       }
 
       if (execPath === '/bundled/droid' && args[0] === '--version') {
@@ -98,10 +92,10 @@ describe('droid cli runtime', () => {
     const { resolveWorkingDroidCli } = await import('@/process/agent/droid/cliRuntime');
 
     expect(resolveWorkingDroidCli()).toEqual({
-      execPath: '/usr/local/bin/droid',
+      execPath: 'droid',
       source: 'system',
       version: '0.99.0',
-      cliPath: '/usr/local/bin/droid',
+      cliPath: null,
     });
   });
 
@@ -146,10 +140,6 @@ describe('droid cli runtime', () => {
           throw timeoutError;
         }
 
-        if (execPath === 'which' && args[0] === 'droid') {
-          return '/Users/test/.local/bin/droid';
-        }
-
         throw new Error(`unexpected command: ${execPath} ${args.join(' ')}`);
       }),
     }));
@@ -168,10 +158,53 @@ describe('droid cli runtime', () => {
     const { resolveWorkingDroidCli } = await import('@/process/agent/droid/cliRuntime');
 
     expect(resolveWorkingDroidCli()).toEqual({
-      execPath: '/Users/test/.local/bin/droid',
+      execPath: 'droid',
       source: 'system',
       version: '0.99.0',
-      cliPath: '/Users/test/.local/bin/droid',
+      cliPath: null,
     });
+  });
+
+  it('keeps the bare exec name on Chinese Windows so CreateProcessW handles CJK user dirs (regression: mojibake ENOENT)', async () => {
+    // Simulates a 中文 Windows username like `C:\Users\张三\bin\droid.exe`.
+    // If the runtime ever shells out to `where droid`, Node decodes CP936
+    // stdout as UTF-8 and returns a mojibake path (`C:\Users\????\bin\droid.exe`)
+    // that later breaks `spawn()` with ENOENT. This test pins the contract:
+    // we must NEVER shell out to `where` / `which`, so the bare `droid`
+    // survives into spawn() and Windows CreateProcessW resolves it natively.
+    const execFileSyncMock = vi.fn((execPath: string, args: string[]) => {
+      if (execPath === 'droid' && args[0] === '--version') {
+        return '0.99.0';
+      }
+
+      if (execPath === 'where' || execPath === 'which') {
+        throw new Error(`runtime must not shell out to ${execPath} (CJK codepage hazard)`);
+      }
+
+      throw new Error(`unexpected command: ${execPath} ${args.join(' ')}`);
+    });
+
+    vi.doMock('node:child_process', () => ({
+      execFileSync: execFileSyncMock,
+    }));
+
+    vi.doMock('@/process/utils/shellEnv', () => ({
+      getEnhancedEnv: vi.fn(() => process.env),
+    }));
+
+    vi.doMock('@/process/agent/droid/cliResolver', () => ({
+      resolveDroidCliCandidates: vi.fn(() => [{ execPath: 'droid', source: 'system' }]),
+    }));
+
+    const { resolveWorkingDroidCli } = await import('@/process/agent/droid/cliRuntime');
+
+    const resolved = resolveWorkingDroidCli();
+
+    expect(resolved.execPath).toBe('droid');
+    expect(resolved.source).toBe('system');
+    expect(resolved.version).toBe('0.99.0');
+    expect(resolved.cliPath).toBeNull();
+    expect(execFileSyncMock).not.toHaveBeenCalledWith('where', expect.anything(), expect.anything());
+    expect(execFileSyncMock).not.toHaveBeenCalledWith('which', expect.anything(), expect.anything());
   });
 });

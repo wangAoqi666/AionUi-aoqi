@@ -5,7 +5,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import path from 'node:path';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
 import { resolveDroidCliCandidates, type DroidCliResolution, type DroidCliSource } from './cliResolver';
 
@@ -96,16 +95,6 @@ function prioritizeCliCandidates(
   return [systemCandidate, ...candidates.filter((candidate) => candidate !== systemCandidate)];
 }
 
-function resolveCliDisplayPath(execPath: string, source: DroidCliSource): string {
-  if (path.isAbsolute(execPath) || execPath.includes(path.sep)) {
-    return execPath;
-  }
-
-  const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
-  const lookupResult = runDroidCliCommand(lookupCommand, [execPath], { source });
-  return lookupResult.output || execPath;
-}
-
 export function resolveWorkingDroidCli(configuredCliPath?: string | null): WorkingDroidCliResult {
   const candidates = prioritizeCliCandidates(resolveDroidCliCandidates(configuredCliPath), configuredCliPath);
   const fallbackCandidate = candidates[0] || { execPath: 'droid', source: 'system' };
@@ -117,12 +106,18 @@ export function resolveWorkingDroidCli(configuredCliPath?: string | null): Worki
     });
 
     if (versionResult.output && !isPlaceholderCliOutput(versionResult.output)) {
-      const resolvedCliPath = resolveCliDisplayPath(candidate.execPath, candidate.source);
+      // NOTE: Do NOT shell out to `where` / `which` here to resolve a pretty
+      // absolute path. On non-UTF-8 Windows code pages (e.g. CP936 for
+      // Simplified Chinese), `where.exe` emits paths in the system ANSI code
+      // page while Node decodes them as UTF-8 — producing mojibake such as
+      // `C:\Users\????\bin\droid.exe`. That broken string then flows into
+      // spawn() and fails with ENOENT. Leaving `execPath` as the bare name
+      // lets Windows' `CreateProcessW` (and POSIX exec) do the PATH lookup
+      // natively in Unicode, which handles CJK user directories correctly.
       return {
         ...candidate,
-        execPath: resolvedCliPath,
         version: versionResult.output,
-        cliPath: resolvedCliPath,
+        cliPath: candidate.source === 'system' ? null : candidate.execPath,
       };
     }
 
