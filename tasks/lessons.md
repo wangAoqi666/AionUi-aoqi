@@ -1,3 +1,4 @@
 - 2026-04-08: When replacing branding assets, keep app-level logos separate from backend or engine logos. Do not overwrite Factory Droid or other agent logos when the request is only about the software brand.
 - 2026-04-08: The top-left brand slot is the app logo slot, not the Factory Droid/agent logo slot. Before changing any logo, verify whether the user means the software brand mark or the agent/backend mark.
 - 2026-04-08: For Droid SPEC mode, verify the full CLI-like flow end to end: selected mode must be applied before the first send, the plan approval must appear before normal tool permissions, and the spec handoff should not be treated like a generic permission prompt.
+- 2026-04-17: For this repo, do not assume the historical 1.9.x line is still authoritative. After the major rewrite, all displayed, runtime, packaged, and update-feed versions must follow the reset baseline from root `package.json#version`, currently `0.1.0`.

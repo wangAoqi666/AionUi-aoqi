@@ -87,6 +87,8 @@
 
 ## 打包构建规则
 
+- 当前项目版本策略已重置：因做了大改，版本号从 `0.1.0` 重新开始计算，禁止继续沿用历史 `1.9.x` 版本线
+- 版本显示、运行时版本、安装包文件名、自动更新元数据等所有对内对外版本来源，统一以根目录 `package.json#version` 为唯一基准；除非用户明确要求，不要再额外推导或回退到旧版本号
 - macOS 上构建 Windows NSIS 安装包时，`7zip-bin` 自带的 p7zip 16.02 会把 `.7z` 格式的归档文件错误地生成为 ZIP 格式，导致 NSIS `Nsis7z::Extract` 静默解压失败、安装后只有卸载器没有主程序
 - 修复已固化在 `scripts/build-with-builder.js` 开头的 7zip-bin wrapper：`.7z` 输出走系统 `7za`，`.zip` 输出走系统 `zip`
 - 构建 macOS 主机上的 Windows 包前，必须确保 Homebrew `p7zip` 已安装（`brew install p7zip`），否则 `.7z` 归档可能退回到有问题的 bundled binary

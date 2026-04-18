@@ -9,12 +9,13 @@
 - 用户特别强调：左上角主品牌图标是软件 Logo；会话、消息、历史列表里表示调用 Agent Factory 的小图标是 Factory Logo；两者不是同一个图标，后续设计和实现必须严格区分
 - 用户已明确纠正过一次：左上角品牌位只能使用软件 Logo，不能再误用 Factory Droid / Agent Factory 的 agent logo；后续凡是改品牌位，先判断这是“软件 Logo”还是“Factory/agent Logo”
 - 用户希望做桌面端测试时优先直接操作运行中的 Electron 应用，不要只在浏览器 WebUI 上做替代验证
+- 用户已明确要求：这个项目因大改后版本号要从 `0.1.0` 重新开始，后续版本显示、运行时版本、打包产物和更新元数据都必须以这条新版本线为准，不再沿用历史 `1.9.x`
 
 ## 项目背景
 
 - 智能体工厂 / Agent Factory — 基于 Factory Droid 深度定制的智能体工作平台
 - 主智能体交互链路：`src/process/agent/droid/` → `@factory/droid-sdk` → Factory Droid
-- 当前版本 v1.9.7，License: Apache-2.0
+- 当前版本 v0.1.0，License: Apache-2.0
 - 三进程架构：main（`src/process/`）/ renderer（`src/renderer/`）/ worker（`src/process/worker/`）
 - 技术栈：Electron + Vite + React + TypeScript + UnoCSS + Arco Design + Vitest
 - 包管理器：bun
