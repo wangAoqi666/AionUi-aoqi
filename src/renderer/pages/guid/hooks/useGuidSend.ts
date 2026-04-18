@@ -16,6 +16,7 @@ import { Message } from '@arco-design/web-react';
 import { useCallback, useRef } from 'react';
 import { type TFunction } from 'i18next';
 import type { NavigateFunction } from 'react-router-dom';
+import type { ConversationTab } from '@/renderer/pages/conversation/hooks/ConversationTabsContext';
 import type { AcpBackend, AvailableAgent, EffectiveAgentInfo } from '../types';
 
 export type GuidSendDeps = {
@@ -64,6 +65,7 @@ export type GuidSendDeps = {
   navigate: NavigateFunction;
   closeAllTabs: () => void;
   openTab: (conversation: TChatConversation) => void;
+  activeTab: ConversationTab | null;
   t: TFunction;
 };
 
@@ -110,9 +112,27 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     navigate,
     closeAllTabs,
     openTab,
+    activeTab,
     t,
   } = deps;
   const sendingRef = useRef(false);
+
+  // Register the newly created conversation as a tab.
+  // Only close previously opened tabs when the target workspace differs from
+  // the currently active tab's workspace. This mirrors the behavior used in
+  // useConversationActions / ConversationSearchPopover, and prevents the bug
+  // where creating a new chat inside the same workspace wipes out the tabs.
+  const registerNewConversationTab = useCallback(
+    (conversation: TChatConversation, newWorkspace: string) => {
+      const currentWorkspace = activeTab?.workspace;
+      if (!currentWorkspace || currentWorkspace !== newWorkspace) {
+        closeAllTabs();
+      }
+      updateWorkspaceTime(newWorkspace);
+      openTab(conversation);
+    },
+    [activeTab, closeAllTabs, openTab]
+  );
 
   const handleSend = useCallback(async () => {
     const isCustomWorkspace = !!dir;
@@ -195,9 +215,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         }
 
         if (isCustomWorkspace) {
-          closeAllTabs();
-          updateWorkspaceTime(finalWorkspace);
-          openTab(conversation);
+          registerNewConversationTab(conversation, finalWorkspace);
         }
 
         emitter.emit('chat.history.refresh');
@@ -254,9 +272,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         }
 
         if (isCustomWorkspace) {
-          closeAllTabs();
-          updateWorkspaceTime(finalWorkspace);
-          openTab(conversation);
+          registerNewConversationTab(conversation, finalWorkspace);
         }
 
         emitter.emit('chat.history.refresh');
@@ -303,9 +319,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         }
 
         if (isCustomWorkspace) {
-          closeAllTabs();
-          updateWorkspaceTime(finalWorkspace);
-          openTab(conversation);
+          registerNewConversationTab(conversation, finalWorkspace);
         }
 
         emitter.emit('chat.history.refresh');
@@ -351,9 +365,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         }
 
         if (isCustomWorkspace) {
-          closeAllTabs();
-          updateWorkspaceTime(finalWorkspace);
-          openTab(conversation);
+          registerNewConversationTab(conversation, finalWorkspace);
         }
 
         emitter.emit('chat.history.refresh');
@@ -449,9 +461,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         }
 
         if (isCustomWorkspace) {
-          closeAllTabs();
-          updateWorkspaceTime(finalWorkspace);
-          openTab(conversation);
+          registerNewConversationTab(conversation, finalWorkspace);
         }
 
         emitter.emit('chat.history.refresh');
@@ -488,8 +498,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     isMainAgentAvailable,
     getAvailableFallbackAgent,
     navigate,
-    closeAllTabs,
-    openTab,
+    registerNewConversationTab,
     t,
   ]);
 

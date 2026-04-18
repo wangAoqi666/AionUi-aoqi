@@ -47,7 +47,7 @@ const GuidPage: React.FC = () => {
   const guidContainerRef = useRef<HTMLDivElement>(null);
   const openAssistantDetailsRef = useRef<(() => void) | null>(null);
   const descriptionTextRef = useRef<HTMLDivElement>(null);
-  const { closeAllTabs, openTab } = useConversationTabs();
+  const { closeAllTabs, openTab, activeTab } = useConversationTabs();
   const { isOpen: isPreviewOpen } = usePreviewContext();
   const { activeBorderColor, inactiveBorderColor, activeShadow } = useInputFocusRing();
   const { availableBackends, extensionAcpAdapters } = useAssistantBackends();
@@ -126,6 +126,7 @@ const GuidPage: React.FC = () => {
     navigate,
     closeAllTabs,
     openTab,
+    activeTab,
     t,
   });
 

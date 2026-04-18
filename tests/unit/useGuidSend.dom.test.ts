@@ -96,6 +96,7 @@ function makeDeps(overrides: Partial<GuidSendDeps> = {}): GuidSendDeps {
     navigate: vi.fn().mockResolvedValue(undefined),
     closeAllTabs: vi.fn(),
     openTab: vi.fn(),
+    activeTab: null,
     t: vi.fn((key: string) => key),
     ...overrides,
   } as GuidSendDeps;
@@ -209,6 +210,46 @@ describe('useGuidSend', () => {
 
     it('opens tab for custom workspace', async () => {
       const deps = makeDeps({ dir: '/custom/workspace' });
+      const { result } = renderHook(() => useGuidSend(deps));
+
+      await act(async () => {
+        await result.current.handleSend();
+      });
+
+      expect(deps.closeAllTabs).toHaveBeenCalled();
+      expect(deps.openTab).toHaveBeenCalledWith({ id: 'new-conv', extra: { workspace: '' } });
+    });
+
+    it('preserves existing tabs when new conversation stays in the same workspace', async () => {
+      const deps = makeDeps({
+        dir: '/custom/workspace',
+        activeTab: {
+          id: 'existing-tab',
+          name: 'existing',
+          workspace: '/custom/workspace',
+          type: 'acp',
+        },
+      });
+      const { result } = renderHook(() => useGuidSend(deps));
+
+      await act(async () => {
+        await result.current.handleSend();
+      });
+
+      expect(deps.closeAllTabs).not.toHaveBeenCalled();
+      expect(deps.openTab).toHaveBeenCalledWith({ id: 'new-conv', extra: { workspace: '' } });
+    });
+
+    it('closes existing tabs when switching to a different workspace', async () => {
+      const deps = makeDeps({
+        dir: '/new/workspace',
+        activeTab: {
+          id: 'existing-tab',
+          name: 'existing',
+          workspace: '/old/workspace',
+          type: 'acp',
+        },
+      });
       const { result } = renderHook(() => useGuidSend(deps));
 
       await act(async () => {
