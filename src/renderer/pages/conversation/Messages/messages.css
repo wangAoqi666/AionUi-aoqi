@@ -38,6 +38,28 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
+/* sticky collapsed: no bottom margin since items are hidden */
+.message-plan--sticky .message-plan__header[aria-expanded='false'] {
+  margin-bottom: 0;
+}
+
+.message-plan__running-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-text-3);
+}
+
+.message-plan__toggle-arrow {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-text-3);
+  margin-left: auto;
+}
+
 .message-plan__label {
   font-size: 13px;
   font-weight: 600;
