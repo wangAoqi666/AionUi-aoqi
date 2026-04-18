@@ -34,6 +34,21 @@
 - 测试结论必须附带可核对证据（截图路径、snapshot 结果、关键 ref 或关键文案），不能只口头说“已验证”
 - 同一轮桌面端自动化测试避免混用多个 CDP 控制器；已使用 `agent-browser` 时，不同时用 chrome-devtools / Playwright 抢同一窗口，除非任务明确需要
 
+## 后端集成测试规则（优先走后台脚本）
+
+- **验证后端能力（BYOK、proxy、SDK 调用、env 注入、配置读写等）时，优先写独立 Node.js / TS 脚本直接走完整调用链，不要盲目拉起 Electron GUI 让用户手点**；GUI 只在真的要验证 UI 交互时才启动
+- 测试脚本可直接读取本地配置文件走真实链路：
+  - Dev 配置：`~/Library/Application Support/AionUi-Dev/config/aionui-config.txt`
+  - Prod 配置：`~/Library/Application Support/AionUi/config/aionui-config.txt`
+  - 格式：`base64(encodeURIComponent(JSON))`；解码用 `decodeURIComponent(Buffer.from(raw, 'base64').toString('utf-8'))`
+- 测试脚本必须**内联或复刻项目里对应辅助函数的匹配逻辑**（如 `buildProxyCatalogModelId`、`resolveSessionModelId`、`getDroidByokProxyEnv`），确保脚本侧和业务代码走同一套推导，不要临时简化
+- 涉及 Droid / Factory SDK 链路时，用 `node_modules/@factory/droid-sdk/dist/index.js` 直接 `import { createSession }`，`execPath` 用 `which droid` 的路径，`env` 合并 `process.env` + 要验证的注入变量
+- 测试脚本输出必须打印关键中间值，便于用户复核：catalog modelId、resolveSessionModelId 剥离结果、BASE_URL、AUTH_TOKEN **脱敏后前缀+后缀**（如 `sk-ant-xxx...xxx`）、可用模型列表
+- 端到端验证要覆盖两层：(1) 静态匹配 —— env 构造是否正确；(2) 动态回路 —— `session.stream()` 发送一条真实消息，确认收到 `assistant_text_delta` + `turn_complete`
+- 测试脚本默认放到 `/tmp/`，用完清理；不要留在项目目录污染 git status
+- 禁止在测试脚本里明文打印完整 apiKey、secret、token，必须脱敏
+- 测试结论附带实测证据（消息类型序列、sessionId、可用模型数量、回复内容），不能只口头说"已验证"
+
 ## 代码质量规则
 
 - UI 组件只用 `@arco-design/web-react`，禁止裸写 `<button>`/`<input>`/`<select>` 等交互元素
