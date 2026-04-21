@@ -104,7 +104,8 @@
     "closeAll": "Close All",
     "closeLeft": "Close to the Left",
     "closeRight": "Close to the Right",
-    "closeOthers": "Close Others"
+    "closeOthers": "Close Others",
+    "rename": "Rename"
   },
   "dropdown": {
     "cliAgents": "CLI Agents",
@@ -249,6 +250,9 @@
       "recordingUnsupported": "Live recording is not supported here. Please upload an audio file instead",
       "transcriptionFailed": "Audio transcription failed",
       "genericError": "Voice input failed. Please try again"
+    },
+    "askUser": {
+      "customAnswer": "Own answer"
     }
   },
   "sideQuestion": {

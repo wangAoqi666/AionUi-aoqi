@@ -169,10 +169,13 @@ describe('ConversationChatConfirm ask-user flow', () => {
       options: [],
     });
 
+    // All 4 options should render as normal buttons, plus an "Own answer" button
     expect(await screen.findByRole('button', { name: '其他任务' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Own answer' })).toBeTruthy();
     expect(screen.queryByRole('textbox')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '其他任务' }));
+    // Click "Own answer" to enter custom input mode
+    fireEvent.click(screen.getByRole('button', { name: 'Own answer' }));
 
     const textArea = await screen.findByRole('textbox');
     fireEvent.change(textArea, { target: { value: '帮我整理一份需求文档' } });

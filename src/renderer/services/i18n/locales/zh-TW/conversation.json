@@ -115,7 +115,8 @@
     "closeAll": "全部關閉",
     "closeLeft": "關閉左側",
     "closeRight": "關閉右側",
-    "closeOthers": "關閉其他"
+    "closeOthers": "關閉其他",
+    "rename": "重新命名"
   },
   "workspace": {
     "title": "工作空間",
@@ -253,6 +254,9 @@
       "recordingUnsupported": "目前環境不支援直接錄音，請改為上傳音訊檔案",
       "transcriptionFailed": "音訊轉寫失敗",
       "genericError": "語音輸入失敗，請再試一次"
+    },
+    "askUser": {
+      "customAnswer": "自訂回答"
     }
   },
   "sideQuestion": {

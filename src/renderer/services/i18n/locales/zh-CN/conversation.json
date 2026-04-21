@@ -104,7 +104,8 @@
     "closeAll": "关闭全部",
     "closeLeft": "关闭左侧",
     "closeRight": "关闭右侧",
-    "closeOthers": "关闭其他"
+    "closeOthers": "关闭其他",
+    "rename": "重命名"
   },
   "dropdown": {
     "cliAgents": "CLI Agents",
@@ -249,6 +250,9 @@
       "recordingUnsupported": "当前环境不支持直接录音，请改为上传音频文件",
       "transcriptionFailed": "音频转写失败",
       "genericError": "语音输入失败，请重试"
+    },
+    "askUser": {
+      "customAnswer": "自定义回答"
     }
   },
   "sideQuestion": {

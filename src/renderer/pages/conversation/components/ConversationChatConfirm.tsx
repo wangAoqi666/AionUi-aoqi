@@ -29,6 +29,7 @@ export const AskUserConfirmCard: React.FC<{
 }> = ({ confirmation, onSubmit }) => {
   const { t } = useTranslation();
   const questions = confirmation.interaction?.questions || [];
+  const CUSTOM_ANSWER_SENTINEL = '__custom_answer__';
   const [selectedOptions, setSelectedOptions] = useState<Record<number, string>>({});
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,10 +40,10 @@ export const AskUserConfirmCard: React.FC<{
     setIsSubmitting(false);
   }, [confirmation.id]);
 
-  const getCustomOption = useCallback(
-    (question: AskUserConfirmationQuestion): string | undefined =>
-      question.options.length === 4 ? question.options[question.options.length - 1] : undefined,
-    []
+  const isCustomMode = useCallback(
+    (questionIndex: number, nextSelectedOptions: Record<number, string> = selectedOptions): boolean =>
+      nextSelectedOptions[questionIndex] === CUSTOM_ANSWER_SENTINEL,
+    [selectedOptions]
   );
 
   const resolveAnswer = useCallback(
@@ -51,14 +52,12 @@ export const AskUserConfirmCard: React.FC<{
       nextSelectedOptions: Record<number, string> = selectedOptions,
       nextCustomAnswers: Record<number, string> = customAnswers
     ): string => {
-      const selectedOption = nextSelectedOptions[question.index] || '';
-      const customOption = getCustomOption(question);
-      if (customOption && selectedOption === customOption) {
+      if (isCustomMode(question.index, nextSelectedOptions)) {
         return (nextCustomAnswers[question.index] || '').trim();
       }
-      return selectedOption.trim();
+      return (nextSelectedOptions[question.index] || '').trim();
     },
-    [customAnswers, getCustomOption, selectedOptions]
+    [customAnswers, isCustomMode, selectedOptions]
   );
 
   const canSubmitWithState = useCallback(
@@ -101,8 +100,8 @@ export const AskUserConfirmCard: React.FC<{
     };
     setSelectedOptions(nextSelectedOptions);
 
-    const customOption = getCustomOption(question);
-    if (customOption && option === customOption) {
+    // Entering custom answer mode — wait for user to type
+    if (option === CUSTOM_ANSWER_SENTINEL) {
       return;
     }
 
@@ -118,16 +117,16 @@ export const AskUserConfirmCard: React.FC<{
     <div className='shrink-0 mt-12px flex flex-col gap-12px'>
       {questions.map((question) => {
         const selectedOption = selectedOptions[question.index] || '';
-        const customOption = getCustomOption(question);
-        const shouldShowCustomInput = Boolean(customOption && selectedOption === customOption);
-        const shouldShowInput = question.options.length === 0 || !customOption || shouldShowCustomInput;
-        const value = shouldShowCustomInput ? customAnswers[question.index] || '' : selectedOption;
+        const inCustomMode = isCustomMode(question.index);
+        const hasOptions = question.options.length > 0;
+        const shouldShowInput = !hasOptions || inCustomMode;
+        const value = inCustomMode ? customAnswers[question.index] || '' : selectedOption;
 
         return (
           <div key={`${confirmation.id}-${question.index}`} className='rounded-12px bg-fill-1 p-12px'>
             <div className='mb-6px text-12px text-t-secondary'>{question.topic}</div>
             <div className='mb-10px text-14px text-t-primary'>{question.question}</div>
-            {question.options.length > 0 && (
+            {hasOptions && (
               <div className='mb-10px flex flex-wrap gap-8px'>
                 {question.options.map((option) => (
                   <Button
@@ -141,19 +140,24 @@ export const AskUserConfirmCard: React.FC<{
                     {option}
                   </Button>
                 ))}
+                <Button
+                  size='mini'
+                  type={inCustomMode ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    handleOptionClick(question, CUSTOM_ANSWER_SENTINEL);
+                  }}
+                >
+                  {t('conversation.chat.askUser.customAnswer', { defaultValue: 'Own answer' })}
+                </Button>
               </div>
             )}
             {shouldShowInput && (
               <Input.TextArea
                 autoSize={{ minRows: 2, maxRows: 6 }}
-                placeholder={
-                  customOption && shouldShowCustomInput
-                    ? customOption
-                    : question.options.join(' / ') || question.question
-                }
+                placeholder={question.options.join(' / ') || question.question}
                 value={value}
                 onChange={(nextValue) => {
-                  if (shouldShowCustomInput) {
+                  if (inCustomMode) {
                     setCustomAnswers((prev) => ({ ...prev, [question.index]: nextValue }));
                     return;
                   }

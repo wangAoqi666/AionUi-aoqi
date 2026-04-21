@@ -108,7 +108,8 @@
     "closeAll": "Tümünü Kapat",
     "closeLeft": "Sol tarafı kapat",
     "closeRight": "Sağ tarafı kapat",
-    "closeOthers": "Diğerlerini Kapat"
+    "closeOthers": "Diğerlerini Kapat",
+    "rename": "Yeniden Adlandır"
   },
   "workspace": {
     "title": "Çalışma Alanı",
@@ -248,6 +249,9 @@
       "recordingUnsupported": "Bu ortamda doğrudan kayıt desteklenmiyor. Lütfen bir ses dosyası yükleyin",
       "transcriptionFailed": "Ses yazıya dönüştürülemedi",
       "genericError": "Sesli giriş başarısız oldu. Lütfen tekrar deneyin"
+    },
+    "askUser": {
+      "customAnswer": "Kendi cevabım"
     }
   },
   "sideQuestion": {
