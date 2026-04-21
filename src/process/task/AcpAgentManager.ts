@@ -369,6 +369,15 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       // For droid backend, use the native SDK agent instead of generic ACP protocol.
       // This enables runtime model switching, typed streaming, and MCP management.
       if (data.backend === 'droid') {
+        // Forward team MCP stdio config so `DroidSdkAgent.syncMcpServersOnStartup()`
+        // can register it via `session.addMcpServer(...)` at startup, matching
+        // the ACP path's `AcpAgent.loadBuiltinSessionMcpServers()` behaviour.
+        // Env shape stays the legacy `Array<{name, value}>` from the task DB;
+        // DroidSdkAgent flattens to `Record<string, string>` internally so the
+        // SDK gets its expected shape without forcing the DB schema to change.
+        const teamMcpStdioConfig = (data as unknown as Record<string, unknown>).teamMcpStdioConfig as
+          | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> }
+          | undefined;
         this.agent = new DroidSdkAgent({
           id: data.conversation_id,
           workingDir: data.workspace || '.',
@@ -380,6 +389,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
           acpSessionId: resumableAcpSessionId,
           cachedConfigOptions: data.cachedConfigOptions,
           pendingConfigOptions: data.pendingConfigOptions,
+          teamMcpStdioConfig,
           onStreamEvent: (message) => this.handleStreamEvent(message, data),
           onSessionIdUpdate: (sessionId: string) => {
             this.saveAcpSessionId(sessionId);
@@ -1381,6 +1391,96 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
       success: result.success,
       msg: result.error,
       data: { mode: this.currentMode },
+    };
+  }
+
+  /**
+   * Toggle `skipPermissionsUnsafe` (真 YOLO) for the underlying Droid SDK
+   * session. Only valid for the Droid SDK backend — other backends return a
+   * deliberate failure so the renderer can keep using the ACP permission flow.
+   *
+   * Hard rule (SKILL P0-3 / "不要做清单"): this MUST only be invoked after the
+   * renderer has shown a second-confirmation modal and received explicit user
+   * consent. This method does not perform UI prompting itself.
+   *
+   * 真 YOLO 仅对 Droid SDK 后端生效；必须由 UI 弹窗二次确认后才调用。
+   */
+  async setSkipPermissionsUnsafe(confirmed: boolean): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'skipPermissionsUnsafe is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      // Session not yet bootstrapped (or still being rebuilt). The renderer
+      // will re-issue the call after setMode('yolo') triggers agent creation.
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const result = await this.agent.setSkipPermissionsUnsafe(confirmed);
+    if (!result.success) {
+      return { success: false, msg: result.error || 'Failed to update skipPermissionsUnsafe' };
+    }
+    return { success: true };
+  }
+
+  /**
+   * Update the Droid SDK tool whitelist (`enabledToolIds`) for the current
+   * conversation. See `DroidSdkAgent.setEnabledToolIds` for the three-state
+   * contract (null = clear, [] = disable-all, [id…] = whitelist). Only valid
+   * for the Droid SDK backend — other backends return a deliberate failure so
+   * the IPC caller can surface "unsupported" to the UI.
+   *
+   * Hard constraint (SKILL P2-2): this wrapper never mutates renderer state —
+   * it only forwards to `DroidSdkAgent`. The IPC layer (acpConversationBridge)
+   * is responsible for translating the structured failure into a user-facing
+   * message.
+   *
+   * 仅对 Droid 后端生效，行为透传给 DroidSdkAgent；其他后端直接返回 unsupported。
+   */
+  async setEnabledToolIds(ids: string[] | null): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'enabledToolIds is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      // Session not yet bootstrapped (or being rebuilt). The renderer should
+      // re-issue the call once the conversation has a live Droid agent.
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const result = await this.agent.setEnabledToolIds(ids);
+    if (!result.success) {
+      return { success: false, msg: result.error || 'Failed to update enabledToolIds' };
+    }
+    return { success: true };
+  }
+
+  /**
+   * Forward a user-triggered bug report to the Droid SDK. Only valid for the
+   * Droid backend — other backends return a deliberate `unsupported` failure
+   * so the renderer can either hide the UI entry point or fall back to the
+   * generic "report an issue" flow.
+   *
+   * Hard rule (SKILL P2-4): the wrapper never mutates renderer state and
+   * never touches the SDK directly — it simply forwards to `DroidSdkAgent`,
+   * which is the only place allowed to import SDK runtime methods.
+   *
+   * 仅对 Droid 后端生效，委托给 DroidSdkAgent；其他后端返回 unsupported。
+   */
+  async submitBugReport(report: {
+    title: string;
+    description: string;
+    includeSessionId?: boolean;
+  }): Promise<{ success: boolean; reportId?: string; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'submitBugReport is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const result = await this.agent.submitBugReport(report);
+    if (!result.success) {
+      return { success: false, msg: result.error || 'Failed to submit bug report' };
+    }
+    return {
+      success: true,
+      ...(result.reportId ? { reportId: result.reportId } : {}),
     };
   }
 

@@ -14,6 +14,15 @@ import { Down, Robot } from '@icon-park/react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarqueePillLabel from './MarqueePillLabel';
+import SkipPermissionsConfirmModal from './SkipPermissionsConfirmModal';
+
+/**
+ * Modes that trigger the "真 YOLO" skipPermissionsUnsafe confirmation flow.
+ * Both canonical YOLO ids are covered so Claude's `bypassPermissions` + Droid's
+ * `yolo` route through the same gate.
+ */
+const YOLO_MODE_IDS = new Set(['yolo', 'bypassPermissions']);
+const isYoloModeId = (mode: string | undefined): boolean => !!mode && YOLO_MODE_IDS.has(mode);
 
 export interface AgentModeSelectorProps {
   /** Agent backend type / 代理后端类型 */
@@ -86,6 +95,13 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   const [currentMode, setCurrentMode] = useState<string>(validInitialMode);
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  // Pending mode waiting for "真 YOLO" second confirmation. Only set for the
+  // Droid SDK backend — other backends route directly through setMode.
+  //   null      → modal hidden / no pending YOLO switch
+  //   <mode id> → user clicked YOLO but hasn't confirmed skipPermissionsUnsafe yet
+  const [pendingYoloMode, setPendingYoloMode] = useState<string | null>(null);
+  const [yoloConfirmLoading, setYoloConfirmLoading] = useState(false);
+  const isDroidBackend = backend === 'droid';
   const getDisplayModeLabel = useCallback(
     (mode: AgentModeOption) => modeLabelFormatter?.(mode) ?? mode.label,
     [modeLabelFormatter]
@@ -131,6 +147,43 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     };
   }, [conversationId, canSwitchMode]);
 
+  /**
+   * Actually performs the backend mode switch (no "真 YOLO" gating — callers
+   * must already have confirmed or verified we're not entering YOLO for a
+   * Droid backend).
+   */
+  const applyModeSwitch = useCallback(
+    async (mode: string): Promise<boolean> => {
+      if (!conversationId) return false;
+      setIsLoading(true);
+      try {
+        const result = await ipcBridge.acpConversation.setMode.invoke({
+          conversationId,
+          mode,
+        });
+
+        if (result.success) {
+          const nextMode = result.data?.mode ?? mode;
+          setCurrentMode(nextMode);
+          onModeChanged?.(nextMode);
+          Message.success('Mode switched');
+          return true;
+        }
+        const errorMsg = result.msg || 'Switch failed';
+        console.warn('[AgentModeSelector] Mode switch failed:', errorMsg);
+        Message.warning(errorMsg);
+        return false;
+      } catch (error) {
+        console.error('[AgentModeSelector] Failed to switch mode:', error);
+        Message.error('Switch failed');
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [conversationId, onModeChanged]
+  );
+
   const handleModeChange = useCallback(
     async (mode: string) => {
       // Close dropdown immediately after selection
@@ -148,31 +201,86 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
 
       if (!conversationId) return;
 
-      setIsLoading(true);
-      try {
-        const result = await ipcBridge.acpConversation.setMode.invoke({
-          conversationId,
-          mode,
-        });
-
-        if (result.success) {
-          setCurrentMode(result.data?.mode ?? mode);
-          onModeChanged?.(result.data?.mode ?? mode);
-          Message.success('Mode switched');
-        } else {
-          const errorMsg = result.msg || 'Switch failed';
-          console.warn('[AgentModeSelector] Mode switch failed:', errorMsg);
-          Message.warning(errorMsg);
+      // ── "真 YOLO" 二次确认拦截（仅 Droid 后端）──────────────────────
+      // SKILL P0-3 hard rule: entering YOLO for the Droid SDK backend must
+      // show an explicit second confirmation before enabling
+      // `skipPermissionsUnsafe`. The mode switch itself is deferred until
+      // the user confirms in the modal (see confirmYoloAndApplyMode).
+      //
+      // 离开 YOLO 切到其他模式时：显式地把 skipPermissionsUnsafe 关掉，
+      // 避免下次再进 YOLO 时默认开启真 YOLO。
+      if (isDroidBackend) {
+        if (isYoloModeId(mode)) {
+          // Defer the actual setMode until confirm.
+          setPendingYoloMode(mode);
+          return;
         }
-      } catch (error) {
-        console.error('[AgentModeSelector] Failed to switch mode:', error);
-        Message.error('Switch failed');
-      } finally {
-        setIsLoading(false);
+        if (isYoloModeId(currentMode) && !isYoloModeId(mode)) {
+          // Leaving YOLO — clear real-YOLO state first (best-effort; ignore
+          // any unsupported/not-yet-bootstrapped failures here because the
+          // session will re-sync skipPermissionsUnsafe on setMode).
+          try {
+            await ipcBridge.acpConversation.setSkipPermissionsUnsafe.invoke({
+              conversationId,
+              confirmed: false,
+            });
+          } catch (error) {
+            console.warn('[AgentModeSelector] Failed to clear skipPermissionsUnsafe on mode leave:', error);
+          }
+        }
       }
+
+      await applyModeSwitch(mode);
     },
-    [conversationId, currentMode, onModeSelect]
+    [applyModeSwitch, conversationId, currentMode, isDroidBackend, onModeSelect, onModeChanged]
   );
+
+  const handleYoloConfirm = useCallback(async () => {
+    if (!pendingYoloMode || !conversationId) {
+      setPendingYoloMode(null);
+      return;
+    }
+    setYoloConfirmLoading(true);
+    try {
+      // Flip skipPermissionsUnsafe=true BEFORE the mode switch so that the
+      // session, once it transitions into yolo via setMode, already sees the
+      // confirmed flag inside getSessionSettingsForMode('yolo'). When the
+      // session isn't bootstrapped yet (agent not instantiated), the backend
+      // returns success=false with an explicit "not yet available" message —
+      // we still proceed with the mode switch and flip the flag again after.
+      const skipResult = await ipcBridge.acpConversation.setSkipPermissionsUnsafe.invoke({
+        conversationId,
+        confirmed: true,
+      });
+      if (!skipResult.success) {
+        console.info(
+          '[AgentModeSelector] setSkipPermissionsUnsafe pre-switch returned:',
+          skipResult.msg || 'no-op (session not ready)'
+        );
+      }
+      const switched = await applyModeSwitch(pendingYoloMode);
+      if (switched) {
+        // Best-effort re-apply in case the first call happened before the
+        // agent was instantiated. Failures here are silent — the permission
+        // policy layer still auto-approves, preserving the prompt-less UX.
+        try {
+          await ipcBridge.acpConversation.setSkipPermissionsUnsafe.invoke({
+            conversationId,
+            confirmed: true,
+          });
+        } catch (error) {
+          console.warn('[AgentModeSelector] Post-switch setSkipPermissionsUnsafe re-apply failed:', error);
+        }
+      }
+    } finally {
+      setYoloConfirmLoading(false);
+      setPendingYoloMode(null);
+    }
+  }, [applyModeSwitch, conversationId, pendingYoloMode]);
+
+  const handleYoloCancel = useCallback(() => {
+    setPendingYoloMode(null);
+  }, []);
 
   // Render logo based on source
   const renderLogo = () => {
@@ -265,14 +373,24 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     }
 
     return (
-      <Dropdown
-        trigger='click'
-        popupVisible={dropdownVisible}
-        onVisibleChange={(visible) => !isLoading && setDropdownVisible(visible)}
-        droplist={dropdownMenu}
-      >
-        {compactContent}
-      </Dropdown>
+      <>
+        <Dropdown
+          trigger='click'
+          popupVisible={dropdownVisible}
+          onVisibleChange={(visible) => !isLoading && setDropdownVisible(visible)}
+          droplist={dropdownMenu}
+        >
+          {compactContent}
+        </Dropdown>
+        {isDroidBackend && (
+          <SkipPermissionsConfirmModal
+            visible={pendingYoloMode !== null}
+            loading={yoloConfirmLoading}
+            onConfirm={() => void handleYoloConfirm()}
+            onCancel={handleYoloCancel}
+          />
+        )}
+      </>
     );
   }
 
@@ -309,6 +427,14 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       >
         {content}
       </Dropdown>
+      {isDroidBackend && (
+        <SkipPermissionsConfirmModal
+          visible={pendingYoloMode !== null}
+          loading={yoloConfirmLoading}
+          onConfirm={() => void handleYoloConfirm()}
+          onCancel={handleYoloCancel}
+        />
+      )}
     </div>
   );
 };

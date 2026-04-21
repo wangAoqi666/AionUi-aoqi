@@ -35,7 +35,7 @@ import { stripHtml } from '../plugins/weixin/WeixinAdapter';
 import type { ChannelAgentType, IUnifiedIncomingMessage, IUnifiedOutgoingMessage, PluginType } from '../types';
 import type { PluginManager } from './PluginManager';
 import {
-  buildChannelConversationExtra,
+  hydrateChannelConversationExtra,
   loadChannelPublishInstanceSettings,
   resolveChannelSendProtocol,
 } from '../utils';
@@ -524,12 +524,12 @@ export class ActionExecutor {
         }
 
         const conversationExtra = {
-          ...buildChannelConversationExtra({
+          ...(await hydrateChannelConversationExtra({
             platform,
             backend,
             customAgentId,
             agentName,
-          }),
+          })),
           ...(resolvedWorkspace
             ? {
                 workspace: resolvedWorkspace,
@@ -726,7 +726,7 @@ export class ActionExecutor {
     // Send "thinking" indicator
     const thinkingMsgId = await context.sendMessage({
       type: 'text',
-      text: '⏳ Thinking...',
+      text: '⏳ 正在准备会话…',
       parseMode: 'HTML',
     });
 

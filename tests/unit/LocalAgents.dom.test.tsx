@@ -25,6 +25,9 @@ Object.defineProperty(window, 'matchMedia', {
 const mockNavigate = vi.hoisted(() => vi.fn());
 const mockGetDroidStatus = vi.hoisted(() => vi.fn());
 const mockCheckDroidCliUpdate = vi.hoisted(() => vi.fn());
+const mockDetectDroidNodeRuntime = vi.hoisted(() => vi.fn());
+const mockInstallDroidCli = vi.hoisted(() => vi.fn());
+const mockDroidCliInstallProgressOn = vi.hoisted(() => vi.fn(() => vi.fn()));
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
 const mockMessageWarning = vi.hoisted(() => vi.fn());
 const mockMessageInfo = vi.hoisted(() => vi.fn());
@@ -45,6 +48,9 @@ vi.mock('../../src/common', () => ({
     acpConversation: {
       getDroidStatus: { invoke: mockGetDroidStatus },
       checkDroidCliUpdate: { invoke: mockCheckDroidCliUpdate },
+      detectDroidNodeRuntime: { invoke: mockDetectDroidNodeRuntime },
+      installDroidCli: { invoke: mockInstallDroidCli },
+      droidCliInstallProgress: { on: mockDroidCliInstallProgressOn },
     },
   },
 }));
@@ -83,10 +89,18 @@ vi.mock('@arco-design/web-react', () => ({
     info: mockMessageInfo,
     error: mockMessageError,
   },
+  Modal: ({ visible, children, footer }: { visible?: boolean; children?: React.ReactNode; footer?: React.ReactNode }) =>
+    visible ? (
+      <div>
+        {children}
+        {footer}
+      </div>
+    ) : null,
   Spin: () => <div data-testid='spin'>loading</div>,
 }));
 
 vi.mock('@icon-park/react', () => ({
+  Download: () => <span data-testid='icon-download'>DownloadIcon</span>,
   Setting: () => <span data-testid='icon-setting'>SettingIcon</span>,
   Refresh: () => <span data-testid='icon-refresh'>RefreshIcon</span>,
 }));
@@ -120,6 +134,12 @@ describe('LocalAgents', () => {
         registry: 'https://registry.npmmirror.com',
       },
     });
+    mockDetectDroidNodeRuntime.mockResolvedValue({
+      success: true,
+      data: { available: true, meetsMinimum: true, command: 'node', nodeVersion: process.version },
+    });
+    mockInstallDroidCli.mockResolvedValue({ success: true, data: { success: true, message: 'installed' } });
+    mockDroidCliInstallProgressOn.mockReturnValue(vi.fn());
     mockSwrMutate.mockResolvedValue(undefined);
     mockUseSWR.mockReturnValue({
       data: {

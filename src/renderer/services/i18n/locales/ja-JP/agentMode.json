@@ -15,5 +15,10 @@
   "permission": "権限",
   "switchMode": "モード切替",
   "switchSuccess": "モードを切り替えました",
-  "switchFailed": "モードの切り替えに失敗しました"
+  "switchFailed": "モードの切り替えに失敗しました",
+  "yoloConfirmTitle": "真の YOLO（すべての権限確認をスキップ）を有効にしますか？",
+  "yoloConfirmBody": "真の YOLO を有効化すると、AgentFactory は Droid CLI に skipPermissionsUnsafe を送信します。Droid は権限確認を一切行わず、ファイル削除・コードプッシュ・不可逆なコマンド実行を含むすべての操作を自動実行します。",
+  "yoloConfirmWarning": "この設定は現在のセッションにのみ適用され、YOLO 以外のモードに切り替えると自動的に解除されます。管理された環境でのみご利用ください。",
+  "yoloConfirmConfirmButton": "リスクを理解のうえ、真の YOLO を有効化",
+  "yoloConfirmCancelButton": "キャンセル"
 }

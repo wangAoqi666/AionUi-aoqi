@@ -118,7 +118,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
             height={60}
             className='object-cover cursor-pointer'
             style={{ display: imageUrl ? 'block' : 'none' }}
-            preview={imageUrl ? true : false}
+            preview={false}
           />
           {!imageUrl && <div className='w-60px h-60px bg-bg-3'></div>}
         </div>

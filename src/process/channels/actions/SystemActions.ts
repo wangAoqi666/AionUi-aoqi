@@ -47,7 +47,7 @@ import type { ChannelAgentType, PluginType } from '../types';
 import type { ActionHandler, IRegisteredAction } from './types';
 import { SystemActionNames, createErrorResponse, createSuccessResponse } from './types';
 import { GOOGLE_AUTH_PROVIDER_ID } from '@/common/config/constants';
-import { buildChannelConversationExtra, loadChannelPublishInstanceSettings } from '../utils';
+import { hydrateChannelConversationExtra, loadChannelPublishInstanceSettings } from '../utils';
 
 /**
  * Get the default model for Channel assistant (Telegram/Lark)
@@ -271,23 +271,61 @@ export const handleSessionNew: ActionHandler = async (context) => {
   // Provider model is required by typing; ACP/Codex will ignore it.
   const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel, context.pluginId);
 
+  let resolvedWorkspace: string | undefined = instanceSettings.workspace;
+  if (!resolvedWorkspace) {
+    try {
+      const db = await getDatabase();
+      const inherited = db.findAnyChannelConversationWorkspaceForPlugin(source, context.pluginId);
+      if (inherited.success && inherited.data) {
+        resolvedWorkspace = inherited.data;
+      }
+    } catch (error) {
+      console.warn(`[SystemActions] Failed to inherit channel workspace for ${context.pluginId}:`, error);
+    }
+  }
+
+  let resolvedDroidModelId: string | undefined;
+  if (backend === 'droid') {
+    const pickedUseModel = instanceSettings.defaultModel?.useModel;
+    if (pickedUseModel) {
+      resolvedDroidModelId = pickedUseModel;
+    } else {
+      try {
+        const cachedModels = (await ProcessConfig.get('acp.cachedModels')) as
+          | Record<string, { currentModelId?: string } | undefined>
+          | undefined;
+        const cachedDroidModelId = cachedModels?.['droid']?.currentModelId;
+        if (
+          typeof cachedDroidModelId === 'string' &&
+          cachedDroidModelId.length > 0 &&
+          (cachedDroidModelId.startsWith('custom:') || cachedDroidModelId.includes('[BYOK]'))
+        ) {
+          resolvedDroidModelId = cachedDroidModelId;
+        }
+      } catch (error) {
+        console.warn('[SystemActions] Failed to read acp.cachedModels for droid modelId fallback:', error);
+      }
+    }
+  }
+
   // Always create a NEW conversation for "session.new" (scoped by chatId)
   const channelChatId = context.chatId;
   const { convType, convBackend } = resolveChannelConvType(backend);
   const name = getChannelConversationName(platform, convType, convBackend, channelChatId);
   const conversationExtra = {
-    ...buildChannelConversationExtra({
+    ...(await hydrateChannelConversationExtra({
       platform,
       backend,
       customAgentId,
       agentName,
-    }),
-    ...(instanceSettings.workspace
+    })),
+    ...(resolvedWorkspace
       ? {
-          workspace: instanceSettings.workspace,
+          workspace: resolvedWorkspace,
           customWorkspace: true,
         }
       : {}),
+    ...(resolvedDroidModelId ? { currentModelId: resolvedDroidModelId } : {}),
   };
 
   let newConversation: TChatConversation;
@@ -343,7 +381,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
     context.channelUser,
     newConversation.id,
     agentType,
-    instanceSettings.workspace,
+    resolvedWorkspace,
     channelChatId
   );
 

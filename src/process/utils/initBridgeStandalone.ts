@@ -30,6 +30,7 @@ import { initGeminiBridge } from '@process/bridge/geminiBridge';
 import { initGeminiConversationBridge } from '@process/bridge/geminiConversationBridge';
 import { initModelBridge } from '@process/bridge/modelBridge';
 import { initPreviewHistoryBridge } from '@process/bridge/previewHistoryBridge';
+import { initOfficeCliBridge } from '@process/bridge/officeCliBridge';
 import { initPptPreviewBridge } from '@process/bridge/pptPreviewBridge';
 import { initOfficeWatchBridge } from '@process/bridge/officeWatchBridge';
 import { initStarOfficeBridge } from '@process/bridge/starOfficeBridge';
@@ -66,6 +67,7 @@ export async function initBridgeStandalone(): Promise<void> {
   initModelBridge();
   initPreviewHistoryBridge();
   initDocumentBridge();
+  initOfficeCliBridge();
   initPptPreviewBridge();
   initOfficeWatchBridge();
   initChannelBridge(channelRepo);

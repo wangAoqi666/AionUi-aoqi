@@ -28,10 +28,33 @@ import { isNewApiPlatform, NEW_API_PROTOCOL_OPTIONS } from '@/renderer/utils/mod
 import EditModeModal from '@/renderer/pages/settings/components/EditModeModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import FactoryDroidByokModal from '@/renderer/components/settings/FactoryDroidByokModal';
+import FactoryDroidByokSiteList from './factoryDroidByok/FactoryDroidByokSiteList';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { classifyHealthCheckMessage } from './healthCheckUtils';
 import '../model-provider.css';
+
+/**
+ * Feature-flag gate for the legacy flat BYOK list. When the localStorage key
+ * `aionui.byok.legacyUi` is `"1"`, the settings page keeps the pre-site flat
+ * grouping as an emergency rollback. Otherwise the new site-aggregated view
+ * is rendered.
+ *
+ * Paired with the server-side `AIONUI_BYOK_LEGACY=1` switch so operators can
+ * pin the legacy shape for an individual user without touching main-process
+ * state.
+ */
+const BYOK_LEGACY_UI_STORAGE_KEY = 'aionui.byok.legacyUi';
+const isLegacyByokUiEnabled = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.localStorage?.getItem(BYOK_LEGACY_UI_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
 
 /**
  * 获取协议显示标签颜色
@@ -134,8 +157,14 @@ const buildManagedByokFallbackModel = (config: IDroidByokModelConfig): FactoryDr
   sourceModelId: config.model,
   modelProvider: config.provider,
   isCustom: true,
-  reasoningLevels: ['none'],
-  defaultReasoning: 'none',
+  // Managed BYOK configs always carry resolved capabilities from the main
+  // process (inferred or user-overridden). Keep the fallback path aligned
+  // with the main-process shape so reasoning selectors and multimodal gates
+  // see real data instead of a lossy `['none']` placeholder.
+  reasoningLevels:
+    Array.isArray(config.reasoningLevels) && config.reasoningLevels.length > 0 ? config.reasoningLevels : ['none'],
+  defaultReasoning: config.defaultReasoning ?? 'none',
+  ...(config.supportsImageInput === true ? { supportsImageInput: true } : {}),
   fallbackOnly: true,
   managedConfig: config,
 });
@@ -357,6 +386,8 @@ const ModelModalContent: React.FC = () => {
   const [droidByokConfigs, setDroidByokConfigs] = useState<IDroidByokModelConfig[]>([]);
   const [droidByokLoading, setDroidByokLoading] = useState(true);
   const [droidByokRemovingId, setDroidByokRemovingId] = useState<string | null>(null);
+  const [byokLegacyUi] = useState<boolean>(() => isLegacyByokUiEnabled());
+  const [byokSiteRefreshToken, setByokSiteRefreshToken] = useState(0);
   const { data, mutate } = useSWR('model.config', () => {
     return ipcBridge.mode.getModelConfig.invoke().then((modelConfigData) => {
       if (!modelConfigData) return [];
@@ -738,6 +769,7 @@ const ModelModalContent: React.FC = () => {
     async onSubmit() {
       await loadDroidByokConfig();
       await syncDroidCatalog();
+      setByokSiteRefreshToken((prev) => prev + 1);
     },
   });
 
@@ -751,12 +783,18 @@ const ModelModalContent: React.FC = () => {
 
       await loadDroidByokConfig();
       await syncDroidCatalog();
+      setByokSiteRefreshToken((prev) => prev + 1);
       message.success(t('settings.droidByok.removeSuccess'));
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setDroidByokRemovingId(null);
     }
+  };
+
+  const handleByokSiteAfterChange = async () => {
+    await loadDroidByokConfig();
+    await syncDroidCatalog();
   };
 
   useEffect(() => {
@@ -803,15 +841,35 @@ const ModelModalContent: React.FC = () => {
         {/* Factory Droid Built-in Models */}
         <FactoryDroidBuiltInSection />
 
-        <FactoryDroidByokSection
-          byokConfigs={droidByokConfigs}
-          loading={droidByokLoading}
-          removingId={droidByokRemovingId}
-          onEditCustomModel={(config) => factoryDroidByokModalCtrl.open({ data: config })}
-          onRemoveCustomModel={(config) => {
-            void handleRemoveDroidByok(config);
-          }}
-        />
+        {byokLegacyUi ? (
+          <FactoryDroidByokSection
+            byokConfigs={droidByokConfigs}
+            loading={droidByokLoading}
+            removingId={droidByokRemovingId}
+            onEditCustomModel={(config) => factoryDroidByokModalCtrl.open({ data: config })}
+            onRemoveCustomModel={(config) => {
+              void handleRemoveDroidByok(config);
+            }}
+          />
+        ) : (
+          <FactoryDroidByokSiteList
+            byokConfigs={droidByokConfigs}
+            refreshToken={byokSiteRefreshToken}
+            onRequestAddModel={(site) =>
+              factoryDroidByokModalCtrl.open({
+                data: null,
+                prefill: { baseUrl: site.baseUrl, provider: site.provider },
+              })
+            }
+            onEditModel={(config) => factoryDroidByokModalCtrl.open({ data: config })}
+            onRemoveModel={async (config) => {
+              await handleRemoveDroidByok(config);
+            }}
+            onAfterChange={async () => {
+              await handleByokSiteAfterChange();
+            }}
+          />
+        )}
 
         {/* User-configured providers */}
         {data && data.length > 0 ? (

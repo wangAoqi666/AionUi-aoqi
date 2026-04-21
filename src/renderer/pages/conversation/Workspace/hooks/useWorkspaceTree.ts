@@ -16,13 +16,14 @@ interface UseWorkspaceTreeOptions {
   workspace: string;
   conversation_id: string;
   eventPrefix: WorkspaceEventPrefix;
+  showAllFiles: boolean;
 }
 
 /**
  * useWorkspaceTree - 合并树状态管理和选择逻辑
  * Merge tree state management and selection logic
  */
-export function useWorkspaceTree({ workspace, conversation_id, eventPrefix }: UseWorkspaceTreeOptions) {
+export function useWorkspaceTree({ workspace, conversation_id, eventPrefix, showAllFiles }: UseWorkspaceTreeOptions) {
   // Tree state / 树状态
   const [files, setFiles] = useState<IDirOrFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,7 +74,7 @@ export function useWorkspaceTree({ workspace, conversation_id, eventPrefix }: Us
       const seq = ++loadSeqRef.current;
       setLoadingHandler(true);
       return ipcBridge.conversation.getWorkspace
-        .invoke({ path, workspace, conversation_id, search: search || '' })
+        .invoke({ path, workspace, conversation_id, search: search || '', showAll: showAllFiles })
         .then((res) => {
           // Ignore stale responses from aborted requests:
           // The backend aborts previous getWorkspace calls, returning [].
@@ -129,7 +130,7 @@ export function useWorkspaceTree({ workspace, conversation_id, eventPrefix }: Us
           setLoadingHandler(false);
         });
     },
-    [conversation_id, workspace, setLoadingHandler]
+    [conversation_id, showAllFiles, workspace, setLoadingHandler]
   );
 
   /**

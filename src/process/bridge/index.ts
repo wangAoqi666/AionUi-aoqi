@@ -35,6 +35,7 @@ import { initWebuiBridge } from './webuiBridge';
 import { initSystemSettingsBridge } from './systemSettingsBridge';
 import { initWindowControlsBridge } from './windowControlsBridge';
 import { initNotificationBridge } from './notificationBridge';
+import { initOfficeCliBridge } from './officeCliBridge';
 import { initPptPreviewBridge } from './pptPreviewBridge';
 import { initOfficeWatchBridge } from './officeWatchBridge';
 import { initExtensionsBridge } from './extensionsBridge';
@@ -73,6 +74,7 @@ export function initAllBridges(deps: BridgeDependencies): void {
   initMcpBridge();
   initPreviewHistoryBridge();
   initDocumentBridge();
+  initOfficeCliBridge();
   initPptPreviewBridge();
   initOfficeWatchBridge();
   initWindowControlsBridge();
@@ -125,6 +127,7 @@ export {
   initMcpBridge,
   initModelBridge,
   initNotificationBridge,
+  initOfficeCliBridge,
   initOfficeWatchBridge,
   initPptPreviewBridge,
   initPreviewHistoryBridge,

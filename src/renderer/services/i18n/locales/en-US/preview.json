@@ -119,5 +119,27 @@
     "installing": "Installing preview component...",
     "startFailed": "Failed to start PPT preview",
     "installHint": "Make sure officecli is installed: npm run postinstall"
+  },
+  "officecli": {
+    "failed": {
+      "title": "Unable to start the Office preview"
+    },
+    "actions": {
+      "retry": "Retry install",
+      "manualInstall": "View manual install guide",
+      "copyCommand": "Copy install command",
+      "copySuccess": "Install command copied"
+    },
+    "hints": {
+      "darwin": "The installer runs via curl + bash. If macOS Gatekeeper blocks the binary, run xattr -cr ~/.local/bin/officecli first.",
+      "linux": "Run the install script in a shell with network access. Verify ~/.local/bin is on your PATH.",
+      "windowsGeneric": "Copy the PowerShell command below and run it in a new PowerShell window.",
+      "windowsExecutionPolicy": "PowerShell ExecutionPolicy is blocking the script. Run Set-ExecutionPolicy -Scope Process Bypass first, then paste the install command.",
+      "cooldown": "Recent install attempt failed. Please wait a few minutes before retrying."
+    },
+    "status": {
+      "installing": "Installing officecli...",
+      "installed": "officecli installed"
+    }
   }
 }

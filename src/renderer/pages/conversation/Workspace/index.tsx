@@ -6,8 +6,11 @@
 
 import { ipcBridge } from '@/common';
 import type { IDirOrFile } from '@/common/adapter/ipcBridge';
+import { ConfigStorage } from '@/common/config/storage';
+import { STORAGE_KEYS } from '@/common/config/storageKeys';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewOfficeFiles';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import {
   isTemporaryWorkspace as checkIsTemporaryWorkspace,
@@ -16,6 +19,7 @@ import {
 import { Empty, Message, Tree } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import useSWR from 'swr';
 import FileChangeList from './components/FileChangeList';
 import MigrationModal from './components/MigrationModal';
 import PasteConfirmModal from './components/PasteConfirmModal';
@@ -44,6 +48,14 @@ import {
 } from './utils/treeHelpers';
 import './workspace.css';
 
+const getAutoPreviewOfficeFallback = (): boolean => {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE) === 'true';
+  } catch {
+    return false;
+  }
+};
+
 const ChatWorkspace: React.FC<WorkspaceProps> = ({
   conversation_id,
   workspace,
@@ -54,6 +66,23 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const { openPreview } = usePreviewContext();
+  const autoPreviewOfficeFallback = getAutoPreviewOfficeFallback();
+  const { data: autoPreviewOffice = autoPreviewOfficeFallback } = useSWR<boolean>(
+    'workspace.autoPreviewOffice',
+    async () => {
+      const value = Boolean(await ConfigStorage.get('workspace.autoPreviewOffice').catch(() => false));
+      try {
+        localStorage.setItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE, String(value));
+      } catch {
+        // ignore localStorage failures
+      }
+      return value;
+    },
+    {
+      fallbackData: autoPreviewOfficeFallback,
+    }
+  );
+  useAutoPreviewOfficeFiles(workspace, autoPreviewOffice);
 
   // Message API setup
   const [internalMessageApi, messageContext] = Message.useMessage();
@@ -63,10 +92,18 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
   // Tab state and file changes
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
   const fileChangesHook = useFileChanges({ workspace, conversationId: conversation_id });
+  const [showAllFiles, setShowAllFiles] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.WORKSPACE_SHOW_ALL_FILES);
+      return stored ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
 
   // Initialize all hooks
   const { isWorkspaceCollapsed, setIsWorkspaceCollapsed } = useWorkspaceCollapse();
-  const treeHook = useWorkspaceTree({ workspace, conversation_id, eventPrefix });
+  const treeHook = useWorkspaceTree({ workspace, conversation_id, eventPrefix, showAllFiles });
   const modalsHook = useWorkspaceModals();
   const pasteHook = useWorkspacePaste({
     conversationId: conversation_id,
@@ -158,6 +195,18 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
     t,
     isTemporaryWorkspace,
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.WORKSPACE_SHOW_ALL_FILES, String(showAllFiles));
+    } catch {
+      // Ignore errors
+    }
+  }, [showAllFiles]);
+
+  useEffect(() => {
+    void treeHook.refreshWorkspace();
+  }, [showAllFiles, treeHook.refreshWorkspace]);
 
   let contextMenuStyle: React.CSSProperties | undefined;
   if (modalsHook.contextMenu.visible) {
@@ -321,6 +370,8 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
             searchInputRef={searchHook.searchInputRef}
             loading={treeHook.loading}
             refreshWorkspace={treeHook.refreshWorkspace}
+            showAllFiles={showAllFiles}
+            toggleShowAllFiles={() => setShowAllFiles((prev) => !prev)}
             handleSelectHostFiles={pasteHook.handleSelectHostFiles}
             handleUploadDeviceFiles={pasteHook.handleUploadDeviceFiles}
             setShowHostFileSelector={searchHook.setShowHostFileSelector}
@@ -430,7 +481,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
                 loadMore={(treeNode) => {
                   const path = treeNode.props.dataRef.fullPath;
                   return ipcBridge.conversation.getWorkspace
-                    .invoke({ conversation_id, workspace, path })
+                    .invoke({ conversation_id, workspace, path, showAll: showAllFiles })
                     .then((res) => {
                       if (res[0]?.children) {
                         treeNode.props.dataRef.children = res[0].children;

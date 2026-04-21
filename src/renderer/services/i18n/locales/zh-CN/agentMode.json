@@ -15,5 +15,10 @@
   "permission": "权限",
   "switchMode": "切换模式",
   "switchSuccess": "模式切换成功",
-  "switchFailed": "模式切换失败"
+  "switchFailed": "模式切换失败",
+  "yoloConfirmTitle": "启用 真 YOLO（跳过所有权限提示）？",
+  "yoloConfirmBody": "开启\"真 YOLO\"后，智能体工厂会向 Droid CLI 下发 skipPermissionsUnsafe，Droid 将跳过所有权限提示，直接执行包括删除文件、推送代码、运行不可逆命令在内的一切操作。",
+  "yoloConfirmWarning": "此设置仅对当前会话生效，切换到其他模式时会自动关闭。请确认你真的要在可控环境下使用。",
+  "yoloConfirmConfirmButton": "我确认风险，启用真 YOLO",
+  "yoloConfirmCancelButton": "取消"
 }

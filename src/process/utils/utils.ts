@@ -133,6 +133,7 @@ export async function readDirectoryRecursive(
     abortController?: AbortController;
     fileService?: { shouldIgnoreFile(path: string): boolean };
     maxDepth?: number;
+    showAll?: boolean;
     search?: {
       text: string;
       onProcess?(result: { file: number; dir: number; match?: IDirOrFile }): void;
@@ -140,7 +141,7 @@ export async function readDirectoryRecursive(
     };
   }
 ): Promise<IDirOrFile> {
-  const { root = dirPath, maxDepth = 1, fileService, search, abortController } = options || {};
+  const { root = dirPath, maxDepth = 1, fileService, search, abortController, showAll = false } = options || {};
   const { text: searchText, onProcess: onSearchProcess = () => {}, process = { file: 0, dir: 1 } } = search || {};
 
   const matchSearch = searchText ? (fullPath: string) => fullPath.includes(searchText) : (_: string) => false;
@@ -184,9 +185,9 @@ export async function readDirectoryRecursive(
 
   for (const item of items) {
     checkStatus();
-    if (item === 'node_modules') continue;
     const itemPath = path.join(dirPath, item);
-    if (fileService && fileService.shouldIgnoreFile(itemPath)) continue;
+    if (!showAll && item === 'node_modules') continue;
+    if (!showAll && fileService && fileService.shouldIgnoreFile(itemPath)) continue;
 
     let itemStats: Awaited<ReturnType<typeof fs.stat>>;
     try {
@@ -196,6 +197,19 @@ export async function readDirectoryRecursive(
       continue;
     }
     if (itemStats.isDirectory()) {
+      if (showAll && !searchText && (item === 'node_modules' || item === '.git')) {
+        result.children.push({
+          name: item,
+          fullPath: itemPath,
+          relativePath: path.relative(root, itemPath),
+          isDir: true,
+          isFile: false,
+          children: [],
+        });
+        process.dir += 1;
+        continue;
+      }
+
       process.dir += 1;
       const child = await readDirectoryRecursive(itemPath, {
         ...options,

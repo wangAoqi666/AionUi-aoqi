@@ -153,6 +153,7 @@
     "dragOverlayTitle": "İçe aktarmak için bırakın",
     "dragOverlayDesc": "Dosyaları veya klasörleri bu çalışma alanına kopyalamak için buraya sürükleyin.",
     "dragOverlayHint": "İpucu: seçili klasöre içe aktarmak için herhangi bir yere bırakın.",
+    "showAllFiles": "Tümünü göster",
     "dragNoFiles": "Geçerli dosya algılanmadı. Lütfen Finder/Explorer'dan sürükleyin.",
     "dragFailed": "Bırakılan dosyalar içe aktarılamadı.",
     "contextMenu": {

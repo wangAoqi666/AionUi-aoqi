@@ -119,5 +119,27 @@
     "installing": "正在安装预览组件...",
     "startFailed": "启动 PPT 预览失败",
     "installHint": "请确保已安装 officecli：npm run postinstall"
+  },
+  "officecli": {
+    "failed": {
+      "title": "无法启动 Office 预览"
+    },
+    "actions": {
+      "retry": "重试安装",
+      "manualInstall": "查看手动安装指南",
+      "copyCommand": "复制安装命令",
+      "copySuccess": "已复制安装命令"
+    },
+    "hints": {
+      "darwin": "安装脚本通过 curl + bash 执行。若被 macOS Gatekeeper 拦截，请先执行 xattr -cr ~/.local/bin/officecli。",
+      "linux": "请在联网的终端中运行安装脚本，并确认 ~/.local/bin 已加入 PATH。",
+      "windowsGeneric": "请复制下方 PowerShell 命令，在新打开的 PowerShell 窗口中运行。",
+      "windowsExecutionPolicy": "PowerShell 执行策略阻止了安装脚本。请先执行 Set-ExecutionPolicy -Scope Process Bypass，再粘贴安装命令。",
+      "cooldown": "最近一次安装失败，请稍等几分钟后再重试。"
+    },
+    "status": {
+      "installing": "正在安装 officecli...",
+      "installed": "officecli 已安装"
+    }
   }
 }

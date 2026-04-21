@@ -43,6 +43,40 @@ export interface SkillIndex {
 }
 
 /**
+ * SDK skill 的分类。默认 `skill`；命中 custom-droid / subagent 约定时为 `subagent`。
+ * Kind of an SDK-sourced skill: regular skill, or subagent-like (custom droid / Task).
+ */
+export type SdkSkillKind = 'skill' | 'subagent';
+
+/**
+ * SDK skill 的来源位置。与 `@factory/droid-sdk` 的 `SkillLocation`（project / personal / builtin）保持同步，
+ * 以 string union 声明避免在 AcpSkillManager 里引入 SDK 运行期依赖（types-only 约束）。
+ * SDK-reported skill location (kept as a string union so we don't require a runtime
+ * dependency on `@factory/droid-sdk` here — only DroidSdkAgent may import that module).
+ */
+export type SdkSkillLocation = 'project' | 'personal' | 'builtin' | (string & {});
+
+/**
+ * Droid SDK `session.listSkills()` 返回结果在本项目中的规范化形式。
+ * Normalized record for skills returned by Droid SDK `session.listSkills()`.
+ *
+ * 与 `SkillDefinition` 的差异：
+ * - `kind` 区分 subagent / 普通 skill 以便 UI 标识
+ * - `location` 使用 SDK 的 location 枚举语义（而非本地文件路径）
+ * - `filePath` 记录 SDK 报告的 skill 源文件，方便排障
+ */
+export interface SdkSkill {
+  name: string;
+  description: string;
+  location: SdkSkillLocation;
+  filePath: string;
+  kind: SdkSkillKind;
+  enabled?: boolean;
+  userInvocable?: boolean;
+  version?: string;
+}
+
+/**
  * 解析 SKILL.md 的 frontmatter
  * Parse frontmatter from SKILL.md
  */
@@ -100,6 +134,12 @@ export class AcpSkillManager {
   private autoSkills: Map<string, SkillDefinition> = new Map();
   /** Extension-contributed skills loaded from ExtensionRegistry */
   private extensionSkills: Map<string, SkillDefinition> = new Map();
+  /**
+   * Skills surfaced by Droid SDK `session.listSkills()`.
+   * Droid 后端通过 `DroidSdkAgent.syncSdkSkills()` 在会话启动后 merge 进来，
+   * 关闭会话时清空。详见 `droid-sdk-integration` skill 的 P0-1 / P0-4 指引。
+   */
+  private sdkSkills: Map<string, SdkSkill> = new Map();
   private skillsDir: string;
   private autoSkillsDir: string;
   private initialized: boolean = false;
@@ -325,19 +365,29 @@ export class AcpSkillManager {
 
   /**
    * 获取所有 skills 的索引（轻量级）
-   * 包含内置 skills + 可选 skills
+   * 包含内置 skills + 可选 skills + 扩展 skills + Droid SDK skills
    * Get index of all skills (lightweight)
-   * Includes builtin skills + optional skills
+   * Includes builtin skills + optional skills + extension skills + Droid SDK skills
+   *
+   * Droid SDK 贡献的 subagent 类 skill 会在 description 前拼 `[subagent] `，
+   * 让前端 / 会话 AI 一眼看出它是 subagent / custom droid（P0-4）。
    */
   getSkillsIndex(): SkillIndex[] {
-    // Priority: optional (user-selected for this assistant) > builtin (auto-injected) > extension
+    // Priority: optional (user-selected for this assistant) > builtin (auto-injected) > extension > sdk
     // User-selected skills come first because they represent the most specific intent for this assistant.
     const allSkills: SkillIndex[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (entry: SkillIndex) => {
+      if (seen.has(entry.name)) return;
+      seen.add(entry.name);
+      allSkills.push(entry);
+    };
 
     // 可选 skills 优先（为此助手显式配置，最高优先级）
     // Optional skills first (explicitly configured for this assistant — highest priority)
     for (const skill of this.skills.values()) {
-      allSkills.push({
+      pushUnique({
         name: skill.name,
         description: skill.description,
       });
@@ -345,17 +395,26 @@ export class AcpSkillManager {
 
     // 然后是内置 skills / Then builtin skills
     for (const skill of this.autoSkills.values()) {
-      allSkills.push({
+      pushUnique({
         name: skill.name,
         description: skill.description,
       });
     }
 
-    // 最后是扩展 skills / Then extension skills
+    // 扩展 skills / Then extension skills
     for (const skill of this.extensionSkills.values()) {
-      allSkills.push({
+      pushUnique({
         name: skill.name,
         description: skill.description,
+      });
+    }
+
+    // 最后是 Droid SDK skills / Finally, SDK skills (Droid backend only)
+    for (const skill of this.sdkSkills.values()) {
+      const description = skill.kind === 'subagent' ? `[subagent] ${skill.description}` : skill.description;
+      pushUnique({
+        name: skill.name,
+        description,
       });
     }
 
@@ -374,11 +433,11 @@ export class AcpSkillManager {
   }
 
   /**
-   * 检查是否有任何 skills（内置或可选）
-   * Check if there are any skills (builtin or optional)
+   * 检查是否有任何 skills（内置、可选、扩展或 Droid SDK 贡献）
+   * Check if there are any skills (builtin / optional / extension / Droid SDK)
    */
   hasAnySkills(): boolean {
-    return this.autoSkills.size > 0 || this.skills.size > 0 || this.extensionSkills.size > 0;
+    return this.autoSkills.size > 0 || this.skills.size > 0 || this.extensionSkills.size > 0 || this.sdkSkills.size > 0;
   }
 
   /**
@@ -431,11 +490,44 @@ export class AcpSkillManager {
   }
 
   /**
-   * 检查 skill 是否存在（包括内置和可选）
-   * Check if a skill exists (including builtin and optional)
+   * 检查 skill 是否存在（包括内置、可选、扩展和 SDK 贡献）
+   * Check if a skill exists (including builtin / optional / extension / Droid SDK)
    */
   hasSkill(name: string): boolean {
-    return this.autoSkills.has(name) || this.skills.has(name) || this.extensionSkills.has(name);
+    return (
+      this.autoSkills.has(name) || this.skills.has(name) || this.extensionSkills.has(name) || this.sdkSkills.has(name)
+    );
+  }
+
+  /**
+   * Droid SDK 路径专用：用 `session.listSkills()` 返回值替换 SDK skills 缓存。
+   * Called by DroidSdkAgent after `session.listSkills()` returns successfully.
+   * Existing SDK skills are replaced wholesale — callers should pass the full list each time.
+   *
+   * @param skills 归一化后的 Droid SDK skills
+   */
+  setSdkSkills(skills: SdkSkill[]): void {
+    this.sdkSkills.clear();
+    for (const skill of skills) {
+      if (!skill?.name) continue;
+      this.sdkSkills.set(skill.name, { ...skill });
+    }
+  }
+
+  /**
+   * 清空 SDK 贡献的 skills（例如 Droid session 关闭时）。
+   * Clear SDK-sourced skills (e.g. when the Droid session closes).
+   */
+  clearSdkSkills(): void {
+    this.sdkSkills.clear();
+  }
+
+  /**
+   * 读取当前缓存的 SDK skills（拷贝一份，避免外部改写内部状态）。
+   * Snapshot the currently cached SDK skills.
+   */
+  getSdkSkills(): SdkSkill[] {
+    return Array.from(this.sdkSkills.values()).map((skill) => ({ ...skill }));
   }
 
   /**

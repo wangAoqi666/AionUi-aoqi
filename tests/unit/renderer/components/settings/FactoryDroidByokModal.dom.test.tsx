@@ -16,26 +16,6 @@ const mockMessageSuccess = vi.fn();
 const mockMessageWarning = vi.fn();
 const mockMessageError = vi.fn();
 
-const MockAionSelectOption = ({ children, value }: { children?: React.ReactNode; value: string }) => (
-  <option value={value}>{children}</option>
-);
-
-const MockAionSelect = ({
-  children,
-  value,
-  onChange,
-  disabled,
-}: {
-  children?: React.ReactNode;
-  value?: string;
-  onChange?: (value: string) => void;
-  disabled?: boolean;
-}) => (
-  <select value={value} disabled={disabled} onChange={(event) => onChange?.(event.target.value)}>
-    {children}
-  </select>
-);
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string>) => {
@@ -64,6 +44,9 @@ vi.mock('@/common', () => ({
       },
       importDroidByokConfigs: {
         invoke: (...args: unknown[]) => mockImportInvoke(...args),
+      },
+      droidByokImportProgress: {
+        on: vi.fn(() => vi.fn()),
       },
     },
   },
@@ -123,6 +106,7 @@ vi.mock('@arco-design/web-react', () => ({
       <div key='message-holder' />,
     ],
   },
+  Progress: ({ percent }: { percent?: number }) => <div>{percent}</div>,
   Spin: () => <div>loading</div>,
   Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
 }));
@@ -139,9 +123,28 @@ vi.mock('@/renderer/components/base/AionModal', () => ({
 }));
 
 vi.mock('@/renderer/components/base/AionSelect', () => {
+  const Option = ({ children, value }: { children?: React.ReactNode; value: string }) => (
+    <option value={value}>{children}</option>
+  );
+  const Select = ({
+    children,
+    value,
+    onChange,
+    disabled,
+  }: {
+    children?: React.ReactNode;
+    value?: string;
+    onChange?: (value: string) => void;
+    disabled?: boolean;
+  }) => (
+    <select value={value} disabled={disabled} onChange={(event) => onChange?.(event.target.value)}>
+      {children}
+    </select>
+  );
+
   return {
     __esModule: true,
-    default: Object.assign(MockAionSelect, { Option: MockAionSelectOption }),
+    default: Object.assign(Select, { Option }),
   };
 });
 
@@ -150,6 +153,26 @@ import FactoryDroidByokModal from '@/renderer/components/settings/FactoryDroidBy
 describe('FactoryDroidByokModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('renders the google provider option in edit mode', () => {
+    render(
+      <FactoryDroidByokModal
+        data={{
+          id: 'cfg-google',
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          apiKey: 'gem-key',
+          model: 'gemini-2.5-pro',
+          displayName: 'Gemini 2.5 Pro [BYOK]',
+          provider: 'google',
+          maxOutputTokens: 8192,
+        }}
+        modalProps={{ visible: true }}
+        modalCtrl={{ close: vi.fn() }}
+      />
+    );
+
+    expect(screen.getByText('settings.droidByok.providerGoogle')).toBeInTheDocument();
   });
 
   it('fetches remote models and imports selected models in add mode', async () => {
@@ -232,13 +255,15 @@ describe('FactoryDroidByokModal', () => {
     });
 
     expect(mockImportInvoke).toHaveBeenCalledWith({
-      baseUrl: 'https://gateway.example.com',
+      baseUrl: 'https://gateway.example.com/v1/models',
       apiKey: 'sk-test',
+      skipProbe: true,
       models: [
         {
           model: 'gpt-5.4',
           displayName: 'GPT Custom',
           provider: 'generic-chat-completion-api',
+          supportedEndpointTypes: ['openai', 'openai-response'],
         },
       ],
     });

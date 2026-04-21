@@ -15,5 +15,10 @@
   "permission": "Permission",
   "switchMode": "Switch Mode",
   "switchSuccess": "Mode switched successfully",
-  "switchFailed": "Failed to switch mode"
+  "switchFailed": "Failed to switch mode",
+  "yoloConfirmTitle": "Enable Real YOLO (skip all permission prompts)?",
+  "yoloConfirmBody": "Enabling Real YOLO sends skipPermissionsUnsafe to Droid CLI. Droid will no longer prompt for permission and will run any command — including destructive operations like deleting files, pushing code, or irreversible shell commands — without confirmation.",
+  "yoloConfirmWarning": "This setting only affects the current session and is cleared automatically when you switch away from YOLO. Only enable it in a trusted, sandboxed environment.",
+  "yoloConfirmConfirmButton": "I understand the risk, enable Real YOLO",
+  "yoloConfirmCancelButton": "Cancel"
 }

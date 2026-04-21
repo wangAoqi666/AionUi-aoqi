@@ -5,6 +5,7 @@
  */
 
 import { Divider, Typography, Button, Switch } from '@arco-design/web-react';
+import { Bug } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import classNames from 'classnames';
@@ -12,6 +13,7 @@ import { useSettingsViewMode } from '../settingsViewContext';
 import { ipcBridge } from '@/common';
 import { isElectronDesktop, openExternalUrl } from '@/renderer/utils/platform';
 import packageJson from '../../../../../../package.json';
+import DroidBugReportModal from '@/renderer/components/settings/DroidBugReportModal';
 
 const openAboutUpdateModal = () => {
   // 使用 window 自定义事件在渲染进程内部通信（buildEmitter 只支持主进程->渲染进程）
@@ -27,6 +29,14 @@ const AboutModalContent: React.FC = () => {
 
   const [appVersion, setAppVersion] = useState(packageJson.version);
   const [includePrerelease, setIncludePrerelease] = useState(false);
+
+  // Droid bug report Modal — opens via the "feedback" button below. The
+  // Modal itself gates access to the submit button based on whether the
+  // current URL points to a Droid-backed conversation (see the modal for
+  // details). Here we just hand it the open/close control.
+  //
+  // Droid 反馈弹窗，按钮点击后打开；是否允许提交由 Modal 内部根据当前会话 backend 判断。
+  const [droidBugReportCtrl, droidBugReportContext] = DroidBugReportModal.useModal({});
 
   useEffect(() => {
     const saved = localStorage.getItem('update.includePrerelease');
@@ -69,6 +79,7 @@ const AboutModalContent: React.FC = () => {
 
   return (
     <div className='flex flex-col h-full w-full'>
+      {droidBugReportContext}
       {/* Content Area */}
       <div
         className={classNames(
@@ -100,6 +111,24 @@ const AboutModalContent: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Feedback Section (P2-4) — opens the Droid bug-report Modal. The
+                Modal internally checks that the current conversation is a live
+                Droid one before allowing submit, so we render the entry point
+                unconditionally here (consistent with the "feedback" label the
+                user already sees in existing copy). */}
+            <div className='flex flex-col items-center gap-8px w-full max-w-300px mt-16px'>
+              <Button long icon={<Bug theme='outline' size={16} />} onClick={() => droidBugReportCtrl.open()}>
+                {t('settings.droidBugReport.button', {
+                  defaultValue: '提交 Droid 使用反馈',
+                })}
+              </Button>
+              <Typography.Text className='text-12px text-t-secondary text-center'>
+                {t('settings.droidBugReport.buttonHint', {
+                  defaultValue: '仅 Droid 后端会话可用；不会上传任何会话内容或文件路径。',
+                })}
+              </Typography.Text>
+            </div>
           </div>
 
           {/* Divider */}

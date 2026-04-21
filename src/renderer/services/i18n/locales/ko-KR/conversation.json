@@ -160,6 +160,7 @@
     "dragOverlayTitle": "놓아서 가져오기",
     "dragOverlayDesc": "파일이나 폴더를 여기로 드래그하여 이 워크스페이스로 복사하세요.",
     "dragOverlayHint": "팁: 아무 곳에나 놓으면 선택된 폴더로 가져옵니다.",
+    "showAllFiles": "모두 표시",
     "dragNoFiles": "유효한 파일이 감지되지 않았습니다. Finder/Explorer에서 드래그하세요.",
     "dragFailed": "드롭된 파일을 가져오지 못했습니다.",
     "contextMenu": {

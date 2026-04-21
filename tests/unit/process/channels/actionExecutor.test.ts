@@ -131,6 +131,7 @@ describe('ActionExecutor', () => {
         id === 'conv-old' ? { success: false, error: 'Conversation not found' } : { success: true, data: null }
       ),
       findChannelConversation: vi.fn(() => ({ success: true, data: recoveredConversation })),
+      findAnyChannelConversationWorkspaceForPlugin: vi.fn(() => ({ success: false, data: null })),
     };
     mocks.getDatabase.mockResolvedValue(db);
 
@@ -178,7 +179,7 @@ describe('ActionExecutor', () => {
     expect(plugin.sendMessage).toHaveBeenCalledWith(
       'chat-1',
       expect.objectContaining({
-        text: '⏳ Thinking...',
+        text: '⏳ 正在准备会话…',
       })
     );
   });

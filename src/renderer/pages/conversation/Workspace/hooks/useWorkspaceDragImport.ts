@@ -30,6 +30,11 @@ const getBaseName = (targetPath: string): string => {
   return parts.pop() || targetPath;
 };
 
+const hasFilePayload = (event: DragEvent): boolean => {
+  const types = event.dataTransfer?.types ? Array.from(event.dataTransfer.types) : [];
+  return types.includes('Files');
+};
+
 const dedupeItems = (items: DroppedItem[]): DroppedItem[] => {
   const map = new Map<string, DroppedItem>();
   for (const item of items) {
@@ -55,6 +60,9 @@ export function useWorkspaceDragImport({
   }, []);
 
   const handleDragEnter = useCallback((event: DragEvent) => {
+    if (!hasFilePayload(event)) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     dragCounterRef.current += 1;
@@ -63,6 +71,9 @@ export function useWorkspaceDragImport({
 
   const handleDragOver = useCallback(
     (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (!isDragging) {
@@ -73,6 +84,9 @@ export function useWorkspaceDragImport({
   );
 
   const handleDragLeave = useCallback((event: DragEvent) => {
+    if (!hasFilePayload(event)) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
@@ -120,6 +134,9 @@ export function useWorkspaceDragImport({
 
   const handleDrop = useCallback(
     async (event: DragEvent) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       resetDragState();
@@ -187,7 +204,8 @@ export function useWorkspaceDragImport({
       }
 
       const dedupedWithPath = dedupeItems(itemsWithPath);
-      const targets = dedupedWithPath.length > 0 ? await resolveDroppedItems(dedupedWithPath) : tempItems;
+      const resolvedPathItems = dedupedWithPath.length > 0 ? await resolveDroppedItems(dedupedWithPath) : [];
+      const targets = dedupeItems([...resolvedPathItems, ...tempItems]);
 
       if (targets.length === 0) {
         messageApi.warning(

@@ -6,7 +6,7 @@
 
 import { iconColors } from '@/renderer/styles/colors';
 import { isElectronDesktop } from '@/renderer/utils/platform';
-import { Dropdown, Input, Menu, Tooltip } from '@arco-design/web-react';
+import { Button, Dropdown, Input, Menu, Tooltip } from '@arco-design/web-react';
 import { Down, Plus, Refresh, Search } from '@icon-park/react';
 import React, { useId } from 'react';
 import UploadProgressBar from '@/renderer/components/media/UploadProgressBar';
@@ -28,6 +28,8 @@ type WorkspaceToolbarProps = {
   // Tree state
   loading: boolean;
   refreshWorkspace: () => void;
+  showAllFiles: boolean;
+  toggleShowAllFiles: () => void;
   // Upload
   handleSelectHostFiles: () => void;
   handleUploadDeviceFiles: () => void;
@@ -78,6 +80,8 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
   searchInputRef,
   loading,
   refreshWorkspace,
+  showAllFiles,
+  toggleShowAllFiles,
   handleSelectHostFiles,
   handleUploadDeviceFiles,
   setShowHostFileSelector,
@@ -166,6 +170,16 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
           )}
         </div>
         <div className='workspace-toolbar-actions flex items-center gap-8px flex-shrink-0'>
+          <Tooltip content={t('conversation.workspace.showAllFiles')}>
+            <Button
+              size='mini'
+              type={showAllFiles ? 'primary' : 'secondary'}
+              className='!h-24px !px-8px !min-w-auto'
+              onClick={toggleShowAllFiles}
+            >
+              {t('conversation.workspace.showAllFiles')}
+            </Button>
+          </Tooltip>
           {!isElectronDesktop() && (
             <Dropdown droplist={workspaceUploadMenu} trigger='click' position='bl'>
               <span>

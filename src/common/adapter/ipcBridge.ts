@@ -8,7 +8,7 @@ import type { IConfirmation } from '@/common/chat/chatLib';
 import { bridge } from '@office-ai/platform';
 import type { OpenDialogOptions } from 'electron';
 import type { McpSource } from '../../process/services/mcpServices/McpProtocol';
-import type { FactoryModel } from '../config/factoryModels';
+import type { FactoryModel, ReasoningLevel } from '../config/factoryModels';
 import type {
   AcpBackend,
   AcpBackendAll,
@@ -34,7 +34,7 @@ import type {
 import type { ProtocolDetectionRequest, ProtocolDetectionResponse } from '../utils/protocolDetector';
 import type { SpeechToTextRequest, SpeechToTextResult } from '../types/speech';
 
-export type DroidByokModelProvider = 'anthropic' | 'openai' | 'generic-chat-completion-api';
+export type DroidByokModelProvider = 'anthropic' | 'openai' | 'generic-chat-completion-api' | 'google';
 
 export interface IDroidByokModelConfigInput {
   baseUrl: string;
@@ -43,6 +43,35 @@ export interface IDroidByokModelConfigInput {
   displayName?: string;
   provider?: DroidByokModelProvider;
   existingId?: string;
+  /**
+   * Capability hint: does this BYOK model accept image attachments? When
+   * omitted, the backend infers via `inferByokModelCapabilities` from the
+   * model id + supported endpoint metadata and persists the inferred value so
+   * legacy entries self-upgrade on first read. Caller-supplied values always
+   * take priority over inference.
+   *
+   * 可选：此 BYOK 模型是否支持图片输入。未传时由主进程按模型名称启发式推断并持久化。
+   */
+  supportsImageInput?: boolean;
+  /**
+   * Capability hint: which reasoning levels this BYOK model exposes. Same
+   * inference rules as `supportsImageInput` — user-supplied wins, otherwise
+   * defaults are derived from the model id. Must remain non-empty after
+   * normalization; the service collapses an empty array back to `['none']`.
+   *
+   * 可选：此 BYOK 模型支持的推理级别数组；空集会被回退为 ['none']。
+   */
+  reasoningLevels?: ReasoningLevel[];
+  /**
+   * Capability hint: default reasoning level picked up when the conversation
+   * starts. When omitted and `reasoningLevels` is also omitted, inference
+   * runs via `inferByokModelCapabilities`. When the caller supplies a
+   * `defaultReasoning` that is NOT part of the resolved `reasoningLevels`,
+   * the service falls back to the first entry of the normalized list.
+   *
+   * 可选：默认推理级别；若不在 reasoningLevels 中，将回退到首个有效值。
+   */
+  defaultReasoning?: ReasoningLevel;
 }
 
 export interface IDroidByokImportModelInput {
@@ -54,6 +83,16 @@ export interface IDroidByokImportModelInput {
    * backend can skip re-fetching /v1/models during import. Optional for backward compatibility.
    */
   supportedEndpointTypes?: string[];
+  /**
+   * Capability hints — when any of the three are present, the backend uses
+   * them verbatim; when missing, `importDroidByokConfigs` runs
+   * `inferByokModelCapabilities(model, providerHint, supportedEndpointTypes)`
+   * per entry to populate the persisted fields. Same semantics as
+   * `IDroidByokModelConfigInput`.
+   */
+  supportsImageInput?: boolean;
+  reasoningLevels?: ReasoningLevel[];
+  defaultReasoning?: ReasoningLevel;
 }
 
 export interface IDroidByokImportConfigsInput {
@@ -103,6 +142,81 @@ export interface IDroidByokModelConfig extends Omit<IDroidByokModelConfigInput, 
   displayName: string;
   provider: DroidByokModelProvider;
   maxOutputTokens: number;
+  /**
+   * Concrete config returned from the service — capability fields are
+   * ALWAYS populated (inferred when missing) so renderer callers can rely on
+   * them without null-checks. Legacy persisted entries written before M3.B
+   * self-upgrade on first read via `inferByokModelCapabilities`.
+   *
+   * 与 Input 不同：从服务读回的 config 保证携带能力字段（若持久化遗漏则按启发式补齐），
+   * 便于 UI 免空判断。
+   */
+  supportsImageInput: boolean;
+  reasoningLevels: ReasoningLevel[];
+  defaultReasoning: ReasoningLevel;
+}
+
+/**
+ * BYOK site view — aggregates one or more `customModels` entries that share
+ * the same normalized `(provider, baseUrl)` tuple. Stable ids are derived as
+ * `sha1(provider + '|' + normalizedBaseUrl)` so multiple process restarts keep
+ * the same site identity.
+ *
+ * Note: `hasApiKey` is a coarse boolean; the raw API key never leaves the main
+ * process. UI surfaces a "rotate key" flow instead of exposing plaintext.
+ *
+ * BYOK 站点视图：按归一化后的 `(provider, baseUrl)` 聚合 customModels 条目。
+ * id 跨进程重启稳定；明文 apiKey 不暴露到 renderer。
+ */
+export interface IDroidByokSite {
+  id: string;
+  baseUrl: string;
+  provider: DroidByokModelProvider;
+  label?: string;
+  hasApiKey: boolean;
+  modelIds: string[];
+  modelCount: number;
+  /**
+   * Aggregate capability across every model entry belonging to this site:
+   * `true` when at least one member reports `supportsImageInput=true`. Helps
+   * the site-card UI surface a "multimodal" tag without looking up every
+   * underlying config.
+   *
+   * 聚合字段：站点下是否至少有一条模型支持图片输入，供站点卡片直接渲染能力标签。
+   */
+  supportsImageInput?: boolean;
+}
+
+/**
+ * Upsert payload for a BYOK site.
+ *
+ * - `id` absent → create a new site (service REQUIRES `existingModelIds` to
+ *   reference at least one already-persisted model entry; a brand-new site
+ *   with zero models is rejected — add models through
+ *   `importDroidByokConfigs` / `saveDroidByokConfig` first).
+ * - `id` present → update existing site's `baseUrl` / `provider` / `label`
+ *   (and, if provided, `apiKey`). Omitting `apiKey` preserves the existing
+ *   API key so UI can update metadata without re-typing secrets.
+ */
+export interface IDroidByokSiteUpsertInput {
+  id?: string;
+  baseUrl: string;
+  provider: DroidByokModelProvider;
+  label?: string;
+  apiKey?: string;
+  /**
+   * Optional capability overrides applied to EVERY underlying model entry in
+   * the site. Only the fields present in `capabilities` are overwritten —
+   * missing fields leave the existing per-model values intact. Useful for
+   * bulk-toggling multimodal / reasoning settings at the site level.
+   *
+   * 可选：批量覆盖站点下所有模型的能力字段；只有传入的键会被覆盖。
+   */
+  capabilities?: {
+    supportsImageInput?: boolean;
+    reasoningLevels?: ReasoningLevel[];
+    defaultReasoning?: ReasoningLevel;
+  };
 }
 
 export const shell = {
@@ -149,7 +263,7 @@ export const conversation = {
   listChanged: bridge.buildEmitter<IConversationListChangedEvent>('conversation.list-changed'),
   getWorkspace: bridge.buildProvider<
     IDirOrFile[],
-    { conversation_id: string; workspace: string; path: string; search?: string }
+    { conversation_id: string; workspace: string; path: string; search?: string; showAll?: boolean }
   >('conversation.get-workspace'),
   responseSearchWorkSpace: bridge.buildProvider<void, { file: number; dir: number; match?: IDirOrFile }>(
     'conversation.response.search.workspace'
@@ -564,6 +678,37 @@ export const acpConversation = {
   setMode: bridge.buildProvider<IBridgeResponse<{ mode: string }>, { conversationId: string; mode: string }>(
     'acp.set-mode'
   ),
+  // Toggle the "真 YOLO" skipPermissionsUnsafe flag for a Droid SDK conversation.
+  // MUST only be invoked after the renderer has presented a second-confirmation
+  // modal and received explicit user agreement (see SkipPermissionsConfirmModal).
+  // 切换 Droid 后端真 YOLO（skipPermissionsUnsafe），必须在 UI 二次确认之后调用。
+  setSkipPermissionsUnsafe: bridge.buildProvider<
+    IBridgeResponse<{ confirmed: boolean }>,
+    { conversationId: string; confirmed: boolean }
+  >('acp.set-skip-permissions-unsafe'),
+  // Update the Droid SDK tool whitelist (`enabledToolIds`) for a live conversation.
+  // Three-state semantics (see `DroidSdkAgent.setEnabledToolIds` docblock):
+  //   - `toolIds: null`    → clear the whitelist (SDK default tool set restored)
+  //   - `toolIds: []`      → disable ALL tools (user-enforced strict mode)
+  //   - `toolIds: [id, …]` → allow only the listed tool ids
+  // Only supported by the Droid SDK backend; other backends return unsupported.
+  // 调整 Droid 后端的工具白名单；null = 清空，空数组 = 全禁，有值数组 = 白名单。
+  setEnabledToolIds: bridge.buildProvider<
+    IBridgeResponse<{ toolIds: string[] | null }>,
+    { conversationId: string; toolIds: string[] | null }
+  >('acp.set-enabled-tool-ids'),
+  // Forward a user-triggered "report this to Factory" submission to the Droid SDK.
+  // The main process packs title/description + environment metadata into
+  // `userComment`; `clientLogs` is deliberately NOT attached to avoid leaking
+  // conversation content or file paths. When `includeSessionId` is `false`
+  // (checkbox in the renderer Modal) the current session id is omitted.
+  // Only supported by the Droid SDK backend; other backends return unsupported.
+  // 提交 Droid 问题反馈（Factory DroidClient.submitBugReport），仅 Droid 后端可用；
+  // clientLogs 永不上传，includeSessionId=false 时不会附加当前 sessionId。
+  submitBugReport: bridge.buildProvider<
+    IBridgeResponse<{ reportId?: string }>,
+    { conversationId: string; title: string; description: string; includeSessionId?: boolean }
+  >('acp.submit-droid-bug-report'),
   // Get current session mode for ACP agents
   // 获取 ACP 代理的当前会话模式
   getMode: bridge.buildProvider<IBridgeResponse<{ mode: string; initialized: boolean }>, { conversationId: string }>(
@@ -608,6 +753,25 @@ export const acpConversation = {
   ),
   droidByokImportProgress: bridge.buildEmitter<IDroidByokImportProgress>('acp.droid-byok-import-progress'),
   removeDroidByokConfig: bridge.buildProvider<IBridgeResponse, { id: string }>('acp.remove-droid-byok-config'),
+  // --- BYOK site aggregation (M3.A) ---
+  // Group flat BYOK entries by normalized (provider, baseUrl). The frontend
+  // uses these to render the station-card UI; the legacy flat list is still
+  // served by `getDroidByokConfig` when `AIONUI_BYOK_LEGACY=1` is on or the
+  // renderer falls back to the old view.
+  //
+  // 把扁平 BYOK 条目按归一化 (provider, baseUrl) 聚合；前端用此渲染站点卡片视图，
+  // 老的扁平列表仍由 getDroidByokConfig 提供。
+  listDroidByokSites: bridge.buildProvider<IBridgeResponse<{ sites: IDroidByokSite[] }>, void>(
+    'acp.list-droid-byok-sites'
+  ),
+  upsertDroidByokSite: bridge.buildProvider<IBridgeResponse<{ site: IDroidByokSite }>, IDroidByokSiteUpsertInput>(
+    'acp.upsert-droid-byok-site'
+  ),
+  removeDroidByokSite: bridge.buildProvider<IBridgeResponse, { id: string }>('acp.remove-droid-byok-site'),
+  rotateDroidByokSiteApiKey: bridge.buildProvider<
+    IBridgeResponse<{ site: IDroidByokSite }>,
+    { id: string; newApiKey: string }
+  >('acp.rotate-droid-byok-site-api-key'),
   // Probe model info for an ACP backend without creating a visible conversation
   // 预探测 ACP 后端的模型信息，不创建可见会话
   probeModelInfo: bridge.buildProvider<IBridgeResponse<{ modelInfo: AcpModelInfo | null }>, { backend: AcpBackend }>(
@@ -780,30 +944,61 @@ export const document = {
   >('document.convert'),
 };
 
+// Shared status payload for the three officecli-backed preview bridges.
+// `hintKey` / `manualCommand` are additive so legacy consumers keep working.
+// 共享的 officecli 预览状态负载；hintKey/manualCommand 为增量字段，向后兼容。
+export interface IOfficeCliStatusPayload {
+  state: 'starting' | 'installing' | 'ready' | 'error';
+  message?: string;
+  /**
+   * Optional i18n key describing the failure (e.g. platform-specific install
+   * instructions). Only set when the bridge emits `state: 'error'` and the
+   * shared installer was able to build a structured hint.
+   */
+  hintKey?: string;
+  /**
+   * Optional platform-appropriate install command string the viewer can copy
+   * to clipboard. Present alongside `hintKey` on install failures.
+   */
+  manualCommand?: string;
+}
+
 // PPT preview via officecli watch
 export const pptPreview = {
   start: bridge.buildProvider<{ url: string }, { filePath: string }>('ppt-preview.start'),
   stop: bridge.buildProvider<void, { filePath: string }>('ppt-preview.stop'),
-  status: bridge.buildEmitter<{ state: 'starting' | 'installing' | 'ready' | 'error'; message?: string }>(
-    'ppt-preview.status'
-  ),
+  status: bridge.buildEmitter<IOfficeCliStatusPayload>('ppt-preview.status'),
 };
 
 // Word preview via officecli watch
 export const wordPreview = {
   start: bridge.buildProvider<{ url: string }, { filePath: string }>('word-preview.start'),
   stop: bridge.buildProvider<void, { filePath: string }>('word-preview.stop'),
-  status: bridge.buildEmitter<{ state: 'starting' | 'installing' | 'ready' | 'error'; message?: string }>(
-    'word-preview.status'
-  ),
+  status: bridge.buildEmitter<IOfficeCliStatusPayload>('word-preview.status'),
 };
 
 // Excel preview via officecli watch
 export const excelPreview = {
   start: bridge.buildProvider<{ url: string }, { filePath: string }>('excel-preview.start'),
   stop: bridge.buildProvider<void, { filePath: string }>('excel-preview.stop'),
-  status: bridge.buildEmitter<{ state: 'starting' | 'installing' | 'ready' | 'error'; message?: string }>(
-    'excel-preview.status'
+  status: bridge.buildEmitter<IOfficeCliStatusPayload>('excel-preview.status'),
+};
+
+// Shared installer state exposed to the renderer for diagnostics and the
+// viewer's manual "retry install" action.
+// 共享的 officecli 安装状态；供预览失败卡片的手动重试按钮使用。
+export interface IOfficeCliInstallStatus {
+  state: 'idle' | 'installing' | 'installed' | 'failed';
+  message?: string;
+  lastAttemptAt?: number;
+}
+
+export const officeCli = {
+  getOfficecliStatus: bridge.buildProvider<IBridgeResponse<{ status: IOfficeCliInstallStatus }>, void>(
+    'office-cli.get-status'
+  ),
+  installOfficecli: bridge.buildProvider<IBridgeResponse<{ ok: boolean; status: IOfficeCliInstallStatus }>, void>(
+    'office-cli.install'
   ),
 };
 

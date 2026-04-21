@@ -19,7 +19,7 @@ describe('droid cli resolver', () => {
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = originalResourcesPath;
   });
 
-  it('prefers the bundled droid binary when available', async () => {
+  it('keeps the system droid command first and includes the bundled binary as a fallback', async () => {
     const bundledBinary = '/app/resources/bundled-droid/darwin-arm64/droid';
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = '/app/resources';
 
@@ -32,15 +32,21 @@ describe('droid cli resolver', () => {
       ),
     }));
 
-    const { resolveDroidCliPath } = await import('@/process/agent/droid/cliResolver');
+    const { resolveDroidCliCandidates } = await import('@/process/agent/droid/cliResolver');
 
-    expect(resolveDroidCliPath()).toEqual({
-      execPath: bundledBinary,
-      source: 'bundled',
-    });
+    expect(resolveDroidCliCandidates()).toEqual([
+      {
+        execPath: 'droid',
+        source: 'system',
+      },
+      {
+        execPath: bundledBinary,
+        source: 'bundled',
+      },
+    ]);
   });
 
-  it('falls back to the project resources bundle when Electron resources has no bundled droid', async () => {
+  it('uses the project resources bundle as the fallback binary when runtime resources do not contain droid', async () => {
     const cwdPath = '/workspace/project';
     const bundledBinary = '/workspace/project/resources/bundled-droid/darwin-arm64/droid';
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath =
@@ -56,12 +62,18 @@ describe('droid cli resolver', () => {
       ),
     }));
 
-    const { resolveDroidCliPath } = await import('@/process/agent/droid/cliResolver');
+    const { resolveDroidCliCandidates } = await import('@/process/agent/droid/cliResolver');
 
-    expect(resolveDroidCliPath()).toEqual({
-      execPath: bundledBinary,
-      source: 'bundled',
-    });
+    expect(resolveDroidCliCandidates()).toEqual([
+      {
+        execPath: 'droid',
+        source: 'system',
+      },
+      {
+        execPath: bundledBinary,
+        source: 'bundled',
+      },
+    ]);
   });
 
   it('preserves an explicit custom cli path', async () => {
@@ -77,19 +89,25 @@ describe('droid cli resolver', () => {
     });
   });
 
-  it('uses the project-installed droid binary when the bundled binary is missing', async () => {
+  it('uses the project-installed droid binary as a fallback when no bundled binary exists', async () => {
     const installedBinary = `${originalCwd()}/node_modules/@factory/cli/bin/droid`;
 
     vi.doMock('node:fs', () => ({
       existsSync: vi.fn((targetPath: string) => targetPath === installedBinary),
     }));
 
-    const { resolveDroidCliPath } = await import('@/process/agent/droid/cliResolver');
+    const { resolveDroidCliCandidates } = await import('@/process/agent/droid/cliResolver');
 
-    expect(resolveDroidCliPath()).toEqual({
-      execPath: installedBinary,
-      source: 'bundled',
-    });
+    expect(resolveDroidCliCandidates()).toEqual([
+      {
+        execPath: 'droid',
+        source: 'system',
+      },
+      {
+        execPath: installedBinary,
+        source: 'bundled',
+      },
+    ]);
   });
 
   it('falls back to the system droid command when no bundle or custom path exists', async () => {

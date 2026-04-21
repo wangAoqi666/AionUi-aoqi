@@ -187,4 +187,25 @@ describe('readDirectoryRecursive', () => {
     expect(names).toContain('index.ts');
     expect(names).not.toContain('node_modules');
   });
+
+  it('shows ignored directories as shallow nodes when showAll is enabled', async () => {
+    await fsp.mkdir(path.join(tmpDir, 'node_modules', 'pkg'), { recursive: true });
+    await fsp.mkdir(path.join(tmpDir, '.git', 'objects'), { recursive: true });
+    await fsp.writeFile(path.join(tmpDir, 'node_modules', 'pkg', 'index.js'), '');
+    await fsp.writeFile(path.join(tmpDir, '.git', 'config'), '');
+    await fsp.writeFile(path.join(tmpDir, '.env'), 'secret');
+
+    const ac = new AbortController();
+    const result = await readDirectoryRecursive(tmpDir, { maxDepth: 2, abortController: ac, showAll: true });
+
+    const names = result.children.map((c) => c.name);
+    expect(names).toContain('node_modules');
+    expect(names).toContain('.git');
+    expect(names).toContain('.env');
+
+    const nodeModules = result.children.find((c) => c.name === 'node_modules');
+    const gitDir = result.children.find((c) => c.name === '.git');
+    expect(nodeModules?.children).toEqual([]);
+    expect(gitDir?.children).toEqual([]);
+  });
 });

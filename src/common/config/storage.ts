@@ -263,6 +263,26 @@ export interface IConfigStorageRefer {
         baseUrl: string;
         provider: DroidByokModelProvider;
       }>;
+      /**
+       * Optional BYOK site labels (display name only; ids/baseUrl/provider are
+       * derived from `byokModelRefs`). Used purely for UI grouping in the
+       * station-card view (M3.A). Labels are opt-in and may be absent for
+       * sites migrated from the legacy flat list.
+       *
+       * BYOK 站点显示名映射（站点实体由 byokModelRefs 聚合得出，label 仅用于前端分组展示）。
+       */
+      byokSiteLabels?: Array<{
+        id: string;
+        label: string;
+      }>;
+      /**
+       * Migration schema version for BYOK data — bump when the on-disk
+       * layout changes so one-time migrations stay idempotent. See
+       * `migrateLegacyModelsIntoSites()` in DroidByokService.
+       *
+       * BYOK 数据结构迁移版本号；在首次迁移后写入以避免重复运行。
+       */
+      byokMigrationVersion?: number;
       /** LLM prompt timeout in seconds (default: 300) / LLM 请求超时时间（秒，默认 300） */
       promptTimeout?: number;
     };
@@ -301,6 +321,8 @@ export interface IConfigStorageRefer {
   'tools.speechToText'?: SpeechToTextConfig;
   // 是否在粘贴文件到工作区时询问确认（true = 不再询问）
   'workspace.pasteConfirm'?: boolean;
+  // 新增 Office 文件时是否自动打开预览 / Auto-open preview for newly added Office files
+  'workspace.autoPreviewOffice'?: boolean;
   // 上传的文件是否保存到工作区目录（true = 保存到工作区，false = 保存到缓存目录）
   'upload.saveToWorkspace'?: boolean;
   // guid 页面上次选择的 agent 类型 / Last selected agent type on guid page

@@ -17,6 +17,16 @@ export type FactoryModel = {
   sourceModelId?: string;
   isCustom?: boolean;
   deprecated?: boolean;
+  /**
+   * Whether this model accepts image attachments. Optional to preserve
+   * backward compatibility with the existing hard-coded `FACTORY_MODELS`
+   * entries; BYOK-imported models populate this from the per-config
+   * capability field so downstream code can gate multimodal flows uniformly.
+   *
+   * 可选：模型是否支持图片输入。Factory 内置模型默认不设（沿用旧行为），
+   * BYOK 模型按持久化字段补齐，便于统一判定。
+   */
+  supportsImageInput?: boolean;
 };
 
 export const FACTORY_REASONING_CONFIG_ID = 'reasoning_effort';
@@ -167,6 +177,7 @@ function normalizeFactoryModel(model: FactoryModel | null | undefined): FactoryM
     isCustom: model.isCustom === true,
     reasoningLevels: normalizedReasoningLevels,
     defaultReasoning,
+    supportsImageInput: model.supportsImageInput === true ? true : undefined,
   };
 }
 

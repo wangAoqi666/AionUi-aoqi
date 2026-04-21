@@ -119,5 +119,27 @@
     "installing": "プレビューコンポーネントをインストール中...",
     "startFailed": "PPTプレビューの起動に失敗しました",
     "installHint": "officecliがインストールされていることを確認してください: npm run postinstall"
+  },
+  "officecli": {
+    "failed": {
+      "title": "Office プレビューを起動できません"
+    },
+    "actions": {
+      "retry": "インストールを再試行",
+      "manualInstall": "手動インストール手順を表示",
+      "copyCommand": "インストールコマンドをコピー",
+      "copySuccess": "インストールコマンドをコピーしました"
+    },
+    "hints": {
+      "darwin": "インストーラーは curl + bash で実行されます。macOS Gatekeeper でブロックされる場合は、先に xattr -cr ~/.local/bin/officecli を実行してください。",
+      "linux": "ネットワークにアクセス可能なシェルでインストールスクリプトを実行し、~/.local/bin が PATH に含まれていることを確認してください。",
+      "windowsGeneric": "下の PowerShell コマンドをコピーし、新しく開いた PowerShell ウィンドウで実行してください。",
+      "windowsExecutionPolicy": "PowerShell の ExecutionPolicy によりスクリプトがブロックされています。先に Set-ExecutionPolicy -Scope Process Bypass を実行してから、インストールコマンドを貼り付けてください。",
+      "cooldown": "直前のインストール試行が失敗しました。数分お待ちいただいてから再試行してください。"
+    },
+    "status": {
+      "installing": "officecli をインストール中...",
+      "installed": "officecli がインストールされました"
+    }
   }
 }

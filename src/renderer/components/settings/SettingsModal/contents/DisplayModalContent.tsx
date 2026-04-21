@@ -6,13 +6,25 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { ConfigStorage } from '@/common/config/storage';
+import { STORAGE_KEYS } from '@/common/config/storageKeys';
 import FontSizeControl from '@/renderer/components/settings/FontSizeControl';
 import { ThemeSwitcher } from '@/renderer/components/settings/ThemeSwitcher';
 import CssThemeSettings from '@renderer/pages/settings/DisplaySettings/CssThemeSettings';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import AionCollapse from '@/renderer/components/base/AionCollapse';
+import { Switch } from '@arco-design/web-react';
 import { Down, Up } from '@icon-park/react';
+import useSWR from 'swr';
 import { useSettingsViewMode } from '../settingsViewContext';
+
+const getAutoPreviewOfficeFallback = (): boolean => {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE) === 'true';
+  } catch {
+    return false;
+  }
+};
 
 /**
  * 偏好设置行组件 / Preference row component
@@ -45,6 +57,22 @@ const DisplayModalContent: React.FC = () => {
   const { t } = useTranslation();
   const viewMode = useSettingsViewMode();
   const isPageMode = viewMode === 'page';
+  const autoPreviewOfficeFallback = getAutoPreviewOfficeFallback();
+  const { data: autoPreviewOffice = false, mutate: mutateAutoPreviewOffice } = useSWR<boolean>(
+    'workspace.autoPreviewOffice',
+    async () => {
+      const value = Boolean(await ConfigStorage.get('workspace.autoPreviewOffice').catch(() => false));
+      try {
+        localStorage.setItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE, String(value));
+      } catch {
+        // ignore localStorage failures
+      }
+      return value;
+    },
+    {
+      fallbackData: autoPreviewOfficeFallback,
+    }
+  );
 
   // 渲染折叠面板的展开/收起图标 / Render expand/collapse icon for collapse panel
   const renderExpandIcon = (active: boolean) =>
@@ -54,10 +82,39 @@ const DisplayModalContent: React.FC = () => {
       <Down theme='outline' size='16' fill='var(--text-secondary)' />
     );
 
+  const handleAutoPreviewOfficeChange = async (checked: boolean) => {
+    const previous = autoPreviewOffice;
+    try {
+      localStorage.setItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE, String(checked));
+    } catch {
+      // ignore localStorage failures
+    }
+    void mutateAutoPreviewOffice(checked, { revalidate: false });
+
+    try {
+      await ConfigStorage.set('workspace.autoPreviewOffice', checked);
+    } catch (error) {
+      console.error('[DisplayModalContent] Failed to persist workspace.autoPreviewOffice:', error);
+      try {
+        localStorage.setItem(STORAGE_KEYS.AUTO_PREVIEW_OFFICE, String(previous));
+      } catch {
+        // ignore localStorage failures
+      }
+      void mutateAutoPreviewOffice(previous, { revalidate: false });
+    }
+  };
+
   // 显示设置项配置 / Display items configuration
   const displayItems = [
     { key: 'theme', label: t('settings.theme'), component: <ThemeSwitcher /> },
     { key: 'fontSize', label: t('settings.fontSize'), component: <FontSizeControl /> },
+    {
+      key: 'autoPreviewOffice',
+      label: t('settings.autoPreviewOffice'),
+      component: (
+        <Switch checked={autoPreviewOffice} onChange={(checked) => void handleAutoPreviewOfficeChange(checked)} />
+      ),
+    },
   ];
 
   return (

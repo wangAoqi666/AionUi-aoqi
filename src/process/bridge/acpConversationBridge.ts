@@ -15,6 +15,7 @@ import { AionrsManager } from '@process/task/AionrsManager';
 import { mcpService } from '@/process/services/mcpServices/McpService';
 import { mainLog, mainWarn } from '@/process/utils/mainLogger';
 import { ProcessConfig, refreshFactoryDroidCatalog } from '@/process/utils/initStorage';
+import { flushFactoryCatalogRefresh } from '@/process/agent/droid/catalogRefresher';
 import { ipcBridge } from '@/common';
 import { getFactoryModels } from '@/common/config/factoryModels';
 import { checkDroidCliUpdate, probeDroidStatus } from '@process/agent/droid/modelProbe';
@@ -23,13 +24,27 @@ import {
   fetchDroidByokModels,
   getDroidByokConfigs,
   importDroidByokConfigs,
+  listDroidByokSites,
+  migrateLegacyModelsIntoSites,
   removeDroidByokConfig,
+  removeDroidByokSite,
+  rotateDroidByokSiteApiKey,
   saveDroidByokConfig,
   testDroidByokConfig,
+  upsertDroidByokSite,
 } from './services/DroidByokService';
 import * as os from 'os';
 
 export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager): void {
+  // One-time BYOK migration to the site-aware shape. No-ops when
+  // `AIONUI_BYOK_LEGACY=1` is set or the migration marker is already present.
+  // Errors are swallowed inside the helper — startup must never crash on this.
+  //
+  // 一次性 BYOK 数据迁移（站点化 schema），AIONUI_BYOK_LEGACY=1 或已跑过则直接跳过。
+  void migrateLegacyModelsIntoSites().catch((error) => {
+    mainWarn('[ACP droid]', 'BYOK migration failed', error instanceof Error ? error.message : String(error));
+  });
+
   // Debug provider to check environment variables
   ipcBridge.acpConversation.checkEnv.provider(() => {
     return Promise.resolve({
@@ -356,20 +371,19 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
   ipcBridge.acpConversation.saveDroidByokConfig.provider(async (payload) => {
     try {
       const config = await saveDroidByokConfig(payload);
-      let refreshMsg: string | undefined;
-      try {
-        await refreshFactoryDroidCatalog();
-      } catch (error) {
-        refreshMsg = error instanceof Error ? error.message : String(error);
-        mainWarn('[ACP droid]', 'saveDroidByokConfig refresh failed', refreshMsg);
-      }
+      // Flush-refresh immediately so the new BYOK entry is visible in the
+      // main-process catalog before the renderer re-queries it. Errors are
+      // caught + warn-logged inside the helper (never throw) and the helper
+      // also updates `lastRefreshAt`, which lets the subsequent SDK-echoed
+      // `settings_updated` notification hit the cooldown and skip a redundant
+      // refresh. See `@process/agent/droid/catalogRefresher`.
+      await flushFactoryCatalogRefresh('byok-crud-save');
 
       return {
         success: true,
         data: {
           config,
         },
-        ...(refreshMsg ? { msg: refreshMsg } : {}),
       };
     } catch (error) {
       return {
@@ -390,18 +404,13 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
           }
         },
       });
-      let refreshMsg: string | undefined;
-      try {
-        await refreshFactoryDroidCatalog();
-      } catch (error) {
-        refreshMsg = error instanceof Error ? error.message : String(error);
-        mainWarn('[ACP droid]', 'importDroidByokConfigs refresh failed', refreshMsg);
-      }
+      // See `saveDroidByokConfig` above — same rationale: flush refresh,
+      // swallow errors, keep cooldown state for the SDK echo.
+      await flushFactoryCatalogRefresh('byok-crud-import');
 
       return {
         success: true,
         data: result,
-        ...(refreshMsg ? { msg: refreshMsg } : {}),
       };
     } catch (error) {
       return {
@@ -414,18 +423,73 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
   ipcBridge.acpConversation.removeDroidByokConfig.provider(async ({ id }) => {
     try {
       await removeDroidByokConfig(id);
-      let refreshMsg: string | undefined;
-      try {
-        await refreshFactoryDroidCatalog();
-      } catch (error) {
-        refreshMsg = error instanceof Error ? error.message : String(error);
-        mainWarn('[ACP droid]', 'removeDroidByokConfig refresh failed', refreshMsg);
-      }
+      // See `saveDroidByokConfig` above — same rationale: flush refresh,
+      // swallow errors, keep cooldown state for the SDK echo.
+      await flushFactoryCatalogRefresh('byok-crud-remove');
 
       return {
         success: true,
-        ...(refreshMsg ? { msg: refreshMsg } : {}),
       };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  // --- BYOK site handlers (M3.A) ---
+  // Site aggregation delegates to DroidByokService. Any CRUD op flushes the
+  // Factory catalog so the renderer sees an up-to-date model list.
+  //
+  // 站点聚合 / CRUD，成功后统一 flush 刷新 Factory catalog，UI 拿到最新模型。
+  ipcBridge.acpConversation.listDroidByokSites.provider(async () => {
+    try {
+      return {
+        success: true,
+        data: {
+          sites: await listDroidByokSites(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.upsertDroidByokSite.provider(async (payload) => {
+    try {
+      const site = await upsertDroidByokSite(payload);
+      await flushFactoryCatalogRefresh('byok-site-crud');
+      return { success: true, data: { site } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.removeDroidByokSite.provider(async ({ id }) => {
+    try {
+      await removeDroidByokSite(id);
+      await flushFactoryCatalogRefresh('byok-site-crud');
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.rotateDroidByokSiteApiKey.provider(async ({ id, newApiKey }) => {
+    try {
+      const site = await rotateDroidByokSiteApiKey(id, newApiKey);
+      await flushFactoryCatalogRefresh('byok-site-crud');
+      return { success: true, data: { site } };
     } catch (error) {
       return {
         success: false,
@@ -518,6 +582,88 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
       return { success: false, msg: errorMsg };
     }
   });
+
+  // Toggle the "真 YOLO" skipPermissionsUnsafe flag for Droid SDK conversations.
+  // Only the Droid SDK path supports this; other backends reply with an
+  // "unsupported" failure so the renderer can fall back to the normal YOLO flow.
+  // Hard rule (SKILL P0-3 / "不要做清单"): UI MUST present a second confirmation
+  // modal before invoking this provider with confirmed=true.
+  //
+  // 切换 Droid SDK 真 YOLO 开关。只有 Droid 后端会真的下发 skipPermissionsUnsafe；
+  // 其他后端直接报 "unsupported"。前端必须先弹二次确认，才允许 confirmed=true。
+  ipcBridge.acpConversation.setSkipPermissionsUnsafe.provider(async ({ conversationId, confirmed }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.setSkipPermissionsUnsafe(confirmed);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { confirmed } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
+  // Update the Droid SDK tool whitelist (`enabledToolIds`) for a conversation.
+  // Three-state semantics:
+  //   - `toolIds: null`    → clear whitelist (SDK default tool set)
+  //   - `toolIds: []`      → disable ALL tools (strict mode)
+  //   - `toolIds: [id, …]` → only allow the listed tool ids
+  // Only Droid SDK supports this; other backends return an "unsupported"
+  // failure so the renderer can gracefully surface the limitation.
+  //
+  // 调整 Droid 后端工具白名单，其他后端返回 unsupported。三态语义：
+  // null = 清空恢复默认；空数组 = 禁用全部；有值数组 = 仅允许列表中的工具。
+  ipcBridge.acpConversation.setEnabledToolIds.provider(async ({ conversationId, toolIds }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.setEnabledToolIds(toolIds);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { toolIds } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
+  // Forward a user-triggered "report this to Factory" submission onto the Droid
+  // SDK `submitBugReport` path. Only Droid backend supports this; other
+  // backends return an unsupported-style failure. `clientLogs` is NEVER
+  // attached (privacy); `includeSessionId` defaults to `true` so UI can opt
+  // out via the "attach current session id" checkbox in the Modal.
+  //
+  // 转发 Droid 问题反馈给 AcpAgentManager，再由其交给 DroidSdkAgent。
+  // 仅 Droid 后端可用；clientLogs 永远不会被附带。
+  ipcBridge.acpConversation.submitBugReport.provider(
+    async ({ conversationId, title, description, includeSessionId }) => {
+      try {
+        const task = await workerTaskManager.getOrBuildTask(conversationId);
+        if (!task || !(task instanceof AcpAgentManager)) {
+          return { success: false, msg: 'Conversation not found' };
+        }
+        const result = await task.submitBugReport({ title, description, includeSessionId });
+        if (!result.success) {
+          return { success: false, msg: result.msg };
+        }
+        return {
+          success: true,
+          data: result.reportId ? { reportId: result.reportId } : {},
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        return { success: false, msg: errorMsg };
+      }
+    }
+  );
 
   // Get non-model config options for ACP agents (e.g., reasoning effort)
   // 获取 ACP 代理的非模型配置选项（如推理级别）

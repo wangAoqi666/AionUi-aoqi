@@ -67,7 +67,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   });
 
   it('calls start on mount and stop on unmount', () => {
-    const { unmount } = renderHook(() => useAutoPreviewOfficeFiles('/workspace'));
+    const { unmount } = renderHook(() => useAutoPreviewOfficeFiles('/workspace', true));
 
     expect(mockStartInvoke).toHaveBeenCalledWith({ workspace: '/workspace' });
 
@@ -78,7 +78,14 @@ describe('useAutoPreviewOfficeFiles', () => {
   });
 
   it('does nothing when workspace is undefined', () => {
-    renderHook(() => useAutoPreviewOfficeFiles(undefined));
+    renderHook(() => useAutoPreviewOfficeFiles(undefined, true));
+
+    expect(mockStartInvoke).not.toHaveBeenCalled();
+    expect(mockStopInvoke).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when auto preview is disabled', () => {
+    renderHook(() => useAutoPreviewOfficeFiles('/workspace', false));
 
     expect(mockStartInvoke).not.toHaveBeenCalled();
     expect(mockStopInvoke).not.toHaveBeenCalled();
@@ -87,7 +94,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   it('opens preview when fileAdded event fires for current workspace', async () => {
     mockGetFileTypeInfo.mockReturnValue({ contentType: 'ppt' });
 
-    renderHook(() => useAutoPreviewOfficeFiles('/workspace'));
+    renderHook(() => useAutoPreviewOfficeFiles('/workspace', true));
 
     await act(async () => {
       fileAddedHandler?.({ filePath: '/workspace/slides.pptx', workspace: '/workspace' });
@@ -102,7 +109,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   });
 
   it('ignores fileAdded events from a different workspace', async () => {
-    renderHook(() => useAutoPreviewOfficeFiles('/workspace-A'));
+    renderHook(() => useAutoPreviewOfficeFiles('/workspace-A', true));
 
     await act(async () => {
       fileAddedHandler?.({ filePath: '/workspace-B/slides.pptx', workspace: '/workspace-B' });
@@ -114,7 +121,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   it('does NOT call openPreview when tab is already open', async () => {
     mockFindPreviewTab.mockReturnValue({ id: 'existing-tab' });
 
-    renderHook(() => useAutoPreviewOfficeFiles('/workspace'));
+    renderHook(() => useAutoPreviewOfficeFiles('/workspace', true));
 
     await act(async () => {
       fileAddedHandler?.({ filePath: '/workspace/report.docx', workspace: '/workspace' });
@@ -125,7 +132,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   });
 
   it('restarts watcher when workspace changes', () => {
-    const { rerender } = renderHook(({ ws }: { ws: string }) => useAutoPreviewOfficeFiles(ws), {
+    const { rerender } = renderHook(({ ws }: { ws: string }) => useAutoPreviewOfficeFiles(ws, true), {
       initialProps: { ws: '/workspace-A' },
     });
 
@@ -140,7 +147,7 @@ describe('useAutoPreviewOfficeFiles', () => {
   it('passes correct contentType and fileName for docx', async () => {
     mockGetFileTypeInfo.mockReturnValue({ contentType: 'word' });
 
-    renderHook(() => useAutoPreviewOfficeFiles('/ws'));
+    renderHook(() => useAutoPreviewOfficeFiles('/ws', true));
 
     await act(async () => {
       fileAddedHandler?.({ filePath: '/ws/report.docx', workspace: '/ws' });

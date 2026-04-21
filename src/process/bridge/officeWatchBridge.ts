@@ -10,17 +10,28 @@
  * Manages officecli watch child processes for live Word and Excel preview.
  * Each file gets one watch process on a unique port.
  * The renderer loads http://localhost:<port> in a webview.
+ *
+ * Install / update / path resolution is delegated to the shared
+ * `OfficeCliInstaller` service so PPT and Word/Excel bridges share exactly
+ * one install pipeline.
  */
 
 import { ipcBridge } from '@/common';
-import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import type { IOfficeCliStatusPayload } from '@/common/adapter/ipcBridge';
+import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
+import {
+  buildOfficecliFailureHint,
+  installOfficecli,
+  resolveOfficecliPath,
+  type OfficeCliInstallStatus,
+} from '@process/bridge/services/OfficeCliInstaller';
 
 type OfficeDocType = 'word' | 'excel';
 
-type StatusEmitter = (payload: { state: 'starting' | 'installing' | 'ready' | 'error'; message?: string }) => void;
+type StatusEmitter = (payload: IOfficeCliStatusPayload) => void;
 
 interface WatchSession {
   process: ChildProcess;
@@ -102,30 +113,32 @@ function killSession(filePath: string, sessions: Map<string, WatchSession>): voi
 }
 
 /**
- * Auto-install officecli if not found.
+ * Forward installer status transitions to the bridge's IPC emitter. Maps the
+ * installer state into the per-bridge `IOfficeCliStatusPayload` shape.
  */
-function installOfficecli(emitStatus: StatusEmitter): boolean {
-  try {
-    emitStatus({ state: 'installing' });
-    if (process.platform === 'win32') {
-      execSync(
-        'powershell -NoProfile -Command "irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex"',
-        { stdio: 'pipe', windowsHide: true, timeout: 120000 }
-      );
-    } else {
-      execSync('curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash', {
-        stdio: 'pipe',
-        timeout: 120000,
-      });
-      try {
-        execSync('xattr -cr ~/.local/bin/officecli && codesign -s - --force ~/.local/bin/officecli', { stdio: 'pipe' });
-      } catch {}
+function forwardInstallStatus(emitStatus: StatusEmitter): (status: OfficeCliInstallStatus) => void {
+  return (status) => {
+    if (status.state === 'installing') {
+      emitStatus({ state: 'installing' });
     }
-    return true;
-  } catch (e) {
-    console.error('[officeWatch] Failed to install officecli:', e);
-    return false;
+    // 'installed' / 'idle' / 'failed' transitions don't translate directly —
+    // the bridge emits `ready`/`error` from its own port-ready / spawn-error
+    // branches so the hint metadata can be attached.
+  };
+}
+
+/**
+ * Resolve the executable to pass to `spawn`. Prefers a concrete absolute path
+ * when `resolveOfficecliPath` reports one, otherwise falls back to `'officecli'`
+ * so the child-process layer still emits the ENOENT path (the caller uses it
+ * to trigger the install + retry flow).
+ */
+async function resolveSpawnTarget(): Promise<string> {
+  const resolved = await resolveOfficecliPath();
+  if (resolved && resolved !== 'officecli') {
+    return resolved;
   }
+  return 'officecli';
 }
 
 /**
@@ -170,7 +183,8 @@ async function startWatch(
 
   emitStatus({ state: 'starting' });
 
-  const child = spawn('officecli', ['watch', filePath, '--port', String(port)], {
+  const executable = retry ? await resolveSpawnTarget() : 'officecli';
+  const child = spawn(executable, ['watch', filePath, '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: getEnhancedEnv(),
     windowsHide: true,
@@ -227,16 +241,25 @@ async function startWatch(
       console.error(`[officeWatch] spawn error (${docType}):`, err.message);
       sessions.delete(filePath);
       if ((err as NodeJS.ErrnoException).code === 'ENOENT' && !retry) {
-        // officecli not found — try auto-install then retry once
+        // officecli not found — try auto-install then retry once.
         // settle() without error: defuses the current promise machinery
         // (clears timeout, prevents double-settle) while the recursive retry
         // call below chains its own resolve/reject to the outer promise.
         settle();
-        if (installOfficecli(emitStatus)) {
-          startWatch(filePath, docType, emitStatus, true).then(resolve, reject);
-        } else {
+        void installOfficecli(forwardInstallStatus(emitStatus)).then((ok) => {
+          if (ok) {
+            startWatch(filePath, docType, emitStatus, true).then(resolve, reject);
+            return;
+          }
+          const hint = buildOfficecliFailureHint(err);
+          emitStatus({
+            state: 'error',
+            message: 'officecli is not installed and auto-install failed',
+            hintKey: hint.hintKey,
+            manualCommand: hint.manualCommand,
+          });
           reject(new Error('officecli is not installed and auto-install failed'));
-        }
+        });
       } else {
         settle(new Error(`Failed to start officecli: ${err.message}`));
       }

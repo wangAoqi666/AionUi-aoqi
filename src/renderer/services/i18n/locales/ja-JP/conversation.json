@@ -160,6 +160,7 @@
     "dragOverlayTitle": "ドラッグして取り込み",
     "dragOverlayDesc": "ここにファイルやフォルダーをドロップすると、このワークスペースにコピーされます。",
     "dragOverlayHint": "ヒント：フォルダー選択中は、そのフォルダーに直接取り込まれます。",
+    "showAllFiles": "すべて表示",
     "dragNoFiles": "有効なファイルやフォルダーが見つかりませんでした。Explorer/Finder からドラッグしてください。",
     "dragFailed": "ファイルの取り込みに失敗しました。",
     "contextMenu": {

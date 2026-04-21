@@ -10,15 +10,25 @@
  * Manages officecli watch child processes for live PPT preview.
  * Each pptx file gets one watch process on a unique port.
  * The renderer loads http://localhost:<port> in a webview.
+ *
+ * Install / update / path resolution is delegated to the shared
+ * `OfficeCliInstaller` service so PPT and Word/Excel bridges share exactly
+ * one install pipeline.
  */
 
 import { ipcBridge } from '@/common';
-import { getPlatformServices } from '@/common/platform';
-import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import type { IOfficeCliStatusPayload } from '@/common/adapter/ipcBridge';
+import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
-import path from 'node:path';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
+import {
+  buildOfficecliFailureHint,
+  installOfficecli,
+  resolveOfficecliPath,
+  scheduleOfficecliUpdateCheck,
+  type OfficeCliInstallStatus,
+} from '@process/bridge/services/OfficeCliInstaller';
 
 interface WatchSession {
   process: ChildProcess;
@@ -89,68 +99,31 @@ function killSession(filePath: string): void {
 }
 
 /**
- * Background update check — runs at most once per day.
+ * Forward installer status transitions to the bridge's IPC emitter. Maps the
+ * installer state into the PPT bridge's `IOfficeCliStatusPayload` shape.
  */
-function checkForUpdate(): void {
-  const markerPath = path.join(getPlatformServices().paths.getDataDir(), '.officecli-update-check');
-  try {
-    const stat = fs.statSync(markerPath);
-    if (Date.now() - stat.mtimeMs < 24 * 60 * 60 * 1000) return; // checked within 24h
-  } catch {}
-
-  // Mark as checked (touch file)
-  try {
-    fs.writeFileSync(markerPath, '');
-  } catch {}
-
-  try {
-    const localVersion = execSync('officecli --version', {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 10000,
-      windowsHide: true,
-    }).trim();
-    const latestUrl = 'https://github.com/iOfficeAI/OfficeCli/releases/latest';
-    const effective = execSync(`curl -fsSL -o /dev/null -w "%{url_effective}" ${latestUrl}`, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
-      windowsHide: true,
-    }).trim();
-    const remoteVersion = effective.split('/').pop()?.replace(/^v/, '') ?? '';
-    if (remoteVersion && remoteVersion !== localVersion) {
-      installOfficecli();
+function forwardInstallStatus(emit: (payload: IOfficeCliStatusPayload) => void): (status: OfficeCliInstallStatus) => void {
+  return (status) => {
+    if (status.state === 'installing') {
+      emit({ state: 'installing' });
     }
-  } catch {
-    // Silently ignore — not critical
-  }
+    // 'installed' / 'idle' / 'failed' transitions don't translate directly —
+    // the bridge emits `ready`/`error` from its own port-ready / spawn-error
+    // branches so the hint metadata can be attached.
+  };
 }
 
 /**
- * Auto-install officecli if not found.
+ * Resolve the executable path for the retry spawn. Falls back to bare
+ * `'officecli'` when no absolute path was located so the retry still surfaces
+ * a clean ENOENT instead of a `spawn <null>` crash.
  */
-function installOfficecli(): boolean {
-  try {
-    ipcBridge.pptPreview.status.emit({ state: 'installing' });
-    if (process.platform === 'win32') {
-      execSync(
-        'powershell -NoProfile -Command "irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex"',
-        { stdio: 'pipe', windowsHide: true, timeout: 120000 }
-      );
-    } else {
-      execSync('curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash', {
-        stdio: 'pipe',
-        timeout: 120000,
-      });
-      try {
-        execSync('xattr -cr ~/.local/bin/officecli && codesign -s - --force ~/.local/bin/officecli', { stdio: 'pipe' });
-      } catch {}
-    }
-    return true;
-  } catch (e) {
-    console.error('[pptPreview] Failed to install officecli:', e);
-    return false;
+async function resolveSpawnTarget(): Promise<string> {
+  const resolved = await resolveOfficecliPath();
+  if (resolved && resolved !== 'officecli') {
+    return resolved;
   }
+  return 'officecli';
 }
 
 /**
@@ -187,7 +160,12 @@ async function startWatch(filePath: string, retry = false): Promise<string> {
 
   ipcBridge.pptPreview.status.emit({ state: 'starting' });
 
-  const child = spawn('officecli', ['watch', filePath, '--port', String(port)], {
+  // First spawn uses bare `'officecli'` so missing binaries surface as ENOENT.
+  // Retry uses `resolveSpawnTarget()` which still falls back to `'officecli'`
+  // when nothing concrete was located, so the child-process layer is free to
+  // surface its own error without needing a synthetic `spawn <null>` path.
+  const executable = retry ? await resolveSpawnTarget() : 'officecli';
+  const child = spawn(executable, ['watch', filePath, '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: getEnhancedEnv(),
     windowsHide: true,
@@ -251,14 +229,28 @@ async function startWatch(filePath: string, retry = false): Promise<string> {
       sessions.delete(filePath);
       if ((err as NodeJS.ErrnoException).code === 'ENOENT' && !retry) {
         // officecli not found — try auto-install then retry once.
-        // Clear timeout before potentially long sync install.
+        // Preemptively mark as settled + clear the outer timeout so a
+        // concurrent `exit` event (real child processes emit both `error`
+        // and `exit` for ENOENT) cannot hijack the final rejection reason
+        // with "officecli exited with code null" before our install path
+        // completes. The install path calls resolve/reject directly.
+        settled = true;
         clearTimeout(timeout);
-        if (installOfficecli()) {
-          settled = true;
-          startWatch(filePath, true).then(resolve, reject);
-        } else {
-          settle(new Error('officecli is not installed and auto-install failed'));
-        }
+        const emit = (payload: IOfficeCliStatusPayload) => ipcBridge.pptPreview.status.emit(payload);
+        void installOfficecli(forwardInstallStatus(emit)).then((ok) => {
+          if (ok) {
+            startWatch(filePath, true).then(resolve, reject);
+            return;
+          }
+          const hint = buildOfficecliFailureHint(err);
+          emit({
+            state: 'error',
+            message: 'officecli is not installed and auto-install failed',
+            hintKey: hint.hintKey,
+            manualCommand: hint.manualCommand,
+          });
+          reject(new Error('officecli is not installed and auto-install failed'));
+        });
       } else {
         settle(new Error(`Failed to start officecli: ${err.message}`));
       }
@@ -299,8 +291,12 @@ export function stopAllWatchSessions(): void {
 }
 
 export function initPptPreviewBridge(): void {
-  // Background update check (non-blocking, at most once per day)
-  setTimeout(() => checkForUpdate(), 5000);
+  // Background update check (non-blocking, at most once per day).
+  // Delegated to the shared installer service; the installer internally
+  // applies a 24-hour marker file + per-process idempotency guard.
+  scheduleOfficecliUpdateCheck(
+    forwardInstallStatus((payload) => ipcBridge.pptPreview.status.emit(payload))
+  );
 
   ipcBridge.pptPreview.start.provider(async ({ filePath }) => {
     // Attach .catch() synchronously on the promise to ensure the rejection

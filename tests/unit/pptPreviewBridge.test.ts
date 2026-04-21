@@ -378,49 +378,9 @@ describe('pptPreviewBridge', () => {
     });
   });
 
-  describe('checkForUpdate', () => {
-    it('skips check if marker file is recent (within 24h)', async () => {
-      vi.useFakeTimers();
-      statSyncMock.mockReturnValue({ mtimeMs: Date.now() });
-      initPptPreviewBridge();
-
-      await vi.advanceTimersByTimeAsync(6000);
-
-      expect(execSyncMock).not.toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-
-    it('triggers install if versions differ', async () => {
-      vi.useFakeTimers();
-      statSyncMock.mockReturnValue({ mtimeMs: Date.now() - 25 * 60 * 60 * 1000 });
-      execSyncMock
-        .mockReturnValueOnce('1.0.17')
-        .mockReturnValueOnce('https://github.com/iOfficeAI/OfficeCli/releases/tag/v1.0.18')
-        .mockReturnValue('');
-
-      initPptPreviewBridge();
-      await vi.advanceTimersByTimeAsync(6000);
-
-      expect(execSyncMock).toHaveBeenCalledWith('officecli --version', expect.any(Object));
-      expect(writeFileSyncMock).toHaveBeenCalled();
-      expect(statusEmitMock).toHaveBeenCalledWith({ state: 'installing' });
-      vi.useRealTimers();
-    });
-
-    it('does not install if versions match', async () => {
-      vi.useFakeTimers();
-      statSyncMock.mockReturnValue({ mtimeMs: Date.now() - 25 * 60 * 60 * 1000 });
-      execSyncMock
-        .mockReturnValueOnce('1.0.18')
-        .mockReturnValueOnce('https://github.com/iOfficeAI/OfficeCli/releases/tag/v1.0.18');
-
-      initPptPreviewBridge();
-      await vi.advanceTimersByTimeAsync(6000);
-
-      expect(statusEmitMock).not.toHaveBeenCalledWith({ state: 'installing' });
-      vi.useRealTimers();
-    });
-  });
+  // Background update check logic moved to `OfficeCliInstaller` — see the
+  // installer's unit tests (`officeCliInstaller.test.ts`) for the update-marker
+  // behavior previously exercised here.
 
   describe('isActivePreviewPort', () => {
     it('returns false for an unknown port', () => {

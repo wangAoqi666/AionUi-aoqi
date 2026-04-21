@@ -21,11 +21,11 @@ import { useEffect } from 'react';
  * - On unmount (conversation switch / close): stops the watcher, so returning
  *   to an old conversation never replays past events.
  */
-export const useAutoPreviewOfficeFiles = (workspace: string | undefined) => {
+export const useAutoPreviewOfficeFiles = (workspace: string | undefined, enabled = false) => {
   const { findPreviewTab, openPreview } = usePreviewContext();
 
   useEffect(() => {
-    if (!workspace) return;
+    if (!workspace || !enabled) return;
 
     ipcBridge.workspaceOfficeWatch.start.invoke({ workspace }).catch(() => {});
 
@@ -44,5 +44,5 @@ export const useAutoPreviewOfficeFiles = (workspace: string | undefined) => {
       unsub();
       ipcBridge.workspaceOfficeWatch.stop.invoke({ workspace }).catch(() => {});
     };
-  }, [workspace, findPreviewTab, openPreview]);
+  }, [enabled, workspace, findPreviewTab, openPreview]);
 };

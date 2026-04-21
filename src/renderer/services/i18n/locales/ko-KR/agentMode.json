@@ -15,5 +15,10 @@
   "permission": "권한",
   "switchMode": "모드 전환",
   "switchSuccess": "모드가 성공적으로 전환되었습니다",
-  "switchFailed": "모드 전환에 실패했습니다"
+  "switchFailed": "모드 전환에 실패했습니다",
+  "yoloConfirmTitle": "진짜 YOLO(모든 권한 확인 건너뛰기)를 활성화하시겠습니까?",
+  "yoloConfirmBody": "진짜 YOLO를 활성화하면 AgentFactory가 Droid CLI에 skipPermissionsUnsafe를 전달합니다. Droid는 권한 확인을 건너뛰고 파일 삭제, 코드 푸시, 되돌릴 수 없는 명령을 포함한 모든 작업을 즉시 실행합니다.",
+  "yoloConfirmWarning": "이 설정은 현재 세션에만 적용되며 YOLO 이외의 모드로 전환하면 자동으로 해제됩니다. 신뢰할 수 있는 샌드박스 환경에서만 활성화하세요.",
+  "yoloConfirmConfirmButton": "위험을 이해했으며 진짜 YOLO를 활성화",
+  "yoloConfirmCancelButton": "취소"
 }

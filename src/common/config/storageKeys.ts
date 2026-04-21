@@ -17,6 +17,12 @@ export const STORAGE_KEYS = {
   /** Workspace tree collapse state / 工作空间目录树折叠状态 */
   WORKSPACE_TREE_COLLAPSE: 'aionui_workspace_collapse_state',
 
+  /** Workspace "show all files" toggle / 工作空间显示全部文件开关 */
+  WORKSPACE_SHOW_ALL_FILES: 'aionui_workspace_show_all_files',
+
+  /** Auto-open new Office files in preview / 自动预览新的 Office 文件 */
+  AUTO_PREVIEW_OFFICE: 'aionui_auto_preview_office',
+
   /** Workspace panel collapse state / 工作空间面板折叠状态 */
   WORKSPACE_PANEL_COLLAPSE: 'aionui_workspace_panel_collapsed',
 

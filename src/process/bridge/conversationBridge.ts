@@ -496,14 +496,15 @@ export function initConversationBridge(
     };
   })();
 
-  ipcBridge.conversation.getWorkspace.provider(async ({ workspace, search, path: targetPath }) => {
+  ipcBridge.conversation.getWorkspace.provider(async ({ workspace, search, path: targetPath, showAll }) => {
     try {
-      const fileService = GeminiAgent.buildFileServer(workspace);
+      const fileService = showAll ? undefined : GeminiAgent.buildFileServer(workspace);
       return await readDirectoryRecursive(targetPath, {
         root: workspace,
         fileService,
         abortController: buildLastAbortController(),
         maxDepth: 10, // 支持更深的目录结构 / Support deeper directory structures
+        showAll,
         search: {
           text: search,
           onProcess(result) {

@@ -247,6 +247,12 @@ export function mapDroidAvailableModelToFactoryModel(model: AvailableModelConfig
   }
 
   const reasoningLevels = supportedReasoningLevels.length > 0 ? supportedReasoningLevels : [defaultReasoning || 'none'];
+  // Factory's AvailableModelConfig uses the INVERTED `noImageSupport` flag —
+  // when it's absent or false the model accepts images. We only set
+  // supportsImageInput=true when the flag explicitly reports vision, because
+  // FactoryModel treats `undefined` as "unknown" (same semantics as the
+  // original hard-coded catalog).
+  const supportsImageInput = model.noImageSupport === false ? true : undefined;
 
   return {
     id: model.id,
@@ -257,6 +263,7 @@ export function mapDroidAvailableModelToFactoryModel(model: AvailableModelConfig
     reasoningLevels,
     defaultReasoning:
       defaultReasoning && reasoningLevels.includes(defaultReasoning) ? defaultReasoning : reasoningLevels[0],
+    ...(supportsImageInput === true ? { supportsImageInput: true } : {}),
   };
 }
 

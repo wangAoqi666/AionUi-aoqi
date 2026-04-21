@@ -119,5 +119,27 @@
     "installing": "미리보기 구성 요소 설치 중...",
     "startFailed": "PPT 미리보기 시작 실패",
     "installHint": "officecli가 설치되어 있는지 확인하세요: npm run postinstall"
+  },
+  "officecli": {
+    "failed": {
+      "title": "Office 미리보기를 시작할 수 없습니다"
+    },
+    "actions": {
+      "retry": "설치 재시도",
+      "manualInstall": "수동 설치 가이드 보기",
+      "copyCommand": "설치 명령어 복사",
+      "copySuccess": "설치 명령어가 복사되었습니다"
+    },
+    "hints": {
+      "darwin": "설치 스크립트는 curl + bash를 통해 실행됩니다. macOS Gatekeeper가 차단하는 경우 먼저 xattr -cr ~/.local/bin/officecli를 실행하세요.",
+      "linux": "네트워크 연결이 가능한 셸에서 설치 스크립트를 실행하고 ~/.local/bin이 PATH에 포함되어 있는지 확인하세요.",
+      "windowsGeneric": "아래 PowerShell 명령어를 복사하여 새로 연 PowerShell 창에서 실행하세요.",
+      "windowsExecutionPolicy": "PowerShell ExecutionPolicy가 스크립트를 차단하고 있습니다. 먼저 Set-ExecutionPolicy -Scope Process Bypass를 실행한 후 설치 명령어를 붙여넣으세요.",
+      "cooldown": "최근 설치 시도가 실패했습니다. 몇 분 후에 다시 시도하세요."
+    },
+    "status": {
+      "installing": "officecli 설치 중...",
+      "installed": "officecli가 설치되었습니다"
+    }
   }
 }

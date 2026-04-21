@@ -145,11 +145,11 @@ const WorkspaceTreeNode: React.FC<WorkspaceTreeNodeProps> = ({
   const iconColor = useMemo(() => getWorkspaceNodeIconColor(node, visual), [node, visual]);
   const dragItem = useMemo<FileOrFolderItem | null>(
     () =>
-      node.isFile && node.fullPath
+      node.fullPath
         ? {
             path: node.fullPath,
             name: node.name,
-            isFile: true,
+            isFile: node.isFile,
             relativePath: node.relativePath || undefined,
           }
         : null,
@@ -168,7 +168,7 @@ const WorkspaceTreeNode: React.FC<WorkspaceTreeNodeProps> = ({
           return;
         }
 
-        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.effectAllowed = 'copyMove';
         event.dataTransfer.setData(WORKSPACE_DRAG_MIME, serializeWorkspaceDragItem(dragItem));
         event.dataTransfer.setData('text/plain', dragItem.path);
       }}
@@ -188,7 +188,9 @@ const WorkspaceTreeNode: React.FC<WorkspaceTreeNodeProps> = ({
         >
           {renderNodeIcon(visual, isExpanded)}
         </span>
-        <span className='workspace-tree-row__label'>{node.name}</span>
+        <span className={classNames('workspace-tree-row__label', { 'opacity-60': node.name.startsWith('.') })}>
+          {node.name}
+        </span>
       </span>
 
       {isMobile && (

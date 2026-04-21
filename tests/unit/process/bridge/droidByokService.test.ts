@@ -43,6 +43,14 @@ type FactorySettings = {
   customModels?: Array<Record<string, unknown>>;
 };
 
+const mockJsonResponse = (body: unknown, ok = true): Response =>
+  ({
+    ok,
+    headers: { get: () => 'application/json' },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  }) as Response;
+
 describe('DroidByokService', () => {
   let settingsFile: FactorySettings | undefined;
   let processConfigValue: Record<string, unknown>;
@@ -115,6 +123,8 @@ describe('DroidByokService', () => {
       },
     };
 
+    // M3.B: capability fields are now always populated (inferred from model id
+    // when the stored entry lacks them).
     await expect(getDroidByokConfigs()).resolves.toEqual([
       {
         id: expect.any(String),
@@ -124,20 +134,39 @@ describe('DroidByokService', () => {
         apiKey: 'sk-test',
         provider: 'anthropic',
         maxOutputTokens: 8192,
+        supportsImageInput: true,
+        reasoningLevels: ['off', 'low', 'medium', 'high'],
+        defaultReasoning: 'off',
       },
     ]);
+    expect(processConfigValue).toEqual({
+      droid: {
+        byokModelRefs: [
+          {
+            id: expect.any(String),
+            model: 'claude-sonnet-4-6',
+            baseUrl: 'https://api.example.com',
+            provider: 'anthropic',
+          },
+        ],
+      },
+    });
   });
 
   it('fetches remote models, infers providers, and caches the catalog', async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: 'gpt-5.4', supported_endpoint_types: ['openai', 'openai-response'] },
-          { id: 'claude-sonnet-4-6', supported_endpoint_types: ['anthropic'] },
-        ],
-      }),
-    } as Response);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return mockJsonResponse({
+          data: [
+            { id: 'gpt-5.4', supported_endpoint_types: ['openai', 'openai-response'] },
+            { id: 'claude-sonnet-4-6', supported_endpoint_types: ['anthropic'] },
+          ],
+        });
+      }
+
+      return mockJsonResponse({ error: { message: 'Not Found' } }, false);
+    });
 
     const first = await fetchDroidByokModels({
       baseUrl: 'https://gateway.example.com/v1/models',
@@ -148,7 +177,7 @@ describe('DroidByokService', () => {
       apiKey: 'sk-test',
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       'https://gateway.example.com/v1/models',
@@ -156,6 +185,11 @@ describe('DroidByokService', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      'https://gateway.example.com/v1beta/models',
+      expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       'https://gateway.example.com/models',
       expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
     );
@@ -176,15 +210,17 @@ describe('DroidByokService', () => {
     ]);
   });
 
-  it('returns models as soon as any remote endpoint succeeds even if another request stays pending', async () => {
-    fetchMock
-      .mockImplementationOnce(() => new Promise<Response>(() => {}))
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [{ id: 'gpt-5.4', supported_endpoint_types: ['openai'] }],
-        }),
-      } as Response);
+  it('prefers explicit endpoint metadata over gemini-like model names', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return mockJsonResponse({
+          data: [{ id: 'gemini-2.5-pro', supported_endpoint_types: ['openai'] }],
+        });
+      }
+
+      return mockJsonResponse({ error: { message: 'Not Found' } }, false);
+    });
 
     const result = await fetchDroidByokModels({
       baseUrl: 'https://gateway.example.com',
@@ -192,7 +228,39 @@ describe('DroidByokService', () => {
       refresh: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.models).toEqual([
+      {
+        model: 'gemini-2.5-pro',
+        displayName: 'gemini-2.5-pro [BYOK]',
+        supportedEndpointTypes: ['openai'],
+        inferredProvider: 'generic-chat-completion-api',
+      },
+    ]);
+  });
+
+  it('returns models as soon as any remote endpoint succeeds even if another request stays pending', async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return new Promise<Response>(() => {});
+      }
+      if (url.endsWith('/v1beta/models')) {
+        return Promise.resolve(
+          mockJsonResponse({
+            data: [{ id: 'gpt-5.4', supported_endpoint_types: ['openai'] }],
+          })
+        );
+      }
+      return Promise.resolve(mockJsonResponse({ error: { message: 'Not Found' } }, false));
+    });
+
+    const result = await fetchDroidByokModels({
+      baseUrl: 'https://gateway.example.com',
+      apiKey: 'sk-test',
+      refresh: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.models).toEqual([
       {
         model: 'gpt-5.4',
@@ -204,19 +272,22 @@ describe('DroidByokService', () => {
   });
 
   it('falls back to the alternate remote model endpoint when the first one hangs', async () => {
-    fetchMock
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((_, reject) => {
-            setTimeout(() => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })), 0);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/models')) {
+        return new Promise<Response>((_, reject) => {
+          setTimeout(() => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })), 0);
+        });
+      }
+      if (url.endsWith('/v1beta/models')) {
+        return Promise.resolve(
+          mockJsonResponse({
+            data: [{ id: 'gpt-5.4', supported_endpoint_types: ['openai'] }],
           })
-      )
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [{ id: 'gpt-5.4', supported_endpoint_types: ['openai'] }],
-        }),
-      } as Response);
+        );
+      }
+      return Promise.resolve(mockJsonResponse({ error: { message: 'Not Found' } }, false));
+    });
 
     const result = await fetchDroidByokModels({
       baseUrl: 'https://gateway.example.com',
@@ -224,7 +295,7 @@ describe('DroidByokService', () => {
       refresh: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.models).toEqual([
       {
         model: 'gpt-5.4',
@@ -236,8 +307,9 @@ describe('DroidByokService', () => {
   });
 
   it('returns a timeout error when remote model fetch hangs', async () => {
-    fetchMock.mockRejectedValueOnce(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
-    fetchMock.mockRejectedValueOnce(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
+    fetchMock.mockImplementation(() =>
+      Promise.reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }))
+    );
 
     await expect(
       fetchDroidByokModels({
@@ -247,7 +319,7 @@ describe('DroidByokService', () => {
       })
     ).rejects.toThrow('Remote request timed out after 15 seconds');
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       'https://gateway.example.com/v1/models',
@@ -255,6 +327,11 @@ describe('DroidByokService', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      'https://gateway.example.com/v1beta/models',
+      expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       'https://gateway.example.com/models',
       expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
     );
@@ -285,6 +362,10 @@ describe('DroidByokService', () => {
       apiKey: 'sk-test',
       provider: 'openai',
       maxOutputTokens: 8192,
+      // GPT-5 family: full reasoning + vision by heuristic.
+      supportsImageInput: true,
+      reasoningLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      defaultReasoning: 'medium',
     });
     expect(settingsFile).toEqual({
       customModels: [
@@ -295,6 +376,9 @@ describe('DroidByokService', () => {
           apiKey: 'sk-test',
           provider: 'openai',
           maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+          defaultReasoning: 'medium',
         },
       ],
     });
@@ -346,6 +430,9 @@ describe('DroidByokService', () => {
           apiKey: 'sk-two',
           provider: 'anthropic',
           maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+          defaultReasoning: 'off',
         },
       ],
     });
@@ -401,6 +488,9 @@ describe('DroidByokService', () => {
       apiKey: 'sk-one-updated',
       provider: 'anthropic',
       maxOutputTokens: 8192,
+      supportsImageInput: true,
+      reasoningLevels: ['off', 'low', 'medium', 'high'],
+      defaultReasoning: 'off',
     });
     expect(settingsFile).toEqual({
       customModels: [
@@ -411,6 +501,9 @@ describe('DroidByokService', () => {
           apiKey: 'sk-two',
           provider: 'anthropic',
           maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+          defaultReasoning: 'off',
         },
         {
           model: 'claude-sonnet-4-6',
@@ -419,6 +512,9 @@ describe('DroidByokService', () => {
           apiKey: 'sk-one-updated',
           provider: 'anthropic',
           maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+          defaultReasoning: 'off',
         },
       ],
     });
@@ -443,35 +539,32 @@ describe('DroidByokService', () => {
   });
 
   it('imports selected remote models and reports per-model failures', async () => {
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.endsWith('/v1/models')) {
+        return mockJsonResponse({
           data: [
             { id: 'claude-sonnet-4-6', supported_endpoint_types: ['anthropic'] },
             { id: 'gpt-5.4', supported_endpoint_types: ['openai', 'openai-response'] },
           ],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ type: 'message' }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: false,
-        headers: { get: () => 'application/json' },
-        json: async () => ({ error: { message: 'Unsupported' } }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: false,
-        headers: { get: () => 'application/json' },
-        json: async () => ({ error: { message: 'Unsupported' } }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: false,
-        headers: { get: () => 'application/json' },
-        json: async () => ({ error: { message: 'Unsupported' } }),
-      } as Response);
+        });
+      }
+
+      if (url.endsWith('/v1beta/models') || url.endsWith('/models')) {
+        return mockJsonResponse({ error: { message: 'Not Found' } }, false);
+      }
+
+      if (url.endsWith('/v1/messages')) {
+        return mockJsonResponse({ type: 'message' });
+      }
+
+      if (url.endsWith('/v1/chat/completions')) {
+        return mockJsonResponse({ error: { message: 'Unsupported' } }, false);
+      }
+
+      return mockJsonResponse({ error: { message: `Unexpected URL: ${url}` } }, false);
+    });
 
     const result = await importDroidByokConfigs({
       baseUrl: 'https://gateway.example.com',
@@ -491,6 +584,9 @@ describe('DroidByokService', () => {
         apiKey: 'sk-test',
         provider: 'anthropic',
         maxOutputTokens: 8192,
+        supportsImageInput: true,
+        reasoningLevels: ['off', 'low', 'medium', 'high'],
+        defaultReasoning: 'off',
       },
     ]);
     expect(result.failed).toEqual([{ model: 'gpt-5.4', reason: 'Unsupported' }]);
@@ -503,6 +599,54 @@ describe('DroidByokService', () => {
           apiKey: 'sk-test',
           provider: 'anthropic',
           maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+          defaultReasoning: 'off',
+        },
+      ],
+    });
+  });
+
+  it('normalizes and saves google-compatible BYOK configs', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/models/') && url.includes(':generateContent')) {
+        return mockJsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] });
+      }
+      return mockJsonResponse({ error: { message: 'Not Found' } }, false);
+    });
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      apiKey: 'gem-key',
+      model: 'gemini-2.5-pro',
+      provider: 'google',
+    });
+
+    expect(config).toEqual({
+      id: expect.any(String),
+      model: 'gemini-2.5-pro',
+      displayName: 'gemini-2.5-pro [BYOK]',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1',
+      apiKey: 'gem-key',
+      provider: 'google',
+      maxOutputTokens: 8192,
+      supportsImageInput: true,
+      reasoningLevels: ['off', 'low', 'medium', 'high'],
+      defaultReasoning: 'off',
+    });
+    expect(settingsFile).toEqual({
+      customModels: [
+        {
+          model: 'gemini-2.5-pro',
+          displayName: 'gemini-2.5-pro [BYOK]',
+          baseUrl: 'https://generativelanguage.googleapis.com/v1',
+          apiKey: 'gem-key',
+          provider: 'google',
+          maxOutputTokens: 8192,
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+          defaultReasoning: 'off',
         },
       ],
     });
@@ -583,6 +727,173 @@ describe('DroidByokService', () => {
       apiKey: 'sk-test',
       provider: 'anthropic',
       maxOutputTokens: 8192,
+      supportsImageInput: true,
+      reasoningLevels: ['off', 'low', 'medium', 'high'],
+      defaultReasoning: 'off',
     });
+  });
+
+  // =====================================================================
+  // M3.B capability tests
+  // =====================================================================
+
+  it('honours user-supplied capability overrides during save', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: 'message' }),
+    } as Response);
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      supportsImageInput: false,
+      reasoningLevels: ['off', 'medium'],
+      defaultReasoning: 'medium',
+    });
+
+    expect(config.supportsImageInput).toBe(false);
+    expect(config.reasoningLevels).toEqual(['off', 'medium']);
+    expect(config.defaultReasoning).toBe('medium');
+
+    const entry = settingsFile?.customModels?.[0] as Record<string, unknown>;
+    expect(entry.supportsImageInput).toBe(false);
+    expect(entry.reasoningLevels).toEqual(['off', 'medium']);
+    expect(entry.defaultReasoning).toBe('medium');
+  });
+
+  it('clamps an invalid defaultReasoning to the first valid reasoning level', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: 'message' }),
+    } as Response);
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      reasoningLevels: ['off', 'low'],
+      defaultReasoning: 'xhigh',
+    });
+
+    expect(config.reasoningLevels).toEqual(['off', 'low']);
+    expect(config.defaultReasoning).toBe('off');
+  });
+
+  it('infers reasoning + vision capabilities for OpenAI o-series by default', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'resp_1' }),
+    } as Response);
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'o4-mini',
+      provider: 'openai',
+    });
+
+    expect(config.supportsImageInput).toBe(true);
+    expect(config.reasoningLevels).toEqual(['minimal', 'low', 'medium', 'high']);
+    expect(config.defaultReasoning).toBe('medium');
+  });
+
+  it('infers non-multimodal, no-reasoning defaults for legacy text models', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    } as Response);
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'gpt-3.5-turbo',
+      provider: 'openai',
+    });
+
+    expect(config.supportsImageInput).toBe(false);
+    expect(config.reasoningLevels).toEqual(['none']);
+    expect(config.defaultReasoning).toBe('none');
+  });
+
+  it('rejects unknown reasoning levels while keeping valid ones', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: 'message' }),
+    } as Response);
+
+    const config = await saveDroidByokConfig({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      // Include garbage values to ensure the sanitizer drops them.
+      reasoningLevels: ['off', 'invalid' as unknown as 'off', 'low'],
+      defaultReasoning: 'off',
+    });
+
+    expect(config.reasoningLevels).toEqual(['off', 'low']);
+    expect(config.defaultReasoning).toBe('off');
+  });
+
+  it('auto-upgrades legacy customModels entries that lack capability fields', async () => {
+    settingsFile = {
+      customModels: [
+        {
+          model: 'gpt-4o',
+          displayName: 'GPT-4o Legacy',
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'sk-test',
+          provider: 'openai',
+          maxOutputTokens: 8192,
+        },
+      ],
+    };
+    processConfigValue = {
+      droid: {
+        byokModelRefs: [
+          {
+            id: 'legacy-id',
+            model: 'gpt-4o',
+            baseUrl: 'https://api.example.com',
+            provider: 'openai',
+          },
+        ],
+      },
+    };
+
+    const configs = await getDroidByokConfigs();
+    expect(configs).toHaveLength(1);
+    // gpt-4o family: multimodal, no reasoning knob.
+    expect(configs[0].supportsImageInput).toBe(true);
+    expect(configs[0].reasoningLevels).toEqual(['none']);
+    expect(configs[0].defaultReasoning).toBe('none');
+  });
+
+  it('imports models with per-entry capability overrides without probing', async () => {
+    const result = await importDroidByokConfigs({
+      baseUrl: 'https://gateway.example.com',
+      apiKey: 'sk-test',
+      skipProbe: true,
+      models: [
+        {
+          model: 'custom-reasoner-v1',
+          provider: 'generic-chat-completion-api',
+          supportsImageInput: true,
+          reasoningLevels: ['off', 'high'],
+          defaultReasoning: 'high',
+        },
+      ],
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.imported).toHaveLength(1);
+    const imported = result.imported[0];
+    expect(imported.supportsImageInput).toBe(true);
+    expect(imported.reasoningLevels).toEqual(['off', 'high']);
+    expect(imported.defaultReasoning).toBe('high');
+    expect(imported.provider).toBe('generic-chat-completion-api');
   });
 });

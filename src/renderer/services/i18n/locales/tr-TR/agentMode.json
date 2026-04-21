@@ -15,5 +15,10 @@
   "permission": "İzin",
   "switchMode": "Switch Mode",
   "switchSuccess": "Mode switched successfully",
-  "switchFailed": "Failed to switch mode"
+  "switchFailed": "Failed to switch mode",
+  "yoloConfirmTitle": "Gerçek YOLO (tüm izin istemleri atlanır) etkinleştirilsin mi?",
+  "yoloConfirmBody": "Gerçek YOLO etkinleştirildiğinde AgentFactory, Droid CLI'ya skipPermissionsUnsafe parametresini gönderir. Droid artık izin sormaz; dosya silme, kod gönderme ve geri alınamaz komutlar dahil tüm işlemleri onaysız çalıştırır.",
+  "yoloConfirmWarning": "Bu ayar yalnızca geçerli oturumu etkiler ve YOLO dışındaki bir moda geçtiğinizde otomatik olarak kapanır. Lütfen yalnızca güvenilir ve izole bir ortamda etkinleştirin.",
+  "yoloConfirmConfirmButton": "Riski kabul ediyorum, Gerçek YOLO'yu etkinleştir",
+  "yoloConfirmCancelButton": "İptal"
 }

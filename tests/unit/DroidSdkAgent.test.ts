@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DroidSdkAgent } from '@/process/agent/droid/DroidSdkAgent';
 
 const createSessionMock = vi.hoisted(() => vi.fn());
@@ -53,7 +56,12 @@ describe('DroidSdkAgent', () => {
     mainWarnMock.mockReset();
   });
 
-  it('injects the AskUser format reminder ahead of file references', async () => {
+  it('injects the AskUser format reminder ahead of legacy @file references', async () => {
+    // Legacy / historical content (cron / plugin-saved messages) may arrive with
+    // a `@path` prefix already embedded in the text body. The new native-attachment
+    // path in `DroidSdkAgent.sendMessageInternal` MUST preserve those verbatim and
+    // still inject the AskUser reminder in front of them. This test asserts the
+    // ordering invariant on the legacy branch.
     let streamedPrompt = '';
     const session = {
       sessionId: 'session-1',
@@ -75,14 +83,62 @@ describe('DroidSdkAgent', () => {
 
     await agent.start();
     await agent.sendMessage({
-      content: '请先问我一个问题',
-      files: ['/tmp/example.txt'],
+      content: '@/tmp/example.txt 请先问我一个问题',
       msg_id: 'msg-1',
     });
 
     expect(streamedPrompt).toContain('When using the AskUser tool');
     expect(streamedPrompt).toContain('@/tmp/example.txt');
     expect(streamedPrompt.indexOf('<system-reminder>')).toBeLessThan(streamedPrompt.indexOf('@/tmp/example.txt'));
+  });
+
+  it('routes new-message attachments through SDK-native MessageOptions (no @file in prompt)', async () => {
+    // P1-2 contract: when `data.files` is non-empty AND the content does NOT
+    // begin with a legacy `@file` token, the agent MUST upload the files via
+    // `MessageOptions.images` / `MessageOptions.files` and keep the prompt free
+    // of `@path` refs. Uses a real tmp file so the resolver actually succeeds.
+    const tmp = await mkdtemp(join(tmpdir(), 'droid-agent-attach-'));
+    try {
+      const file = join(tmp, 'note.txt');
+      await writeFile(file, 'hello', 'utf-8');
+
+      let streamedPrompt = '';
+      let streamOptions: Record<string, unknown> | undefined;
+      const session = {
+        sessionId: 'session-attach-native',
+        updateSettings: vi.fn(),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* (prompt: string, options?: Record<string, unknown>) {
+          streamedPrompt = prompt;
+          streamOptions = options;
+          yield* [];
+        }),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-native',
+        workingDir: '/tmp',
+        onStreamEvent: vi.fn(),
+      });
+
+      await agent.start();
+      await agent.sendMessage({
+        content: '请分析附件',
+        files: [file],
+        msg_id: 'msg-native',
+      });
+
+      expect(streamedPrompt).toContain('When using the AskUser tool');
+      expect(streamedPrompt).not.toContain(`@${file}`);
+      expect(streamOptions).toBeDefined();
+      // A `.txt` file is not in the image mediaType enum → goes to `files[]`.
+      expect((streamOptions as { files?: unknown[] }).files).toHaveLength(1);
+      expect((streamOptions as { images?: unknown[] }).images).toBeUndefined();
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it('injects a spec-mode planning reminder instead of the generic AskUser reminder', async () => {
@@ -362,5 +418,293 @@ describe('DroidSdkAgent', () => {
     });
 
     await expect(permissionPromise).resolves.toBe('cancel');
+  });
+
+  it('subscribes to session.onNotification on start and unsubscribes on kill', async () => {
+    const unsubscribeMock = vi.fn();
+    const onNotificationMock = vi.fn(() => unsubscribeMock);
+    const session = {
+      sessionId: 'session-notifications',
+      updateSettings: vi.fn(),
+      close: vi.fn(),
+      interrupt: vi.fn(),
+      stream: vi.fn(async function* () {}),
+      onNotification: onNotificationMock,
+    };
+    createSessionMock.mockResolvedValue(session);
+
+    const agent = new DroidSdkAgent({
+      id: 'conv-notifications',
+      workingDir: '/tmp',
+      onStreamEvent: vi.fn(),
+    });
+
+    await agent.start();
+    expect(onNotificationMock).toHaveBeenCalledTimes(1);
+    expect(typeof onNotificationMock.mock.calls[0][0]).toBe('function');
+
+    await agent.kill();
+    expect(unsubscribeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches session_title_updated notifications to onStreamEvent', async () => {
+    let capturedCallback: ((notification: Record<string, unknown>) => void) | null = null;
+    const session = {
+      sessionId: 'session-title-push',
+      updateSettings: vi.fn(),
+      close: vi.fn(),
+      interrupt: vi.fn(),
+      stream: vi.fn(async function* () {}),
+      onNotification: vi.fn((cb: (notification: Record<string, unknown>) => void) => {
+        capturedCallback = cb;
+        return vi.fn();
+      }),
+    };
+    createSessionMock.mockResolvedValue(session);
+
+    const onStreamEvent = vi.fn();
+    const agent = new DroidSdkAgent({
+      id: 'conv-title-push',
+      workingDir: '/tmp',
+      onStreamEvent,
+    });
+
+    await agent.start();
+    expect(capturedCallback).toBeTypeOf('function');
+
+    capturedCallback!({
+      type: 'session_title_updated',
+      title: 'New Title From SDK',
+    });
+
+    expect(onStreamEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'session_title',
+        conversation_id: 'conv-title-push',
+        data: expect.objectContaining({
+          sessionId: 'session-title-push',
+          title: 'New Title From SDK',
+        }),
+      })
+    );
+  });
+
+  // ── "真 YOLO" (skipPermissionsUnsafe) 二次确认流 ────────────────────
+  // SKILL P0-3 硬约束：
+  // - YOLO 模式默认 MUST NOT 携带 skipPermissionsUnsafe: true
+  // - 必须 UI 弹窗显式确认后调用 setSkipPermissionsUnsafe(true) 才能启用
+  // - 离开 YOLO / 传入 false 必须清除状态
+  describe('skipPermissionsUnsafe ("真 YOLO" second-confirm gate)', () => {
+    it('does NOT set skipPermissionsUnsafe by default when starting in yolo mode', async () => {
+      const session = {
+        sessionId: 'session-yolo-default',
+        updateSettings: vi.fn(),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-yolo-default',
+        workingDir: '/tmp',
+        sessionMode: 'yolo',
+        onStreamEvent: vi.fn(),
+      });
+
+      await agent.start();
+
+      // YOLO autonomy + interactionMode must be pushed, but
+      // skipPermissionsUnsafe MUST be absent (default false).
+      const options = createSessionMock.mock.calls[0]?.[0];
+      expect(options).toEqual(
+        expect.objectContaining({
+          interactionMode: 'auto',
+          autonomyLevel: 'high',
+        })
+      );
+      expect(options).not.toHaveProperty('skipPermissionsUnsafe');
+
+      // Post-init updateSettings MUST NOT have pushed the unsafe flag either.
+      const unsafePushes = session.updateSettings.mock.calls.filter(
+        (call) => (call[0] as Record<string, unknown>)?.skipPermissionsUnsafe !== undefined
+      );
+      expect(unsafePushes).toHaveLength(0);
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(false);
+    });
+
+    it('setSkipPermissionsUnsafe(true) pushes the flag via updateSettings for an active yolo session', async () => {
+      const session = {
+        sessionId: 'session-yolo-confirm',
+        updateSettings: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-yolo-confirm',
+        workingDir: '/tmp',
+        sessionMode: 'yolo',
+        onStreamEvent: vi.fn(),
+      });
+
+      await agent.start();
+      session.updateSettings.mockClear();
+
+      const result = await agent.setSkipPermissionsUnsafe(true);
+      expect(result.success).toBe(true);
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(true);
+      expect(session.updateSettings).toHaveBeenCalledWith({ skipPermissionsUnsafe: true });
+    });
+
+    it('setSkipPermissionsUnsafe(true) followed by setMode("yolo") creates a YOLO session carrying the flag', async () => {
+      const session = {
+        sessionId: 'session-yolo-switch',
+        updateSettings: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      // Start in default mode
+      const agent = new DroidSdkAgent({
+        id: 'conv-yolo-switch',
+        workingDir: '/tmp',
+        onStreamEvent: vi.fn(),
+      });
+      await agent.start();
+
+      // User confirms real YOLO while NOT in YOLO mode yet — flag is cached,
+      // no JSON-RPC update is sent (no-op).
+      session.updateSettings.mockClear();
+      await agent.setSkipPermissionsUnsafe(true);
+      expect(session.updateSettings).not.toHaveBeenCalled();
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(true);
+
+      // Switch to yolo — getSessionSettingsForMode('yolo') must now include
+      // skipPermissionsUnsafe:true alongside autonomy/interactionMode.
+      const result = await agent.setMode('yolo');
+      expect(result.success).toBe(true);
+      expect(session.updateSettings).toHaveBeenCalledWith({
+        interactionMode: 'auto',
+        autonomyLevel: 'high',
+        skipPermissionsUnsafe: true,
+      });
+    });
+
+    it('leaving yolo mode after setSkipPermissionsUnsafe(false) clears the flag for subsequent mode switches', async () => {
+      const session = {
+        sessionId: 'session-yolo-leave',
+        updateSettings: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-yolo-leave',
+        workingDir: '/tmp',
+        sessionMode: 'yolo',
+        onStreamEvent: vi.fn(),
+      });
+
+      await agent.start();
+      await agent.setSkipPermissionsUnsafe(true);
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(true);
+
+      // Leave YOLO by clearing the flag first, then switching to auto.
+      // Once the flag is off and we re-enter YOLO later, the unsafe field
+      // MUST NOT be re-pushed until the user confirms again.
+      session.updateSettings.mockClear();
+      await agent.setSkipPermissionsUnsafe(false);
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(false);
+      // Live YOLO session + turn-off → server must receive false.
+      expect(session.updateSettings).toHaveBeenCalledWith({ skipPermissionsUnsafe: false });
+
+      session.updateSettings.mockClear();
+      await agent.setMode('auto');
+      // Switching to auto must NOT leak skipPermissionsUnsafe into the payload.
+      expect(session.updateSettings).toHaveBeenCalledWith({
+        interactionMode: 'auto',
+        autonomyLevel: 'medium',
+      });
+      const mergedCall = session.updateSettings.mock.calls.find(
+        (call) => (call[0] as Record<string, unknown>)?.skipPermissionsUnsafe !== undefined
+      );
+      expect(mergedCall).toBeUndefined();
+
+      // Re-entering YOLO must also NOT re-push the flag without a new confirmation.
+      session.updateSettings.mockClear();
+      await agent.setMode('yolo');
+      const yoloCall = session.updateSettings.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(yoloCall).toEqual({
+        interactionMode: 'auto',
+        autonomyLevel: 'high',
+      });
+    });
+
+    it('rolls back confirmed state when updateSettings rejects', async () => {
+      const session = {
+        sessionId: 'session-yolo-fail',
+        updateSettings: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-yolo-fail',
+        workingDir: '/tmp',
+        sessionMode: 'yolo',
+        onStreamEvent: vi.fn(),
+      });
+      await agent.start();
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(false);
+
+      // Arm the next updateSettings call to reject so the setter path exercises
+      // its rollback branch. Any earlier bootstrap calls (none are expected in
+      // this setup without spec-mode config) already resolved via mockResolvedValue.
+      session.updateSettings.mockRejectedValueOnce(new Error('CLI rejected skipPermissionsUnsafe'));
+
+      const result = await agent.setSkipPermissionsUnsafe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('CLI rejected skipPermissionsUnsafe');
+      // Rollback: state must return to the previous false.
+      expect(agent.isSkipPermissionsUnsafeConfirmed).toBe(false);
+    });
+
+    it('bypassPermissions mode id is also gated by the same confirmed flag', async () => {
+      const session = {
+        sessionId: 'session-bypass',
+        updateSettings: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {}),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-bypass',
+        workingDir: '/tmp',
+        sessionMode: 'bypassPermissions',
+        onStreamEvent: vi.fn(),
+      });
+      await agent.start();
+
+      // Default (not confirmed): createSession MUST NOT carry skipPermissionsUnsafe.
+      const options = createSessionMock.mock.calls[0]?.[0];
+      expect(options).toEqual(
+        expect.objectContaining({
+          interactionMode: 'auto',
+          autonomyLevel: 'high',
+        })
+      );
+      expect(options).not.toHaveProperty('skipPermissionsUnsafe');
+    });
   });
 });

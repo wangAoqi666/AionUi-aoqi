@@ -22,6 +22,8 @@ function MockDroidSdkAgent(this: Record<string, unknown>, ...args: unknown[]) {
   this.setMode = vi.fn(async () => ({ success: true }));
   this.getModelInfo = vi.fn(() => null);
   this.setModelByConfigOption = vi.fn(async () => null);
+  this.setSkipPermissionsUnsafe = vi.fn(async () => ({ success: true }));
+  this.setEnabledToolIds = vi.fn(async () => ({ success: true }));
 }
 
 vi.mock('@/common', async () => {
@@ -245,6 +247,144 @@ describe('AcpAgentManager.setMode', () => {
       conversationId: 'conv-spec',
       action: 'updated',
       source: 'aionui',
+    });
+  });
+
+  // ── setSkipPermissionsUnsafe delegation (SKILL P0-3) ──────────────────
+  describe('setSkipPermissionsUnsafe', () => {
+    it('rejects non-droid backends with an unsupported error', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-claude',
+        backend: 'claude',
+        workspace: '/tmp/workspace',
+      });
+
+      const result = await manager.setSkipPermissionsUnsafe(true);
+      expect(result.success).toBe(false);
+      expect(result.msg).toMatch(/only supported for the Droid SDK backend/i);
+    });
+
+    it('rejects when the droid agent has not been instantiated yet', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-boot',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      const result = await manager.setSkipPermissionsUnsafe(true);
+      expect(result.success).toBe(false);
+      expect(result.msg).toMatch(/not yet available/i);
+    });
+
+    it('delegates to DroidSdkAgent.setSkipPermissionsUnsafe when the agent is ready', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-yolo',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      await manager.initAgent();
+      const result = await manager.setSkipPermissionsUnsafe(true);
+
+      expect(result.success).toBe(true);
+      // Internal agent mock captured the call.
+      // @ts-expect-error — accessing private agent field on a mock for assertion.
+      const innerAgent = manager.agent as { setSkipPermissionsUnsafe: ReturnType<typeof vi.fn> };
+      expect(innerAgent.setSkipPermissionsUnsafe).toHaveBeenCalledWith(true);
+    });
+
+    it('propagates the inner agent failure message', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-fail',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      await manager.initAgent();
+      // @ts-expect-error — accessing private agent field on a mock for assertion.
+      const innerAgent = manager.agent as { setSkipPermissionsUnsafe: ReturnType<typeof vi.fn> };
+      innerAgent.setSkipPermissionsUnsafe.mockResolvedValueOnce({
+        success: false,
+        error: 'CLI rejected skipPermissionsUnsafe',
+      });
+
+      const result = await manager.setSkipPermissionsUnsafe(true);
+      expect(result.success).toBe(false);
+      expect(result.msg).toContain('CLI rejected skipPermissionsUnsafe');
+    });
+  });
+
+  // ── setEnabledToolIds delegation (SKILL P2-2 tool whitelist) ──────────
+  describe('setEnabledToolIds', () => {
+    it('rejects non-droid backends with an unsupported error', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-claude',
+        backend: 'claude',
+        workspace: '/tmp/workspace',
+      });
+
+      const result = await manager.setEnabledToolIds(['read_file']);
+      expect(result.success).toBe(false);
+      expect(result.msg).toMatch(/only supported for the Droid SDK backend/i);
+    });
+
+    it('rejects when the droid agent has not been instantiated yet', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-preinit',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      const result = await manager.setEnabledToolIds(['read_file']);
+      expect(result.success).toBe(false);
+      expect(result.msg).toMatch(/not yet available/i);
+    });
+
+    it('delegates three-state values verbatim to DroidSdkAgent.setEnabledToolIds', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-whitelist',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      await manager.initAgent();
+      // @ts-expect-error — accessing private agent field on a mock for assertion.
+      const innerAgent = manager.agent as { setEnabledToolIds: ReturnType<typeof vi.fn> };
+
+      // Happy path — whitelist array.
+      const whitelistResult = await manager.setEnabledToolIds(['read_file', 'edit_file']);
+      expect(whitelistResult).toEqual({ success: true });
+      expect(innerAgent.setEnabledToolIds).toHaveBeenCalledWith(['read_file', 'edit_file']);
+
+      // Empty array (disable-all).
+      const emptyResult = await manager.setEnabledToolIds([]);
+      expect(emptyResult).toEqual({ success: true });
+      expect(innerAgent.setEnabledToolIds).toHaveBeenLastCalledWith([]);
+
+      // Null (clear-whitelist).
+      const clearResult = await manager.setEnabledToolIds(null);
+      expect(clearResult).toEqual({ success: true });
+      expect(innerAgent.setEnabledToolIds).toHaveBeenLastCalledWith(null);
+    });
+
+    it('propagates the inner agent failure message', async () => {
+      const manager = new AcpAgentManager({
+        conversation_id: 'conv-droid-whitelist-fail',
+        backend: 'droid',
+        workspace: '/tmp/workspace',
+      });
+
+      await manager.initAgent();
+      // @ts-expect-error — accessing private agent field on a mock for assertion.
+      const innerAgent = manager.agent as { setEnabledToolIds: ReturnType<typeof vi.fn> };
+      innerAgent.setEnabledToolIds.mockResolvedValueOnce({
+        success: false,
+        error: 'CLI rejected enabledToolIds',
+      });
+
+      const result = await manager.setEnabledToolIds(['read_file']);
+      expect(result.success).toBe(false);
+      expect(result.msg).toContain('CLI rejected enabledToolIds');
     });
   });
 });

@@ -674,7 +674,12 @@ export function initFsBridge(): void {
             finalTargetPath = path.join(dir, newFileName);
           }
 
-          await fs.copyFile(filePath, finalTargetPath);
+          const sourceStats = await fs.lstat(filePath);
+          if (sourceStats.isDirectory()) {
+            await copyDirectory(filePath, finalTargetPath);
+          } else {
+            await fs.copyFile(filePath, finalTargetPath);
+          }
           copiedFiles.push(finalTargetPath);
         } catch (error) {
           // 记录失败的文件路径与错误信息，前端可以用来提示用户 / Record failed file info so UI can warn user

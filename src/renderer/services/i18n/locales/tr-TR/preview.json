@@ -119,5 +119,27 @@
     "installing": "Önizleme bileşeni yükleniyor...",
     "startFailed": "PPT önizlemesi başlatılamadı",
     "installHint": "officecli'nin yüklü olduğundan emin olun: npm run postinstall"
+  },
+  "officecli": {
+    "failed": {
+      "title": "Office önizlemesi başlatılamadı"
+    },
+    "actions": {
+      "retry": "Kurulumu yeniden dene",
+      "manualInstall": "Manuel kurulum kılavuzunu görüntüle",
+      "copyCommand": "Kurulum komutunu kopyala",
+      "copySuccess": "Kurulum komutu kopyalandı"
+    },
+    "hints": {
+      "darwin": "Kurulum betiği curl + bash ile çalışır. macOS Gatekeeper ikili dosyayı engellerse önce xattr -cr ~/.local/bin/officecli komutunu çalıştırın.",
+      "linux": "Kurulum betiğini ağ erişimi olan bir kabukta çalıştırın. ~/.local/bin dizininin PATH içinde olduğunu doğrulayın.",
+      "windowsGeneric": "Aşağıdaki PowerShell komutunu kopyalayıp yeni açılan bir PowerShell penceresinde çalıştırın.",
+      "windowsExecutionPolicy": "PowerShell ExecutionPolicy betiği engelliyor. Önce Set-ExecutionPolicy -Scope Process Bypass komutunu çalıştırın, ardından kurulum komutunu yapıştırın.",
+      "cooldown": "Son kurulum denemesi başarısız oldu. Lütfen birkaç dakika sonra tekrar deneyin."
+    },
+    "status": {
+      "installing": "officecli yükleniyor...",
+      "installed": "officecli yüklendi"
+    }
   }
 }

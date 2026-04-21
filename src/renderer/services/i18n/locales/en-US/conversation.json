@@ -156,6 +156,7 @@
     "dragOverlayTitle": "Drop to import",
     "dragOverlayDesc": "Drag files or folders here to copy them into this workspace.",
     "dragOverlayHint": "Tip: drop anywhere to import into the selected folder.",
+    "showAllFiles": "All Files",
     "dragNoFiles": "No valid files detected. Please drag from Finder/Explorer.",
     "dragFailed": "Failed to import dropped files.",
     "contextMenu": {

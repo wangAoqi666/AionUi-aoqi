@@ -28,6 +28,20 @@ vi.mock('../../src/common', () => ({
         on: (...args: any[]) => statusOnMock(...args),
       },
     },
+    wordPreview: {
+      start: { invoke: vi.fn() },
+      stop: { invoke: vi.fn() },
+      status: { on: vi.fn() },
+    },
+    excelPreview: {
+      start: { invoke: vi.fn() },
+      stop: { invoke: vi.fn() },
+      status: { on: vi.fn() },
+    },
+    officeCli: {
+      installOfficecli: { invoke: vi.fn() },
+      getOfficecliStatus: { invoke: vi.fn() },
+    },
   },
 }));
 
@@ -38,6 +52,26 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@arco-design/web-react', () => ({
+  Button: ({
+    children,
+    onClick,
+    loading,
+    icon,
+  }: {
+    children?: React.ReactNode;
+    onClick?: (e: React.MouseEvent) => void;
+    loading?: boolean;
+    icon?: React.ReactNode;
+  }) => (
+    <button type='button' onClick={onClick} disabled={loading}>
+      {icon}
+      {children}
+    </button>
+  ),
+  Message: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
   Spin: ({ size }: { size?: number }) => (
     <div data-testid='spin' data-size={size}>
       loading...
@@ -45,10 +79,19 @@ vi.mock('@arco-design/web-react', () => ({
   ),
 }));
 
+vi.mock('@icon-park/react', () => ({
+  Copy: () => <span data-testid='copy-icon' />,
+}));
+
 vi.mock('../../src/renderer/components/media/WebviewHost', () => ({
   default: ({ url, className }: { url: string; className?: string }) => (
     <div data-testid='webview-host' data-url={url} className={className} />
   ),
+}));
+
+vi.mock('../../src/renderer/utils/platform', () => ({
+  isElectronDesktop: () => true,
+  openExternalUrl: vi.fn(),
 }));
 
 import PptViewer from '../../src/renderer/pages/conversation/Preview/components/viewers/PptViewer';
@@ -96,7 +139,7 @@ describe('PptViewer', () => {
     expect(webview.getAttribute('data-url')).toBe('http://localhost:12345');
   });
 
-  it('shows error when start fails', async () => {
+  it('shows error card with retry/manual/copy actions when start fails', async () => {
     startInvokeMock.mockRejectedValue(new Error('spawn failed'));
 
     await act(async () => {
@@ -104,7 +147,10 @@ describe('PptViewer', () => {
     });
 
     expect(screen.getByText('spawn failed')).toBeInTheDocument();
-    expect(screen.getByText('preview.ppt.installHint')).toBeInTheDocument();
+    expect(screen.getByText('preview.officecli.failed.title')).toBeInTheDocument();
+    expect(screen.getByText('preview.officecli.actions.retry')).toBeInTheDocument();
+    expect(screen.getByText('preview.officecli.actions.manualInstall')).toBeInTheDocument();
+    expect(screen.getByText('preview.officecli.actions.copyCommand')).toBeInTheDocument();
   });
 
   it('subscribes to status emitter and unsubscribes on unmount', async () => {

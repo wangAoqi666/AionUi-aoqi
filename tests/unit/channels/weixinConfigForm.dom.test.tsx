@@ -193,14 +193,13 @@ describe('WeixinConfigForm', () => {
     expect(screen.getByText('/tmp/workspace-b')).toBeTruthy();
   });
 
-  it('shows auto-follow label when a non-gemini agent is selected', async () => {
-    vi.mocked(ConfigStorage.get).mockResolvedValueOnce({ backend: 'claude', name: 'Claude' });
-
+  it('keeps Factory Droid selected by default for WeChat conversations', async () => {
     render(<WeixinConfigForm pluginStatus={null} modelSelection={noopModelSelection} onStatusChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Automatically follow the model when CLI is running')).toBeTruthy();
+      expect(screen.getByText('Factory Droid')).toBeTruthy();
     });
+    expect(screen.queryByText('Automatically follow the model when CLI is running')).toBeNull();
   });
 
   it('shows loading state when login starts', async () => {

@@ -25,7 +25,7 @@ type DraftModelSelection = {
   provider: DroidByokModelProvider;
 };
 
-const PROVIDER_OPTIONS: DroidByokModelProvider[] = ['anthropic', 'openai', 'generic-chat-completion-api'];
+const PROVIDER_OPTIONS: DroidByokModelProvider[] = ['anthropic', 'openai', 'generic-chat-completion-api', 'google'];
 
 const buildNormalizedPayload = (payload: IDroidByokModelConfigInput): IDroidByokModelConfigInput => ({
   baseUrl: payload.baseUrl.trim(),
@@ -52,6 +52,8 @@ const providerKey = (provider: DroidByokModelProvider): string => {
       return 'settings.droidByok.providerAnthropic';
     case 'openai':
       return 'settings.droidByok.providerOpenai';
+    case 'google':
+      return 'settings.droidByok.providerGoogle';
     default:
       return 'settings.droidByok.providerGeneric';
   }
@@ -70,10 +72,26 @@ const toSelectionMap = (models: IDroidByokRemoteModel[]): Record<string, DraftMo
   );
 };
 
+/**
+ * Prefill hint passed when the user clicks "Add Model" from within a BYOK
+ * site card — lets us seed Base URL + provider so the user only has to
+ * paste the API key and pick models. API keys intentionally remain
+ * renderer-entered to match the existing security model (plaintext keys
+ * never leave the main process on their own).
+ *
+ * 站点内“添加模型”入口携带的预填字段：仅 baseUrl/provider，
+ * 明文 apiKey 仍由用户在 renderer 侧输入，避免从主进程外泄。
+ */
+export type FactoryDroidByokModalPrefill = {
+  baseUrl?: string;
+  provider?: DroidByokModelProvider;
+};
+
 const FactoryDroidByokModal = ModalHOC<{
   data?: IDroidByokModelConfig | null;
+  prefill?: FactoryDroidByokModalPrefill;
   onSubmit?: () => Promise<void> | void;
-}>(({ modalProps, data, onSubmit, modalCtrl }) => {
+}>(({ modalProps, data, prefill, onSubmit, modalCtrl }) => {
   const { t } = useTranslation();
   const [message, messageContext] = Message.useMessage();
   const [baseUrl, setBaseUrl] = useState('');
@@ -114,17 +132,17 @@ const FactoryDroidByokModal = ModalHOC<{
       return;
     }
 
-    setBaseUrl(data?.baseUrl || '');
+    setBaseUrl(data?.baseUrl || prefill?.baseUrl || '');
     setApiKey(data?.apiKey || '');
     setModel(data?.model || '');
     setDisplayName(data?.displayName || '');
-    setProvider(data?.provider || 'anthropic');
+    setProvider(data?.provider || prefill?.provider || 'anthropic');
     setValidatedSignature(data ? buildConnectionSignature(data) : null);
     setCatalog([]);
     setSelectedModels([]);
     setSelectionMap({});
     setImportProgress(null);
-  }, [data, modalProps.visible]);
+  }, [data, modalProps.visible, prefill?.baseUrl, prefill?.provider]);
 
   useEffect(() => {
     const unsubscribe = ipcBridge.acpConversation.droidByokImportProgress.on((payload) => {
@@ -183,7 +201,7 @@ const FactoryDroidByokModal = ModalHOC<{
       }
 
       setBaseUrl(result.data.config.baseUrl);
-      setDisplayName(result.data.config.displayName);
+      setDisplayName((current) => current.trim() || result.data.config.displayName);
       setProvider(result.data.config.provider);
       setValidatedSignature(buildConnectionSignature(result.data.config));
       message.success(t('settings.droidByok.testConnectionSuccess'));
