@@ -735,15 +735,9 @@ const ModelModalContent: React.FC = () => {
   });
 
   const [factoryDroidByokModalCtrl, factoryDroidByokModalContext] = FactoryDroidByokModal.useModal({
-    async onSubmit(config) {
-      const result = await ipcBridge.acpConversation.saveDroidByokConfig.invoke(config);
-      if (!result.success || !result.data?.config) {
-        throw new Error(result.msg || t('settings.droidByok.saveFailed'));
-      }
-
+    async onSubmit() {
       await loadDroidByokConfig();
-      await syncDroidCatalog(true);
-      message.success(t('settings.droidByok.saveSuccess'));
+      await syncDroidCatalog();
     },
   });
 
@@ -756,7 +750,7 @@ const ModelModalContent: React.FC = () => {
       }
 
       await loadDroidByokConfig();
-      await syncDroidCatalog(true);
+      await syncDroidCatalog();
       message.success(t('settings.droidByok.removeSuccess'));
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));

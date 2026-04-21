@@ -76,6 +76,14 @@ export function resolveDroidCliCandidates(configuredCliPath?: string | null): Dr
     return [{ execPath: trimmedCliPath, source: 'custom' }];
   }
 
+  // Prefer system-installed droid first — bundled binaries have proven unreliable
+  // on some Windows machines (e.g. Bun baseline illegal instruction). Users are
+  // expected to install @factory/cli globally via the in-app initializer.
+  candidates.push({
+    execPath: trimmedCliPath || 'droid',
+    source: 'system',
+  });
+
   if (bundledBinaryPath) {
     candidates.push({ execPath: bundledBinaryPath, source: 'bundled' });
   }
@@ -83,11 +91,6 @@ export function resolveDroidCliCandidates(configuredCliPath?: string | null): Dr
   if (projectInstalledBinaryPath) {
     candidates.push({ execPath: projectInstalledBinaryPath, source: 'bundled' });
   }
-
-  candidates.push({
-    execPath: trimmedCliPath || 'droid',
-    source: 'system',
-  });
 
   return candidates;
 }

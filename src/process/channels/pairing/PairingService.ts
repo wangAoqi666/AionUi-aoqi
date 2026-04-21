@@ -58,8 +58,13 @@ export class PairingService {
           r.status === 'pending'
       );
 
-      // Return existing code if not expired
+      // Return existing code if not expired. Re-emit the event so the Settings UI
+      // can pick up the request even if it was opened after the first emission.
       if (existing && existing.expiresAt > Date.now()) {
+        console.log(
+          `[PairingService] REUSE pairing pluginId=${pluginId} user=${platformUserId} platform=${platformType} code=${existing.code}`
+        );
+        channelBridge.pairingRequested.emit(existing);
         return {
           code: existing.code,
           expiresAt: existing.expiresAt,
@@ -86,7 +91,25 @@ export class PairingService {
 
     const createResult = db.createPairingRequest(request);
     if (!createResult.success) {
+      console.error(
+        `[PairingService] createPairingRequest FAILED pluginId=${pluginId} user=${platformUserId} platform=${platformType} code=${code} error=${createResult.error}`
+      );
       throw new Error(createResult.error || 'Failed to create pairing request');
+    }
+
+    console.log(
+      `[PairingService] NEW pairing pluginId=${pluginId} user=${platformUserId} platform=${platformType} code=${code} expiresAt=${new Date(expiresAt).toISOString()}`
+    );
+
+    // Sanity check: immediately verify the row is readable via the same pending-query path
+    // used by the Settings UI. If this check fails, it means the write didn't land in the
+    // same DB connection/state that readers use (indicates a DB corruption / migration issue).
+    const verify = db.getPendingPairingRequests();
+    const found = verify.success && verify.data?.some((r) => r.code === code);
+    if (!found) {
+      console.warn(
+        `[PairingService] VERIFY FAILED: just-inserted code ${code} is not visible via getPendingPairingRequests. Total pending=${verify.data?.length ?? 0}`
+      );
     }
 
     // Emit event for Settings UI

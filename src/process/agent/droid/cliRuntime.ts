@@ -27,6 +27,24 @@ type RunDroidCliCommandOptions = {
   source?: DroidCliSource;
 };
 
+/**
+ * Windows `droid` is usually an npm-installed `.cmd` shim that re-spawns node +
+ * cli.js. Cold start (Defender scan, cmd.exe chain, network telemetry on slow
+ * Chinese networks) can easily exceed 5 seconds. We probe with 15s on first
+ * call and cache the result for the rest of the process lifetime to avoid
+ * re-running the expensive sync probe during every startSession.
+ */
+const DROID_CLI_VERSION_PROBE_TIMEOUT_MS = 15000;
+const workingCliCache = new Map<string, WorkingDroidCliResult>();
+
+function buildCacheKey(configuredCliPath?: string | null): string {
+  return configuredCliPath?.trim() || '__default__';
+}
+
+export function resetDroidCliRuntimeCache(): void {
+  workingCliCache.clear();
+}
+
 function normalizeCliOutput(output: string): string {
   return (
     output
@@ -45,15 +63,19 @@ function getDroidCliCommandEnv(options?: RunDroidCliCommandOptions): Record<stri
 export function runDroidCliCommand(
   execPath: string,
   args: string[],
-  options?: RunDroidCliCommandOptions
+  options?: RunDroidCliCommandOptions & { timeoutMs?: number }
 ): CliCommandResult {
   try {
     return {
       output: normalizeCliOutput(
         execFileSync(execPath, args, {
           encoding: 'utf-8',
-          timeout: 5000,
+          timeout: options?.timeoutMs ?? DROID_CLI_VERSION_PROBE_TIMEOUT_MS,
           env: getDroidCliCommandEnv(options),
+          // On Windows, npm-installed droid is a `.cmd` shim. Without
+          // windowsHide, cmd.exe briefly flashes a console window every
+          // probe — also making the spawn slightly more expensive.
+          windowsHide: true,
         }).trim()
       ),
     };
@@ -95,7 +117,7 @@ function prioritizeCliCandidates(
   return [systemCandidate, ...candidates.filter((candidate) => candidate !== systemCandidate)];
 }
 
-export function resolveWorkingDroidCli(configuredCliPath?: string | null): WorkingDroidCliResult {
+function probeWorkingDroidCli(configuredCliPath?: string | null): WorkingDroidCliResult {
   const candidates = prioritizeCliCandidates(resolveDroidCliCandidates(configuredCliPath), configuredCliPath);
   const fallbackCandidate = candidates[0] || { execPath: 'droid', source: 'system' };
   let lastError: string | undefined;
@@ -132,4 +154,27 @@ export function resolveWorkingDroidCli(configuredCliPath?: string | null): Worki
     cliPath: fallbackCandidate.source === 'system' ? null : fallbackCandidate.execPath,
     ...(lastError ? { error: lastError } : {}),
   };
+}
+
+/**
+ * Resolve the working droid CLI. Result is cached for the lifetime of the main
+ * process to avoid repeated `execFileSync droid --version` on Windows where
+ * each probe pays a 3–10 second cold-start penalty (Defender scan, cmd.exe
+ * shim, telemetry). Callers that need a fresh probe can call
+ * {@link resetDroidCliRuntimeCache} first.
+ */
+export function resolveWorkingDroidCli(configuredCliPath?: string | null): WorkingDroidCliResult {
+  const cacheKey = buildCacheKey(configuredCliPath);
+  const cached = workingCliCache.get(cacheKey);
+  if (cached && cached.version) {
+    return cached;
+  }
+
+  const result = probeWorkingDroidCli(configuredCliPath);
+  // Only cache successful probes. A failed probe may be due to transient
+  // issues (AV scan, network blip) and should be retried next time.
+  if (result.version) {
+    workingCliCache.set(cacheKey, result);
+  }
+  return result;
 }

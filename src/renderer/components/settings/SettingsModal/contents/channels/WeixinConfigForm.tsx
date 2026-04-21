@@ -15,6 +15,7 @@ import {
 } from '@/renderer/components/settings/channelConversationAgentOptions';
 import { useOptionalConversationHistoryContext } from '@/renderer/hooks/context/ConversationHistoryContext';
 import GeminiModelSelector from '@/renderer/pages/conversation/platforms/gemini/GeminiModelSelector';
+import DroidChannelModelSelector from './DroidChannelModelSelector';
 import type { GeminiModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGeminiModelSelection';
 import {
   buildPublishedWorkspaceOptions,
@@ -126,38 +127,57 @@ const WeixinConfigForm: React.FC<WeixinConfigFormProps> = ({
     }
   }, [pluginStatus, loginState]);
 
-  const loadPendingPairings = useCallback(async () => {
-    setPairingLoading(true);
-    try {
-      const result = await channel.getPendingPairings.invoke();
-      if (result.success && result.data) {
-        setPendingPairings(result.data.filter((p) => p.platformType === 'weixin' && p.pluginId === pluginId));
+  const loadPendingPairings = useCallback(
+    async (silent = false) => {
+      if (!silent) setPairingLoading(true);
+      try {
+        const result = await channel.getPendingPairings.invoke();
+        if (result.success && result.data) {
+          setPendingPairings(result.data.filter((p) => p.platformType === 'weixin' && p.pluginId === pluginId));
+        }
+      } catch (error) {
+        console.error('[WeixinConfig] Failed to load pending pairings:', error);
+      } finally {
+        if (!silent) setPairingLoading(false);
       }
-    } catch (error) {
-      console.error('[WeixinConfig] Failed to load pending pairings:', error);
-    } finally {
-      setPairingLoading(false);
-    }
-  }, [pluginId]);
+    },
+    [pluginId]
+  );
 
-  const loadAuthorizedUsers = useCallback(async () => {
-    setUsersLoading(true);
-    try {
-      const result = await channel.getAuthorizedUsers.invoke();
-      if (result.success && result.data) {
-        setAuthorizedUsers(result.data.filter((u) => u.platformType === 'weixin' && u.pluginId === pluginId));
+  const loadAuthorizedUsers = useCallback(
+    async (silent = false) => {
+      if (!silent) setUsersLoading(true);
+      try {
+        const result = await channel.getAuthorizedUsers.invoke();
+        if (result.success && result.data) {
+          setAuthorizedUsers(result.data.filter((u) => u.platformType === 'weixin' && u.pluginId === pluginId));
+        }
+      } catch (error) {
+        console.error('[WeixinConfig] Failed to load authorized users:', error);
+      } finally {
+        if (!silent) setUsersLoading(false);
       }
-    } catch (error) {
-      console.error('[WeixinConfig] Failed to load authorized users:', error);
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [pluginId]);
+    },
+    [pluginId]
+  );
 
+  const pluginEnabled = !!pluginStatus?.enabled;
+  const pluginConnected = !!pluginStatus?.connected;
   useEffect(() => {
     void loadPendingPairings();
     void loadAuthorizedUsers();
-  }, [loadPendingPairings, loadAuthorizedUsers]);
+  }, [loadPendingPairings, loadAuthorizedUsers, pluginEnabled, pluginConnected]);
+
+  // Background polling: while the plugin is enabled and the Settings page is open,
+  // re-fetch pending pairings every 5s so new users' pairing requests appear even
+  // when the live IPC event was missed.
+  useEffect(() => {
+    if (!pluginEnabled) return;
+    const timer = setInterval(() => {
+      void loadPendingPairings(true);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [pluginEnabled, loadPendingPairings]);
 
   useEffect(() => {
     const loadWorkspace = async () => {
@@ -598,16 +618,20 @@ const WeixinConfigForm: React.FC<WeixinConfigFormProps> = ({
         label={t('settings.assistant.defaultModel', 'Default Model')}
         description={t('settings.weixin.defaultModelDesc', 'Model used for WeChat conversations')}
       >
-        <GeminiModelSelector
-          selection={isGeminiAgent ? modelSelection : undefined}
-          disabled={!isGeminiAgent}
-          label={
-            !isGeminiAgent
-              ? t('settings.assistant.autoFollowCliModel', 'Automatically follow the model when CLI is running')
-              : undefined
-          }
-          variant='settings'
-        />
+        {selectedAgent.backend === 'droid' ? (
+          <DroidChannelModelSelector pluginId={pluginId} platform='weixin' agent={selectedAgent} />
+        ) : (
+          <GeminiModelSelector
+            selection={isGeminiAgent ? modelSelection : undefined}
+            disabled={!isGeminiAgent}
+            label={
+              !isGeminiAgent
+                ? t('settings.assistant.autoFollowCliModel', 'Automatically follow the model when CLI is running')
+                : undefined
+            }
+            variant='settings'
+          />
+        )}
       </PreferenceRow>
 
       {selectedAgent.backend === 'droid' && (
@@ -644,14 +668,18 @@ const WeixinConfigForm: React.FC<WeixinConfigFormProps> = ({
       {pluginStatus?.connected && (
         <div className='bg-fill-1 rd-12px pt-16px pr-16px pb-16px pl-0'>
           <SectionHeader
-            title={t('settings.assistant.pendingPairings', 'Pending Pairing Requests')}
+            title={
+              pendingPairings.length > 0
+                ? `${t('settings.assistant.pendingPairings', 'Pending Pairing Requests')} (${pendingPairings.length})`
+                : t('settings.assistant.pendingPairings', 'Pending Pairing Requests')
+            }
             action={
               <Button
                 size='mini'
                 type='text'
                 icon={<Refresh size={14} />}
                 loading={pairingLoading}
-                onClick={loadPendingPairings}
+                onClick={() => loadPendingPairings()}
               >
                 {t('common.refresh', 'Refresh')}
               </Button>
@@ -723,7 +751,7 @@ const WeixinConfigForm: React.FC<WeixinConfigFormProps> = ({
                 type='text'
                 icon={<Refresh size={14} />}
                 loading={usersLoading}
-                onClick={loadAuthorizedUsers}
+                onClick={() => loadAuthorizedUsers()}
               >
                 {t('common.refresh', 'Refresh')}
               </Button>

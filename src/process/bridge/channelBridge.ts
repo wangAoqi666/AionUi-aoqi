@@ -245,6 +245,13 @@ export function initChannelBridge(channelRepo: IChannelRepository): void {
   channel.getPendingPairings.provider(async () => {
     try {
       const data = await channelRepo.getPendingPairingRequests();
+      // Only log when we actually have pending pairings to avoid flooding the log with
+      // empty-result entries from the 5s background poller in the Settings UI.
+      if (data.length > 0) {
+        console.log(
+          `[ChannelBridge] getPendingPairings → count=${data.length} entries=${data.map((r) => `${r.platformType}:${r.pluginId}:${r.code}:${r.status}`).join(' | ')}`
+        );
+      }
       return { success: true, data };
     } catch (error: any) {
       console.error('[ChannelBridge] getPendingPairings error:', error);

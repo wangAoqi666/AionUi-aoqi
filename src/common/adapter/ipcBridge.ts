@@ -13,7 +13,10 @@ import type {
   AcpBackend,
   AcpBackendAll,
   AcpModelInfo,
+  DroidCliInstallProgress,
+  DroidCliInstallResult,
   DroidCliUpdateInfo,
+  DroidNodeDetectionInfo,
   DroidStatusInfo,
   PresetAgentType,
 } from '../types/acpTypes';
@@ -31,14 +34,68 @@ import type {
 import type { ProtocolDetectionRequest, ProtocolDetectionResponse } from '../utils/protocolDetector';
 import type { SpeechToTextRequest, SpeechToTextResult } from '../types/speech';
 
-export type DroidByokModelProvider = 'anthropic';
+export type DroidByokModelProvider = 'anthropic' | 'openai' | 'generic-chat-completion-api';
 
 export interface IDroidByokModelConfigInput {
   baseUrl: string;
   apiKey: string;
   model: string;
   displayName?: string;
+  provider?: DroidByokModelProvider;
   existingId?: string;
+}
+
+export interface IDroidByokImportModelInput {
+  model: string;
+  displayName?: string;
+  provider?: DroidByokModelProvider;
+  /**
+   * Catalog-reported supportedEndpointTypes for this model. When provided, the
+   * backend can skip re-fetching /v1/models during import. Optional for backward compatibility.
+   */
+  supportedEndpointTypes?: string[];
+}
+
+export interface IDroidByokImportConfigsInput {
+  baseUrl: string;
+  apiKey: string;
+  models: IDroidByokImportModelInput[];
+  /**
+   * When true, skip the per-model probe network calls and trust the provider
+   * inferred from catalog metadata. Enables near-instant bulk import.
+   */
+  skipProbe?: boolean;
+}
+
+export type DroidByokImportProgressStatus = 'probing' | 'persisting' | 'imported' | 'failed' | 'done';
+
+export interface IDroidByokImportProgress {
+  current: number;
+  total: number;
+  model: string;
+  status: DroidByokImportProgressStatus;
+  reason?: string;
+}
+
+export interface IDroidByokRemoteModel {
+  model: string;
+  displayName: string;
+  supportedEndpointTypes: string[];
+  inferredProvider: DroidByokModelProvider;
+}
+
+export interface IDroidByokRemoteCatalog {
+  baseUrl: string;
+  cachedAt: number;
+  models: IDroidByokRemoteModel[];
+}
+
+export interface IDroidByokImportResult {
+  imported: IDroidByokModelConfig[];
+  failed: Array<{
+    model: string;
+    reason: string;
+  }>;
 }
 
 export interface IDroidByokModelConfig extends Omit<IDroidByokModelConfigInput, 'existingId'> {
@@ -524,9 +581,20 @@ export const acpConversation = {
   ),
   getDroidStatus: bridge.buildProvider<IBridgeResponse<DroidStatusInfo>, void>('acp.get-droid-status'),
   checkDroidCliUpdate: bridge.buildProvider<IBridgeResponse<DroidCliUpdateInfo>, void>('acp.check-droid-cli-update'),
+  detectDroidNodeRuntime: bridge.buildProvider<IBridgeResponse<DroidNodeDetectionInfo>, void>(
+    'acp.detect-droid-node-runtime'
+  ),
+  installDroidCli: bridge.buildProvider<IBridgeResponse<DroidCliInstallResult>, { mode: 'install' | 'update' }>(
+    'acp.install-droid-cli'
+  ),
+  droidCliInstallProgress: bridge.buildEmitter<DroidCliInstallProgress>('acp.droid-cli-install-progress'),
   getDroidByokConfig: bridge.buildProvider<IBridgeResponse<{ configs: IDroidByokModelConfig[] }>, void>(
     'acp.get-droid-byok-config'
   ),
+  fetchDroidByokModels: bridge.buildProvider<
+    IBridgeResponse<{ catalog: IDroidByokRemoteCatalog }>,
+    { baseUrl: string; apiKey: string; refresh?: boolean }
+  >('acp.fetch-droid-byok-models'),
   testDroidByokConfig: bridge.buildProvider<
     IBridgeResponse<{ config: IDroidByokModelConfig }>,
     IDroidByokModelConfigInput
@@ -535,6 +603,10 @@ export const acpConversation = {
     IBridgeResponse<{ config: IDroidByokModelConfig }>,
     IDroidByokModelConfigInput
   >('acp.save-droid-byok-config'),
+  importDroidByokConfigs: bridge.buildProvider<IBridgeResponse<IDroidByokImportResult>, IDroidByokImportConfigsInput>(
+    'acp.import-droid-byok-configs'
+  ),
+  droidByokImportProgress: bridge.buildEmitter<IDroidByokImportProgress>('acp.droid-byok-import-progress'),
   removeDroidByokConfig: bridge.buildProvider<IBridgeResponse, { id: string }>('acp.remove-droid-byok-config'),
   // Probe model info for an ACP backend without creating a visible conversation
   // 预探测 ACP 后端的模型信息，不创建可见会话

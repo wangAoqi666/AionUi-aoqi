@@ -17,6 +17,7 @@ const switchTabMock = vi.fn();
 const updateWorkspaceTimeMock = vi.fn();
 const emitterEmitMock = vi.fn();
 const messageErrorMock = vi.fn();
+const updateTabNameMock = vi.fn();
 
 const openTabs = [
   {
@@ -57,6 +58,7 @@ vi.mock('@/renderer/pages/conversation/hooks/ConversationTabsContext', () => ({
     closeTabsToRight: closeTabsToRightMock,
     closeOtherTabs: closeOtherTabsMock,
     openTab: openTabMock,
+    updateTabName: updateTabNameMock,
   }),
 }));
 
@@ -105,10 +107,16 @@ vi.mock('@arco-design/web-react', () => {
     Item: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     ItemGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   });
+  // eslint-disable-next-line unicorn/consistent-function-scoping
+  const Modal = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  // eslint-disable-next-line unicorn/consistent-function-scoping
+  const Input = () => null;
 
   return {
     Dropdown,
     Menu,
+    Modal,
+    Input,
     Message: {
       error: (...args: unknown[]) => messageErrorMock(...args),
     },

@@ -649,6 +649,93 @@ export class AionUIDatabase {
     }
   }
 
+  /**
+   * Find the latest persisted `model` JSON for any channel conversation belonging to the
+   * given plugin (regardless of chatId or conversation type). Used to inherit a working
+   * model config when onboarding a new user: if the channel's saved default model can no
+   * longer be resolved to a provider with an API key, we fall back to the model already
+   * persisted on a conversation that an older user is successfully using.
+   *
+   * Returns raw JSON because ACP-variant conversations don't expose `model` on their
+   * `TChatConversation` type even though the column is populated in the DB row.
+   */
+  findAnyChannelConversationModelJsonForPlugin(
+    source: ConversationSource,
+    channelPluginId: string,
+    userId?: string
+  ): IQueryResult<string | null> {
+    try {
+      const finalUserId = userId || this.defaultUserId;
+      const row = this.db
+        .prepare(
+          `
+            SELECT model FROM conversations
+            WHERE user_id = ? AND source = ? AND channel_plugin_id = ? AND model IS NOT NULL AND model != ''
+            ORDER BY updated_at DESC
+            LIMIT 1
+          `
+        )
+        .get(finalUserId, source, channelPluginId) as { model: string | null } | undefined;
+
+      return {
+        success: true,
+        data: row?.model ?? null,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Find the latest custom `workspace` path used by any channel conversation belonging
+   * to the given plugin. Acts as a safety net when `instanceSettings.workspace` is
+   * empty (e.g. the admin hasn't saved the setting yet, or the UI failed to persist
+   * it): new pairings shouldn't silently fall back to `droid-temp-<ts>` — they should
+   * inherit whichever workspace the admin's own conversation is already using.
+   */
+  findAnyChannelConversationWorkspaceForPlugin(
+    source: ConversationSource,
+    channelPluginId: string,
+    userId?: string
+  ): IQueryResult<string | null> {
+    try {
+      const finalUserId = userId || this.defaultUserId;
+      const row = this.db
+        .prepare(
+          `
+            SELECT extra FROM conversations
+            WHERE user_id = ? AND source = ? AND channel_plugin_id = ?
+              AND extra IS NOT NULL AND extra != ''
+              AND json_extract(extra, '$.customWorkspace') = 1
+              AND json_extract(extra, '$.workspace') IS NOT NULL
+            ORDER BY updated_at DESC
+            LIMIT 1
+          `
+        )
+        .get(finalUserId, source, channelPluginId) as { extra: string | null } | undefined;
+
+      if (!row?.extra) {
+        return { success: true, data: null };
+      }
+
+      try {
+        const parsed = JSON.parse(row.extra) as { workspace?: unknown };
+        const workspace = typeof parsed.workspace === 'string' && parsed.workspace.trim() ? parsed.workspace : null;
+        return { success: true, data: workspace };
+      } catch {
+        return { success: true, data: null };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
   getUserConversations(userId?: string, page = 0, pageSize = 50): IPaginatedResult<TChatConversation> {
     try {
       const finalUserId = userId || this.defaultUserId;

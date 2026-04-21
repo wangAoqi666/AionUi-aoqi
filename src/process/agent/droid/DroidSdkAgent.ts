@@ -99,6 +99,20 @@ const SPEC_MODE_EXECUTION_REMINDER =
   `Remain in Specification Mode until ExitSpecMode is approved.\n` +
   `</system-reminder>\n\n`;
 
+/**
+ * Heuristic: is this modelId produced by a BYOK/custom provider rather than a
+ * first-party Factory cloud model? Used to decide whether to trust a modelId
+ * that isn't in the main-process catalog cache (so we don't silently fall back
+ * to the Factory default when the catalog is still being probed asynchronously).
+ *
+ * 判断一个 modelId 是否看起来像 BYOK/自定义模型：主进程 catalog 还没探测完时，
+ * 我们信任这种格式的 id 直接下放给 CLI，避免在启动竞速期被静默替换为默认模型。
+ */
+const isLikelyByokModelId = (modelId: string): boolean => {
+  if (!modelId) return false;
+  return modelId.startsWith('custom:') || modelId.includes('[BYOK]');
+};
+
 export class DroidSdkAgent {
   private config: DroidSdkAgentConfig;
   private session: DroidSession | null = null;
@@ -132,7 +146,32 @@ export class DroidSdkAgent {
   constructor(config: DroidSdkAgentConfig) {
     this.config = config;
     this.mapper = new DroidMessageMapper(config.id);
-    this.currentModelId = getFactoryModelById(config.modelId || '')?.id || getFactoryDefaultModelId();
+    // Preserve custom/BYOK model ids even when the main-process catalog hasn't
+    // been hydrated yet. The Factory CLI reads `settings.local.json` on spawn,
+    // so a raw BYOK id (e.g. `custom:…-[BYOK]-N`) is safe to pass through — and
+    // it MUST be preserved, otherwise the first message arriving before
+    // `refreshFactoryDroidCatalog()` completes would silently fall back to the
+    // Factory default model, which then requires a Factory access token and
+    // fails with "No access token available" for users running BYOK-only.
+    //
+    // 主进程的 FactoryCatalog 启动时可能还未探测到 CLI 里的 BYOK 模型（
+    // `refreshFactoryDroidCatalog` 是 did-finish-load 之后才跑），如果此时
+    // 第一条消息进来就把 BYOK id 静默替换成默认的 Factory 模型，后续 CLI
+    // 调用就需要 Factory access token，用户只配了 BYOK 就会看到
+    // "No access token available"。这里保留看起来像 BYOK 的 id，交给 CLI 校验。
+    const rawConfiguredModelId = (config.modelId || '').trim();
+    const canonicalModelId = getFactoryModelById(rawConfiguredModelId)?.id;
+    if (canonicalModelId) {
+      this.currentModelId = canonicalModelId;
+    } else if (rawConfiguredModelId && isLikelyByokModelId(rawConfiguredModelId)) {
+      mainWarn(
+        '[DroidSdkAgent]',
+        `Model id "${rawConfiguredModelId}" not found in cached catalog, passing through as BYOK candidate (catalog may still be hydrating)`
+      );
+      this.currentModelId = rawConfiguredModelId;
+    } else {
+      this.currentModelId = getFactoryDefaultModelId();
+    }
     this.currentSessionMode = config.sessionMode || 'default';
     const configuredReasoning = this.getConfiguredReasoningEffort();
     this.hasConfiguredReasoningEffort = configuredReasoning !== undefined;
@@ -206,8 +245,16 @@ export class DroidSdkAgent {
     try {
       const env = getEnhancedEnv();
       const cliRuntime = resolveWorkingDroidCli(this.config.cliPath);
+      // If the synchronous `droid --version` probe failed (e.g. Windows
+      // cold-start > 15s due to Defender + cmd.exe shim + telemetry), do NOT
+      // block session startup. The Factory droid SDK will asynchronously spawn
+      // the CLI itself and surface any real failure (ENOENT, exit code, etc.)
+      // with richer diagnostics. The sync probe is only a soft-preflight.
       if (!cliRuntime.version) {
-        throw new Error(cliRuntime.error || 'Droid CLI is unavailable');
+        mainWarn(
+          '[DroidSdkAgent]',
+          `droid --version preflight did not return (source=${cliRuntime.source}, err=${cliRuntime.error || 'timeout'}); proceeding with execPath=${cliRuntime.execPath}`
+        );
       }
 
       const execPath = cliRuntime.execPath;
@@ -279,6 +326,14 @@ export class DroidSdkAgent {
   // ── Messaging ───────────────────────────────────────────────────────
 
   async sendMessage(data: { content: string; files?: string[]; msg_id?: string }): Promise<AcpResult> {
+    mainLog('[DroidSdkAgent]', 'sendMessage enter', {
+      conversation_id: this.config.id,
+      msg_id: data.msg_id,
+      modelId: this.currentModelId,
+      hasRuntimeScheduler: Boolean(this.runtimeScheduler),
+      sessionExists: Boolean(this.session),
+      contentLength: data.content?.length ?? 0,
+    });
     await this.refreshPublishedRuntimeSettings();
 
     if (!this.runtimeScheduler) {
@@ -357,9 +412,26 @@ export class DroidSdkAgent {
       }
 
       this.abortController = new AbortController();
+      mainLog('[DroidSdkAgent]', 'sendMessageInternal stream begin', {
+        conversation_id: this.config.id,
+        sessionId: this.session.sessionId,
+        modelId: this.currentModelId,
+        contentLength: content.length,
+      });
+      let streamMsgCount = 0;
       for await (const msg of this.session.stream(content)) {
         if (this.abortController?.signal.aborted) {
           break;
+        }
+
+        streamMsgCount += 1;
+        if (streamMsgCount === 1 || streamMsgCount % 20 === 0) {
+          mainLog('[DroidSdkAgent]', 'sendMessageInternal stream progress', {
+            conversation_id: this.config.id,
+            sessionId: this.session.sessionId,
+            msgCount: streamMsgCount,
+            lastMsgType: (msg as { type?: string } | null)?.type ?? null,
+          });
         }
 
         const uiEvents = this.mapper.mapMessage(msg);
@@ -367,6 +439,11 @@ export class DroidSdkAgent {
           this.config.onStreamEvent(event);
         }
       }
+      mainLog('[DroidSdkAgent]', 'sendMessageInternal stream complete', {
+        conversation_id: this.config.id,
+        sessionId: this.session.sessionId,
+        msgCount: streamMsgCount,
+      });
 
       return { success: true, data: null };
     } catch (error) {
@@ -379,6 +456,12 @@ export class DroidSdkAgent {
     if (errMsg.includes('402') || errMsg.includes('Payment Required')) {
       errMsg = 'Factory 算力额度不足，请前往 https://app.factory.ai/settings/usage 充值后继续使用。';
     }
+    mainWarn('[DroidSdkAgent]', 'sendMessage error', {
+      conversation_id: this.config.id,
+      sessionId: this.session?.sessionId ?? null,
+      modelId: this.currentModelId,
+      errMsg,
+    });
     this.emitError(errMsg);
     return {
       success: false,

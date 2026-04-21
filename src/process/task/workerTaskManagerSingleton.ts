@@ -18,42 +18,54 @@ import OpenClawAgentManager from './OpenClawAgentManager';
 import NanoBotAgentManager from './NanoBotAgentManager';
 import RemoteAgentManager from './RemoteAgentManager';
 import { AionrsManager } from './AionrsManager';
+import type { TChatConversation } from '@/common/config/storage';
 
 const agentFactory = new AgentFactory();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ConversationOf<TType extends TChatConversation['type']> = Extract<TChatConversation, { type: TType }>;
+
+const asConversation = <TType extends TChatConversation['type']>(conv: unknown) => conv as ConversationOf<TType>;
+
+const getConversationUseModel = (conv: unknown): string | undefined => {
+  if (!conv || typeof conv !== 'object' || !('model' in conv)) {
+    return undefined;
+  }
+
+  const model = (conv as { model?: { useModel?: unknown } }).model;
+  return typeof model?.useModel === 'string' ? model.useModel : undefined;
+};
+
 agentFactory.register('gemini', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'gemini'>(conv);
   return new GeminiAgentManager(
     { ...c.extra, conversation_id: c.id, yoloMode: opts?.yoloMode },
     c.model
   ) as unknown as ReturnType<typeof agentFactory.create>;
 });
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 agentFactory.register('acp', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'acp'>(conv);
   return new AcpAgentManager({
     ...c.extra,
     conversation_id: c.id,
     source: c.source,
+    channelPluginId: c.channelPluginId,
     yoloMode: opts?.yoloMode,
     // Only gemini ACP conversations use conversation.model as a backend-aligned model
     // fallback. Other ACP backends persist their own CLI model IDs in extra.currentModelId.
-    currentModelId: c.extra?.currentModelId ?? (c.extra?.backend === 'gemini' ? c.model?.useModel : undefined),
+    currentModelId:
+      c.extra?.currentModelId ?? (c.extra?.backend === 'gemini' ? getConversationUseModel(conv) : undefined),
   }) as unknown as ReturnType<typeof agentFactory.create>;
 });
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 agentFactory.register('openclaw-gateway', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'openclaw-gateway'>(conv);
   return new OpenClawAgentManager({
     ...c.extra,
     conversation_id: c.id,
     yoloMode: opts?.yoloMode,
   }) as unknown as ReturnType<typeof agentFactory.create>;
 });
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 agentFactory.register('nanobot', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'nanobot'>(conv);
   return new NanoBotAgentManager({
     ...c.extra,
     conversation_id: c.id,
@@ -61,9 +73,8 @@ agentFactory.register('nanobot', (conv, opts) => {
   }) as unknown as ReturnType<typeof agentFactory.create>;
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 agentFactory.register('remote', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'remote'>(conv);
   return new RemoteAgentManager({
     ...c.extra,
     conversation_id: c.id,
@@ -71,11 +82,10 @@ agentFactory.register('remote', (conv, opts) => {
   }) as unknown as ReturnType<typeof agentFactory.create>;
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 agentFactory.register('aionrs', (conv, opts) => {
-  const c = conv as any;
+  const c = asConversation<'aionrs'>(conv);
   return new AionrsManager(
-    { ...c.extra, conversation_id: c.id, yoloMode: opts?.yoloMode },
+    { ...c.extra, conversation_id: c.id, yoloMode: opts?.yoloMode, model: c.model },
     c.model
   ) as unknown as ReturnType<typeof agentFactory.create>;
 });

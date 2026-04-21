@@ -10,6 +10,7 @@ import path from 'path';
 import { acpDetector } from '@process/agent/acp/AcpDetector';
 import type { TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import { ProcessConfig } from '@process/utils/initStorage';
+import { getDatabase } from '@process/services/database';
 import { conversationServiceSingleton } from '@/process/services/conversationServiceSingleton';
 import { workerTaskManager } from '@process/task/workerTaskManagerSingleton';
 import { getChannelMessageService } from '../agent/ChannelMessageService';
@@ -55,7 +56,8 @@ import { buildChannelConversationExtra, loadChannelPublishInstanceSettings } fro
 
 export async function getChannelDefaultModel(
   platform: PluginType,
-  preferredModel?: { id: string; useModel: string }
+  preferredModel?: { id: string; useModel: string },
+  pluginId?: string
 ): Promise<TProviderWithModel> {
   try {
     const providers = await ProcessConfig.get('model.config');
@@ -179,6 +181,33 @@ export async function getChannelDefaultModel(
     console.warn('[SystemActions] Failed to get saved model, using default:', error);
   }
 
+  // Inheritance fallback: if another user on the same channel plugin already has a
+  // working conversation (e.g. User A paired earlier and the admin already configured
+  // things correctly), reuse that model record. We deliberately don't require
+  // `apiKey` on the inherited model — Factory Droid (the default backend) resolves
+  // its credentials at runtime from settings.local.json, so the stored conversation
+  // model typically has apiKey='' even when the session fully works. The goal here
+  // is just to hand a sane placeholder model to `createConversation` so newly-paired
+  // users follow the exact same path as existing users.
+  if (pluginId) {
+    try {
+      const db = await getDatabase();
+      const inherited = db.findAnyChannelConversationModelJsonForPlugin(platform, pluginId);
+      const modelJson = inherited.success ? inherited.data : null;
+      if (modelJson) {
+        const parsed = JSON.parse(modelJson) as TProviderWithModel;
+        if (parsed?.useModel) {
+          console.warn(
+            `[SystemActions] Inheriting model (${parsed.id}:${parsed.useModel}) from existing ${platform}:${pluginId} conversation for new user.`
+          );
+          return parsed;
+        }
+      }
+    } catch (error) {
+      console.warn('[SystemActions] Inheritance fallback failed:', error);
+    }
+  }
+
   // Default fallback - minimal config for Gemini (no API key — will fail with clear error)
   console.error('[SystemActions] No provider with valid API key found. Channel messages will fail.');
   return {
@@ -240,7 +269,7 @@ export const handleSessionNew: ActionHandler = async (context) => {
   const agentName = instanceSettings.agent?.name;
 
   // Provider model is required by typing; ACP/Codex will ignore it.
-  const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel);
+  const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel, context.pluginId);
 
   // Always create a NEW conversation for "session.new" (scoped by chatId)
   const channelChatId = context.chatId;

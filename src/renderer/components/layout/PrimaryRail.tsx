@@ -46,7 +46,7 @@ const PrimaryRail: React.FC<PrimaryRailProps> = ({ activeSection, isMobile, onSe
       {
         section: 'settings',
         label: t('common.settings'),
-        icon: <SettingTwo theme='outline' size='20' fill='currentColor' style={{ transform: 'translateY(-2px)' }} />,
+        icon: <SettingTwo theme='outline' size='20' fill='currentColor' />,
         placement: 'bottom',
       },
     ],

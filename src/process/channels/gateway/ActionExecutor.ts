@@ -11,6 +11,7 @@ import { conversationServiceSingleton } from '@/process/services/conversationSer
 import { buildChatErrorResponse, chatActions } from '../actions/ChatActions';
 import { handlePairingShow, platformActions } from '../actions/PlatformActions';
 import { getChannelDefaultModel, systemActions } from '../actions/SystemActions';
+import { GOOGLE_AUTH_PROVIDER_ID } from '@/common/config/constants';
 import type { IActionContext, IRegisteredAction } from '../actions/types';
 import { getChannelMessageService } from '../agent/ChannelMessageService';
 import { DroidTextAskBridge } from '@process/agent/droid/runtime/DroidTextAskBridge';
@@ -38,6 +39,7 @@ import {
   loadChannelPublishInstanceSettings,
   resolveChannelSendProtocol,
 } from '../utils';
+import { ProcessConfig } from '@process/utils/initStorage';
 
 // ==================== Platform-specific Helpers ====================
 
@@ -363,6 +365,10 @@ export class ActionExecutor {
       // Check if user is authorized
       const isAuthorized = await this.pairingService.isUserAuthorized(user.id, platform, message.pluginId);
 
+      console.log(
+        `[ActionExecutor] incoming platform=${platform} pluginId=${message.pluginId} userId=${user.id} authorized=${isAuthorized} contentType=${content.type}`
+      );
+
       // Handle /start command - always show pairing
       if (content.type === 'command' && content.text === '/start') {
         const result = await handlePairingShow(context);
@@ -420,11 +426,103 @@ export class ActionExecutor {
         const agentName = instanceSettings.agent?.name;
 
         // Always resolve a provider model (required by ICreateConversationParams typing; ignored by ACP/Codex)
-        const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel);
+        const model = await getChannelDefaultModel(platform, instanceSettings.defaultModel, message.pluginId);
+
+        // Guard: only applies to backends that actually read the API key off the conversation
+        // model (gemini / acp-claude / acp-codex etc.). For backends that resolve credentials
+        // at runtime (Factory Droid reads FACTORY_API_KEY / settings.local.json; codex uses
+        // its own CLI auth), the conversation's `model.apiKey` is expected to be empty and we
+        // must NOT refuse to create the session — doing so blocks legitimate Droid BYOK users
+        // (which is the default setup). Only fail fast for gemini/generic providers where the
+        // key genuinely belongs on the model.
+        const backendNeedsModelApiKey = backend === 'gemini';
+        const hasValidApiKey =
+          !backendNeedsModelApiKey ||
+          !!(model?.apiKey || model?.platform === 'gemini-with-google-auth' || model?.id === GOOGLE_AUTH_PROVIDER_ID);
+        if (!hasValidApiKey) {
+          console.error(
+            `[ActionExecutor] Refusing to create conversation for new user ${user.id} on ${platform}:${message.pluginId}: no default model with a valid API key is configured.`
+          );
+          await context.sendMessage({
+            type: 'text',
+            text: [
+              '⚠️ <b>Default model is not configured yet</b>',
+              '',
+              'Administrator: open <i>Settings → Lark plugin</i>, pick a model (Factory Droid BYOK or API-key provider), then ask this user to send the message again.',
+            ].join('\n'),
+            parseMode: 'HTML',
+          });
+          return;
+        }
 
         // Map backend to conversation type for lookup
         const { convType, convBackend } = resolveChannelConvType(backend);
         const conversationName = getChannelConversationName(platform, convType, convBackend, chatId);
+
+        // Resolve workspace: prefer the value admin configured in Settings. If that's
+        // empty (e.g. the admin didn't save it yet, or the renderer lost it across a
+        // tab switch), inherit the workspace already in use by another conversation
+        // for this plugin. Falling through to a temp workspace silently is worse —
+        // new pairings get thrown into `droid-temp-<ts>` and the admin's project
+        // context is gone.
+        let resolvedWorkspace: string | undefined = instanceSettings.workspace;
+        if (!resolvedWorkspace) {
+          try {
+            const inherited = db.findAnyChannelConversationWorkspaceForPlugin(source, message.pluginId);
+            if (inherited.success && inherited.data) {
+              resolvedWorkspace = inherited.data;
+              console.warn(
+                `[ActionExecutor] instanceSettings.workspace empty for ${platform}:${message.pluginId}; inheriting workspace=${inherited.data} from an existing channel conversation.`
+              );
+            }
+          } catch (error) {
+            console.warn(`[ActionExecutor] Failed to inherit channel workspace for ${message.pluginId}:`, error);
+          }
+        }
+
+        // For droid backend, determine the Factory CLI modelId we want the session to
+        // start with. Without this, DroidSdkAgent falls back to `getFactoryDefaultModelId()`
+        // (a Factory cloud model) and BYOK-only users see "No access token available" on
+        // their very first message, because the CLI tries to authenticate with Factory for
+        // a model they don't have auth for. Resolution order:
+        //   1. instanceSettings.defaultModel.useModel (admin picked it explicitly in the
+        //      channel config form)
+        //   2. acp.cachedModels.droid.currentModelId — only if it looks like a BYOK id
+        //      (`custom:…` or `[BYOK]`). We deliberately do NOT fall back to a cached
+        //      Factory cloud id, because BYOK-only users whose cache happens to hold a
+        //      Factory id from a previous probe would then still hit "No access token".
+        // If neither resolves, we leave currentModelId undefined so DroidSdkAgent's own
+        // fallback (Factory default) runs — that matches legacy behavior and is only a
+        // problem for BYOK-only users, who can now fix it by picking a model in the UI.
+        //
+        // 为 droid 后端显式注入 currentModelId，否则 DroidSdkAgent 会回落到 Factory 默认云
+        // 模型，BYOK-only 用户首条消息必然 "No access token available"。优先取 Lark admin
+        // 在配置里选好的 BYOK；其次取主程序里粘性缓存的 BYOK id（必须是 BYOK 格式，避免
+        // 无意中把 Factory 云模型带过来还是报鉴权失败）；再没有就让 DroidSdkAgent 自己兜底。
+        let resolvedDroidModelId: string | undefined;
+        if (backend === 'droid') {
+          const pickedUseModel = instanceSettings.defaultModel?.useModel;
+          if (pickedUseModel) {
+            resolvedDroidModelId = pickedUseModel;
+          } else {
+            try {
+              const cachedModels = (await ProcessConfig.get('acp.cachedModels')) as
+                | Record<string, { currentModelId?: string } | undefined>
+                | undefined;
+              const cachedDroidModelId = cachedModels?.['droid']?.currentModelId;
+              if (
+                typeof cachedDroidModelId === 'string' &&
+                cachedDroidModelId.length > 0 &&
+                (cachedDroidModelId.startsWith('custom:') || cachedDroidModelId.includes('[BYOK]'))
+              ) {
+                resolvedDroidModelId = cachedDroidModelId;
+              }
+            } catch (error) {
+              console.warn(`[ActionExecutor] Failed to read acp.cachedModels for droid modelId fallback:`, error);
+            }
+          }
+        }
+
         const conversationExtra = {
           ...buildChannelConversationExtra({
             platform,
@@ -432,12 +530,13 @@ export class ActionExecutor {
             customAgentId,
             agentName,
           }),
-          ...(instanceSettings.workspace
+          ...(resolvedWorkspace
             ? {
-                workspace: instanceSettings.workspace,
+                workspace: resolvedWorkspace,
                 customWorkspace: true,
               }
             : {}),
+          ...(resolvedDroidModelId ? { currentModelId: resolvedDroidModelId } : {}),
         };
 
         // Lookup existing conversation by source + chatId + type + backend (per-chat isolation)
@@ -505,7 +604,7 @@ export class ActionExecutor {
             channelUser,
             sessionConversation.id,
             agentType as ChannelAgentType,
-            instanceSettings.workspace,
+            resolvedWorkspace,
             chatId
           );
         }

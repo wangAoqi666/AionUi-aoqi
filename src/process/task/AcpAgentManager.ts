@@ -26,7 +26,12 @@ import { ACP_BACKENDS_ALL } from '@/common/types/acpTypes';
 import { ExtensionRegistry } from '@process/extensions';
 import { getDatabase } from '@process/services/database';
 import { ProcessConfig } from '@process/utils/initStorage';
-import { addMessage, addOrUpdateMessage, flushConversationMessages, nextTickToLocalFinish } from '@process/utils/message';
+import {
+  addMessage,
+  addOrUpdateMessage,
+  flushConversationMessages,
+  nextTickToLocalFinish,
+} from '@process/utils/message';
 import { handlePreviewOpenEvent } from '@process/utils/previewUtils';
 import { cronBusyGuard } from '@process/services/cron/CronBusyGuard';
 import { mainLog, mainWarn, mainError } from '@process/utils/mainLogger';
@@ -547,7 +552,24 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
           const currentInfo = this.agent.getModelInfo();
           // Validate persisted model exists in current available models before re-applying.
           // Stale cache may reference models that no longer exist (e.g., gpt-5.3-codex).
-          const isModelAvailable = currentInfo?.availableModels?.some((m) => m.id === this.persistedModelId);
+          //
+          // Exception: BYOK/custom model ids (format `custom:…` or containing `[BYOK]`)
+          // come from the user's own `settings.local.json` and are surfaced by the actual
+          // Droid CLI session at runtime. The main-process `availableModels` view can be
+          // stale during startup (the catalog probe is deferred to did-finish-load), so
+          // clobbering a BYOK id based on that cache would silently demote the user's
+          // configured model to the Factory default — which then fails with
+          // "No access token available" for users who only have BYOK credentials.
+          // Trust the raw BYOK id and let the CLI validate it.
+          //
+          // 对 `custom:` / `[BYOK]` 这类 BYOK id，不按主进程 catalog 做校验：
+          // catalog 在启动早期可能没包含它们，误清会静默回落到默认 Factory 模型并因
+          // 缺 access token 报错。直接信任 id，交给 CLI 校验。
+          const persistedIsByokCandidate =
+            typeof this.persistedModelId === 'string' &&
+            (this.persistedModelId.startsWith('custom:') || this.persistedModelId.includes('[BYOK]'));
+          const isModelAvailable =
+            persistedIsByokCandidate || currentInfo?.availableModels?.some((m) => m.id === this.persistedModelId);
           if (!isModelAvailable) {
             mainWarn(
               '[AcpAgentManager]',
@@ -668,7 +690,9 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         // injection and rely on workspace symlinks for CLI-native discovery.
         if (this.isFirstMessage) {
           const useNativeSkills =
-            hasNativeSkillSupport(this.options.backend) && !this.options.customWorkspace && this.options.backend !== 'droid';
+            hasNativeSkillSupport(this.options.backend) &&
+            !this.options.customWorkspace &&
+            this.options.backend !== 'droid';
           if (useNativeSkills) {
             // Native skill discovery via workspace symlinks — only inject preset rules
             if (this.options.presetContext) {

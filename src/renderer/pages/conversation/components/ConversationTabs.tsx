@@ -11,7 +11,8 @@ import { emitter } from '@/renderer/utils/emitter';
 import { cleanupSiderTooltips } from '@/renderer/utils/ui/siderTooltip';
 import { getSelectedSpaceGuidState } from '@/renderer/utils/workspace/selectedSpace';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
-import { Dropdown, Menu, Message } from '@arco-design/web-react';
+import { refreshConversationCache } from '@/renderer/pages/conversation/utils/conversationCache';
+import { Dropdown, Input, Menu, Message, Modal } from '@arco-design/web-react';
 import { Close, Plus } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -148,6 +149,7 @@ const ConversationTabs: React.FC = () => {
     closeTabsToRight,
     closeOtherTabs,
     openTab,
+    updateTabName,
   } = useConversationTabs();
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -155,6 +157,10 @@ const ConversationTabs: React.FC = () => {
   const [tabFadeState, setTabFadeState] = useState<TabFadeState>({ left: false, right: false });
   const defaultConversationName = t('conversation.welcome.newConversation');
   const isCreatingRef = useRef(false);
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameModalId, setRenameModalId] = useState<string | null>(null);
+  const [renameModalName, setRenameModalName] = useState('');
+  const [renameLoading, setRenameLoading] = useState(false);
 
   // 更新 Tab 溢出状态
   const updateTabOverflow = useCallback(() => {
@@ -276,6 +282,50 @@ const ConversationTabs: React.FC = () => {
     }
   }, [activeTabId, defaultConversationName, navigate, openTab, openTabs, t]);
 
+  const handleRenameStart = useCallback(
+    (tabId: string) => {
+      const tab = openTabs.find((tabItem) => tabItem.id === tabId);
+      if (!tab) return;
+      setRenameModalId(tabId);
+      setRenameModalName(tab.name);
+      setRenameModalVisible(true);
+    },
+    [openTabs]
+  );
+
+  const handleRenameConfirm = useCallback(async () => {
+    if (!renameModalId || !renameModalName.trim()) return;
+    setRenameLoading(true);
+    try {
+      const success = await ipcBridge.conversation.update.invoke({
+        id: renameModalId,
+        updates: { name: renameModalName.trim() },
+      });
+      if (success) {
+        await refreshConversationCache(renameModalId);
+        updateTabName(renameModalId, renameModalName.trim());
+        emitter.emit('chat.history.refresh');
+        setRenameModalVisible(false);
+        setRenameModalId(null);
+        setRenameModalName('');
+        Message.success(t('conversation.history.renameSuccess'));
+      } else {
+        Message.error(t('conversation.history.renameFailed'));
+      }
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+      Message.error(t('conversation.history.renameFailed'));
+    } finally {
+      setRenameLoading(false);
+    }
+  }, [renameModalId, renameModalName, updateTabName, t]);
+
+  const handleRenameCancel = useCallback(() => {
+    setRenameModalVisible(false);
+    setRenameModalId(null);
+    setRenameModalName('');
+  }, []);
+
   // 生成右键菜单内容
   const getContextMenu = useCallback(
     (tabId: string) => {
@@ -288,6 +338,9 @@ const ConversationTabs: React.FC = () => {
         <Menu
           onClickMenuItem={(key) => {
             switch (key) {
+              case 'rename':
+                handleRenameStart(tabId);
+                break;
               case 'close-all':
                 closeAllTabs();
                 {
@@ -312,6 +365,7 @@ const ConversationTabs: React.FC = () => {
             }
           }}
         >
+          <Menu.Item key='rename'>{t('conversation.tabs.rename')}</Menu.Item>
           <Menu.Item key='close-others' disabled={!hasOtherTabs}>
             {t('conversation.tabs.closeOthers')}
           </Menu.Item>
@@ -325,7 +379,7 @@ const ConversationTabs: React.FC = () => {
         </Menu>
       );
     },
-    [openTabs, closeAllTabs, closeTabsToLeft, closeTabsToRight, closeOtherTabs, navigate, t]
+    [openTabs, closeAllTabs, closeTabsToLeft, closeTabsToRight, closeOtherTabs, navigate, handleRenameStart, t]
   );
 
   const { left: showLeftFade, right: showRightFade } = tabFadeState;
@@ -342,45 +396,69 @@ const ConversationTabs: React.FC = () => {
   const isCreateDisabled = isCreatingRef.current || !activeTabId;
 
   return (
-    <div className='relative shrink-0 bg-transparent px-12px pb-12px'>
-      <div className='relative flex items-center gap-6px h-48px w-full rounded-[20px] border border-solid border-[color:color-mix(in_srgb,var(--color-border-2)_76%,transparent)] bg-[color:color-mix(in_srgb,var(--color-bg-2)_92%,transparent)] px-6px shadow-[0_18px_44px_color-mix(in_srgb,var(--color-text-1)_10%,transparent)]'>
-        {/* Tabs 滚动区域 */}
-        <div
-          ref={tabsContainerRef}
-          className='flex items-center gap-4px h-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
-        >
-          {openTabs.map((tab) => (
-            <ConversationTabView
-              key={tab.id}
-              tabId={tab.id}
-              tabName={tab.name}
-              isActive={tab.id === activeTabId}
-              isMobile={isMobile}
-              contextMenu={getContextMenu(tab.id)}
-              onSwitch={handleSwitchTab}
-              onClose={handleCloseTab}
-            />
-          ))}
-        </div>
-
-        {/* 新建会话按钮 - 直接在当前工作空间创建标签 */}
-        <CreateConversationTrigger
-          disabled={isCreateDisabled}
-          title={t('conversation.workspace.createNewConversation')}
-          onClick={() => void handleCreateConversation()}
+    <>
+      <Modal
+        title={t('conversation.history.renameTitle')}
+        visible={renameModalVisible}
+        onOk={handleRenameConfirm}
+        onCancel={handleRenameCancel}
+        okText={t('conversation.history.saveName')}
+        cancelText={t('conversation.history.cancelEdit')}
+        confirmLoading={renameLoading}
+        okButtonProps={{ disabled: !renameModalName.trim() }}
+        style={{ borderRadius: '12px' }}
+        alignCenter
+        getPopupContainer={() => document.body}
+      >
+        <Input
+          autoFocus
+          value={renameModalName}
+          onChange={setRenameModalName}
+          onPressEnter={handleRenameConfirm}
+          placeholder={t('conversation.history.renamePlaceholder')}
+          allowClear
         />
+      </Modal>
+      <div className='relative shrink-0 bg-transparent px-12px pb-12px'>
+        <div className='relative flex items-center gap-6px h-48px w-full rounded-[20px] border border-solid border-[color:color-mix(in_srgb,var(--color-border-2)_76%,transparent)] bg-[color:color-mix(in_srgb,var(--color-bg-2)_92%,transparent)] px-6px shadow-[0_18px_44px_color-mix(in_srgb,var(--color-text-1)_10%,transparent)]'>
+          {/* Tabs 滚动区域 */}
+          <div
+            ref={tabsContainerRef}
+            className='flex items-center gap-4px h-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+          >
+            {openTabs.map((tab) => (
+              <ConversationTabView
+                key={tab.id}
+                tabId={tab.id}
+                tabName={tab.name}
+                isActive={tab.id === activeTabId}
+                isMobile={isMobile}
+                contextMenu={getContextMenu(tab.id)}
+                onSwitch={handleSwitchTab}
+                onClose={handleCloseTab}
+              />
+            ))}
+          </div>
 
-        {/* 左侧渐变指示器 */}
-        {showLeftFade && (
-          <div className='pointer-events-none absolute left-6px top-0 bottom-0 w-36px [background:linear-gradient(90deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
-        )}
+          {/* 新建会话按钮 - 直接在当前工作空间创建标签 */}
+          <CreateConversationTrigger
+            disabled={isCreateDisabled}
+            title={t('conversation.workspace.createNewConversation')}
+            onClick={() => void handleCreateConversation()}
+          />
 
-        {/* 右侧渐变指示器 */}
-        {showRightFade && (
-          <div className='pointer-events-none absolute right-46px top-0 bottom-0 w-36px [background:linear-gradient(270deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
-        )}
+          {/* 左侧渐变指示器 */}
+          {showLeftFade && (
+            <div className='pointer-events-none absolute left-6px top-0 bottom-0 w-36px [background:linear-gradient(90deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
+          )}
+
+          {/* 右侧渐变指示器 */}
+          {showRightFade && (
+            <div className='pointer-events-none absolute right-46px top-0 bottom-0 w-36px [background:linear-gradient(270deg,color-mix(in_srgb,var(--color-bg-2)_96%,transparent)_0%,transparent_100%)]' />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

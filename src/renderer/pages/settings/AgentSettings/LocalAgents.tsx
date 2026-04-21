@@ -5,10 +5,10 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { DroidCliUpdateInfo, DroidStatusInfo } from '@/common/types/acpTypes';
+import type { DroidCliInstallProgress, DroidCliUpdateInfo, DroidStatusInfo } from '@/common/types/acpTypes';
 import DroidLogo from '@/renderer/assets/logos/brand/droid.svg';
-import { Alert, Badge, Button, Message, Spin, Typography } from '@arco-design/web-react';
-import { Refresh, Setting } from '@icon-park/react';
+import { Alert, Badge, Button, Message, Modal, Spin, Typography } from '@arco-design/web-react';
+import { Download, Refresh, Setting } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -262,6 +262,9 @@ const LocalAgents: React.FC = () => {
   const [cliUpdateChecking, setCliUpdateChecking] = useState(false);
   const [cliUpdateInfo, setCliUpdateInfo] = useState<DroidCliUpdateInfo | null>(() => cachedCliUpdate);
   const [cliUpdateError, setCliUpdateError] = useState<string | null>(null);
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installLogs, setInstallLogs] = useState<DroidCliInstallProgress[]>([]);
+  const [installVisible, setInstallVisible] = useState(false);
   const { data, error, isLoading, isValidating, mutate } = useSWR(
     'acp.droid.status.settings',
     async () => {
@@ -390,6 +393,69 @@ const LocalAgents: React.FC = () => {
 
   const handleCheckCliUpdate = async () => {
     await runCliUpdateCheck();
+  };
+
+  useEffect(() => {
+    const unsubscribe = ipcBridge.acpConversation.droidCliInstallProgress.on((payload) => {
+      setInstallLogs((prev) => [...prev, payload].slice(-200));
+    });
+    return () => {
+      try {
+        unsubscribe?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const handleInstallOrUpdateCli = async (mode: 'install' | 'update') => {
+    setInstallBusy(true);
+    setInstallLogs([]);
+    setInstallVisible(true);
+    try {
+      const detection = await ipcBridge.acpConversation.detectDroidNodeRuntime.invoke();
+      if (!detection.success || !detection.data) {
+        Message.error(detection.msg || t('settings.agentManagement.nodeDetectionFailed'));
+        setInstallLogs((prev) => [...prev, { phase: 'error', message: detection.msg || 'Node detection failed' }]);
+        return;
+      }
+
+      if (!detection.data.available || !detection.data.meetsMinimum) {
+        const msg =
+          detection.data.recommendedAction === 'installNode'
+            ? t('settings.agentManagement.nodeMissingHint', { url: detection.data.downloadUrl })
+            : t('settings.agentManagement.nodeTooOldHint', {
+                version: detection.data.nodeVersion || '-',
+                url: detection.data.downloadUrl,
+              });
+        Message.warning(msg);
+        setInstallLogs((prev) => [...prev, { phase: 'error', message: msg }]);
+        return;
+      }
+
+      const result = await ipcBridge.acpConversation.installDroidCli.invoke({ mode });
+      if (result.success && result.data?.success) {
+        Message.success(
+          mode === 'install'
+            ? t('settings.agentManagement.installCliSuccess')
+            : t('settings.agentManagement.updateCliSuccess')
+        );
+        void mutate();
+        void runCliUpdateCheck({ background: true, silentOnLatest: true, suppressErrorToast: true });
+      } else {
+        Message.error(
+          result.data?.message ||
+            result.msg ||
+            (mode === 'install'
+              ? t('settings.agentManagement.installCliFailed')
+              : t('settings.agentManagement.updateCliFailed'))
+        );
+      }
+    } catch (err) {
+      Message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstallBusy(false);
+    }
   };
 
   return (
@@ -548,6 +614,28 @@ const LocalAgents: React.FC = () => {
                 >
                   {t('settings.agentManagement.refreshStatus')}
                 </Button>
+                {!data?.available || data?.cliSource !== 'system' ? (
+                  <Button
+                    type='primary'
+                    status='success'
+                    icon={<Download theme='outline' size='14' />}
+                    loading={installBusy}
+                    onClick={() => void handleInstallOrUpdateCli('install')}
+                  >
+                    {t('settings.agentManagement.installCli')}
+                  </Button>
+                ) : null}
+                {data?.available && cliUpdateInfo?.updateAvailable ? (
+                  <Button
+                    type='primary'
+                    status='warning'
+                    icon={<Download theme='outline' size='14' />}
+                    loading={installBusy}
+                    onClick={() => void handleInstallOrUpdateCli('update')}
+                  >
+                    {t('settings.agentManagement.updateCli')}
+                  </Button>
+                ) : null}
                 <Button
                   type='secondary'
                   icon={<Refresh theme='outline' size='14' />}
@@ -586,6 +674,35 @@ const LocalAgents: React.FC = () => {
           </div>
         </div>
       </div>
+      <Modal
+        title={t('settings.agentManagement.installCliTitle')}
+        visible={installVisible}
+        onCancel={() => {
+          if (!installBusy) setInstallVisible(false);
+        }}
+        footer={
+          <Button type='primary' disabled={installBusy} onClick={() => setInstallVisible(false)}>
+            {t('common.close')}
+          </Button>
+        }
+        maskClosable={!installBusy}
+        style={{ width: 600 }}
+      >
+        <div className='max-h-360px overflow-auto rounded-8px bg-[var(--fill-0)] p-12px font-mono text-12px leading-20px text-t-primary'>
+          {installLogs.length === 0 ? (
+            <div className='text-t-secondary'>{t('settings.agentManagement.installCliPending')}</div>
+          ) : (
+            installLogs.map((log, idx) => (
+              <div
+                key={`${idx}-${log.message.slice(0, 40)}`}
+                className={log.phase === 'error' ? 'text-color-danger' : ''}
+              >
+                [{log.phase}] {log.message}
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

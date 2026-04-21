@@ -494,20 +494,28 @@ const Layout: React.FC<{
           >
             <ArcoLayout.Header
               className={classNames(
-                'flex items-center justify-start py-10px px-16px pl-20px gap-12px layout-sider-header',
+                'flex items-center layout-sider-header',
                 isMobile && 'layout-sider-header--mobile',
+                collapsed && !isMobile
+                  ? 'justify-center py-10px px-10px'
+                  : 'justify-start py-10px px-16px pl-20px gap-12px',
                 {
                   'cursor-pointer group ': collapsed,
                 }
               )}
             >
               <div
-                className={classNames('shrink-0 size-40px relative', {
-                  '!size-24px': collapsed,
+                className={classNames('shrink-0 relative flex items-center justify-center', {
+                  'size-44px': collapsed && !isMobile,
+                  'size-40px': !collapsed || isMobile,
                 })}
                 onClick={onClick}
               >
-                <img src={AppBrandLogo} alt='智能体工厂' className='size-full object-contain' />
+                <img
+                  src={AppBrandLogo}
+                  alt='智能体工厂'
+                  className={classNames('object-contain', collapsed && !isMobile ? 'size-24px' : 'size-full')}
+                />
               </div>
               <div className='flex-1 text-20px text-1 collapsed-hidden font-bold'>智能体工厂</div>
               {isMobile && !collapsed && (

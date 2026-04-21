@@ -6,6 +6,7 @@
 
 import type { AcpBackend, AcpBackendAll, AcpBackendConfig } from '@/common/types/acpTypes';
 import type { SpeechToTextConfig } from '@/common/types/speech';
+import type { DroidByokModelProvider } from '../adapter/ipcBridge';
 import type { FactoryModel } from './factoryModels';
 import { storage } from '@office-ai/platform';
 
@@ -253,14 +254,14 @@ export interface IConfigStorageRefer {
       byokModelRef?: {
         model: string;
         baseUrl: string;
-        provider: 'anthropic';
+        provider: DroidByokModelProvider;
       };
       /** App-managed Factory Droid BYOK references / 客户端托管的 Factory Droid BYOK 引用 */
       byokModelRefs?: Array<{
         id: string;
         model: string;
         baseUrl: string;
-        provider: 'anthropic';
+        provider: DroidByokModelProvider;
       }>;
       /** LLM prompt timeout in seconds (default: 300) / LLM 请求超时时间（秒，默认 300） */
       promptTimeout?: number;

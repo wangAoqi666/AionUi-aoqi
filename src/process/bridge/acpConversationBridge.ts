@@ -18,8 +18,11 @@ import { ProcessConfig, refreshFactoryDroidCatalog } from '@/process/utils/initS
 import { ipcBridge } from '@/common';
 import { getFactoryModels } from '@/common/config/factoryModels';
 import { checkDroidCliUpdate, probeDroidStatus } from '@process/agent/droid/modelProbe';
+import { detectNodeRuntime, installOrUpdateDroidCli } from '@process/agent/droid/cliInstaller';
 import {
+  fetchDroidByokModels,
   getDroidByokConfigs,
+  importDroidByokConfigs,
   removeDroidByokConfig,
   saveDroidByokConfig,
   testDroidByokConfig,
@@ -276,12 +279,54 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
     }
   });
 
+  ipcBridge.acpConversation.detectDroidNodeRuntime.provider(async () => {
+    try {
+      return { success: true, data: await detectNodeRuntime() };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcBridge.acpConversation.installDroidCli.provider(async ({ mode }) => {
+    try {
+      const result = await installOrUpdateDroidCli({
+        mode,
+        onProgress: (progress) => {
+          try {
+            ipcBridge.acpConversation.droidCliInstallProgress.emit(progress);
+          } catch {
+            // ignore emit errors
+          }
+        },
+      });
+      return { success: result.success, data: result, ...(result.success ? {} : { msg: result.message }) };
+    } catch (error) {
+      return { success: false, msg: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcBridge.acpConversation.getDroidByokConfig.provider(async () => {
     try {
       return {
         success: true,
         data: {
           configs: await getDroidByokConfigs(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.fetchDroidByokModels.provider(async (payload) => {
+    try {
+      return {
+        success: true,
+        data: {
+          catalog: await fetchDroidByokModels(payload),
         },
       };
     } catch (error) {
@@ -324,6 +369,38 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
         data: {
           config,
         },
+        ...(refreshMsg ? { msg: refreshMsg } : {}),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.importDroidByokConfigs.provider(async (payload) => {
+    try {
+      const result = await importDroidByokConfigs(payload, {
+        onProgress: (progress) => {
+          try {
+            ipcBridge.acpConversation.droidByokImportProgress.emit(progress);
+          } catch {
+            // ignore emit errors
+          }
+        },
+      });
+      let refreshMsg: string | undefined;
+      try {
+        await refreshFactoryDroidCatalog();
+      } catch (error) {
+        refreshMsg = error instanceof Error ? error.message : String(error);
+        mainWarn('[ACP droid]', 'importDroidByokConfigs refresh failed', refreshMsg);
+      }
+
+      return {
+        success: true,
+        data: result,
         ...(refreshMsg ? { msg: refreshMsg } : {}),
       };
     } catch (error) {

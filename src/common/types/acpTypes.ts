@@ -899,6 +899,32 @@ export type DroidCliUpdateInfo = {
   registry: string | null;
 };
 
+export type DroidNodeDetectionInfo = {
+  available: boolean;
+  nodeVersion: string | null;
+  nodePath: string | null;
+  npmVersion: string | null;
+  npmPath: string | null;
+  meetsMinimum: boolean;
+  recommendedAction: 'none' | 'installNode' | 'upgradeNode';
+  downloadUrl: string;
+  error?: string;
+};
+
+export type DroidCliInstallProgress = {
+  phase: 'start' | 'resolving' | 'downloading' | 'installing' | 'verifying' | 'done' | 'error';
+  message: string;
+  registry?: string;
+};
+
+export type DroidCliInstallResult = {
+  success: boolean;
+  installedVersion: string | null;
+  usedRegistry: string | null;
+  message: string;
+  error?: string;
+};
+
 // 所有会话更新的联合类型 / Union type for all session updates
 export type AcpSessionUpdate =
   | AgentMessageChunkUpdate

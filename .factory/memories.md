@@ -82,12 +82,35 @@
   - https://docs.factory.ai/llms.txt
 - 智能体在执行与 Factory Droid、SDK、架构、运行模式、调试、部署相关任务时，应优先查阅以上文档
 
+### CHANGELOG 约定
+
+- 项目使用根目录 `CHANGELOG.md` 记录版本变更
+- 中文编写，按版本号分节，包含日期
+- 分类：Bug Fixes / New Features / Breaking Changes
+- 每条简洁描述修改内容和根因
+
 ## 常见陷阱与注意事项
 
 - macOS 环境已配置 Clash 代理（127.0.0.1:7890），git 全局 HTTPS 代理已设置
 - 禁止设置 `http.version=HTTP/1.1`，会导致代理下 git 协议握手卡死
 - 大仓库 clone 不稳定时优先用 `wget` 下载 ZIP
 - 含中文文件名的 ZIP 用 `python3 zipfile` 解压，不用 `unzip`
+- **nvm 在后台子 shell / fireAndForget 中不可用**：`source ~/.nvm/nvm.sh && nvm use` 在后台进程中会失败（找不到已安装的版本）。必须用绝对路径设置 PATH：`export PATH="/Users/wayz/.nvm/versions/node/v22.20.0/bin:$PATH"`，不要再用 `nvm use`
+
+### 打包加速：跳过不必要的网络下载（2026-04-21 确认）
+
+- **三个下载大户**（默认都会跑，国内网络下每次加起来好几分钟）：
+  1. `prepareHubResources.js` — 从 GitHub/jsDelivr 抓 13 个扩展 zip，大多 404，每个失败要重试 2 次镜像。跳过开关：`AIONUI_HUB_SKIP=1`
+  2. `prepareBundledDroid.js` — 从 npm 抓 `@factory/droid-*` 平台二进制。**项目已决定不再内置 Droid CLI**。跳过开关：`AIONUI_SKIP_DROID_BUNDLE=1`
+  3. `prepareAionrs.js` — 从 GitHub Releases 抓 Rust CLI。macOS 上还有 SSL cert 问题容易失败。跳过开关：`AIONUI_SKIP_AIONRS=1`
+- **bun runtime 已有持久缓存**：`~/Library/Caches/AionUi/bundled-bun/<version>/<platform-arch>/`，重复构建直接命中，不需要 skip
+- **默认打包命令（推荐日常使用）**：
+  - `bun run build-win:x64:fast`
+  - `bun run build-win:arm64:fast`
+  - `bun run build-mac:x64:fast`
+  - `bun run build-mac:arm64:fast`
+- 这四个 `:fast` 变体在 `package.json` 里已预置 `AIONUI_HUB_SKIP=1 AIONUI_SKIP_DROID_BUNDLE=1 AIONUI_SKIP_AIONRS=1`（通过 cross-env），直接用即可。正式发布时若需要重新抓 hub/droid 再回退到非 `:fast` 版本
+- `prepareBundledDroid` 和 `prepareHubResources` 都会在运行开头 `removeDirectorySafe(targetDir)` 清空本地产物再重新下载，所以本地已存在也没用，**必须靠 skip 开关**才能跳过
 
 ### Windows NSIS 安装包 7z 格式陷阱（2026-04 确认）
 
