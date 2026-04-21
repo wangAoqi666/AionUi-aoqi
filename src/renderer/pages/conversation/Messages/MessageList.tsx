@@ -34,7 +34,7 @@ import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessagetText';
 import MessageThinking from './components/MessageThinking';
 import { useAutoScroll } from './useAutoScroll';
-import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewOfficeFiles';
+
 import SelectionReplyButton from './components/SelectionReplyButton';
 import {
   buildProcessedMessageList,
@@ -368,7 +368,7 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
 const MessageList: React.FC<{ className?: string }> = ({ className }) => {
   const list = useMessageList();
   const conversationContext = useConversationContextSafe();
-  useAutoPreviewOfficeFiles(conversationContext?.workspace);
+
   const { t } = useTranslation();
   const location = useLocation();
   const locationState = (location.state || {}) as ConversationLocationState;
