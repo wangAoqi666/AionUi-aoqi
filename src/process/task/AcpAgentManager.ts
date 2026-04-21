@@ -6,8 +6,10 @@ import { ipcBridge } from '@/common';
 import type { AskUserConfirmationQuestion, CronMessageMeta, TMessage } from '@/common/chat/chatLib';
 import { isCodexAutoApproveMode } from '@/common/types/codex/codexModes';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
-import { transformMessage } from '@/common/chat/chatLib';
+import { transformMessage, type IConfirmation } from '@/common/chat/chatLib';
 import type { ConversationSource } from '@/common/config/storage';
+import { isDroidChannelPlatform } from '@process/agent/droid/runtime/config';
+import { DroidTextAskBridge } from '@process/agent/droid/runtime/DroidTextAskBridge';
 import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { parseError, uuid } from '@/common/utils';
@@ -24,7 +26,7 @@ import { ACP_BACKENDS_ALL } from '@/common/types/acpTypes';
 import { ExtensionRegistry } from '@process/extensions';
 import { getDatabase } from '@process/services/database';
 import { ProcessConfig } from '@process/utils/initStorage';
-import { addMessage, addOrUpdateMessage, nextTickToLocalFinish } from '@process/utils/message';
+import { addMessage, addOrUpdateMessage, flushConversationMessages, nextTickToLocalFinish } from '@process/utils/message';
 import { handlePreviewOpenEvent } from '@process/utils/previewUtils';
 import { cronBusyGuard } from '@process/services/cron/CronBusyGuard';
 import { mainLog, mainWarn, mainError } from '@process/utils/mainLogger';
@@ -45,12 +47,16 @@ import { extractAndStripThinkTags } from './ThinkTagDetector';
 import type { AgentKillReason } from './IAgentManager';
 import { hasNativeSkillSupport } from '@/common/types/acpTypes';
 import { prepareFirstMessageWithSkillsIndex } from '@process/task/agentUtils';
+import { AcpSkillManager, buildSkillsIndexText } from '@process/task/AcpSkillManager';
 import { extractTextFromMessage, processCronInMessage } from './MessageMiddleware';
+import { getSkillsDir } from '@process/utils/initStorage';
+import fs from 'fs';
 
 interface AcpAgentManagerData {
   workspace?: string;
   backend: AcpBackend;
   source?: ConversationSource;
+  channelPluginId?: string;
   cliPath?: string;
   customWorkspace?: boolean;
   conversation_id: string;
@@ -78,6 +84,25 @@ interface AcpAgentManagerData {
   /** Pending config option selections from Guid page (applied after session creation) */
   pendingConfigOptions?: Record<string, string>;
 }
+
+const isRemoteAskUserConversation = (data: Pick<AcpAgentManagerData, 'source' | 'channelPluginId'>): boolean =>
+  isDroidChannelPlatform(data.source) || typeof data.channelPluginId === 'string';
+
+const buildRemoteAskUserConfirmation = (
+  callId: string,
+  questions: AskUserConfirmationQuestion[],
+  formatter: DroidTextAskBridge
+): IConfirmation<never> => ({
+  title: 'Please answer the following questions',
+  description: formatter.formatPrompt(questions),
+  id: callId,
+  callId,
+  interaction: {
+    type: 'ask_user',
+    questions,
+  },
+  options: [],
+});
 
 type BufferedStreamTextMessage = {
   conversationId: string;
@@ -144,6 +169,9 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
   private acpAvailableSlashWaiters: Array<(commands: SlashCommandItem[]) => void> = [];
   private readonly streamDbFlushIntervalMs = 120;
   private readonly bufferedStreamTextMessages = new Map<string, BufferedStreamTextMessage>();
+  private skillsWatcher: fs.FSWatcher | null = null;
+  private skillsIndexStale: boolean = false;
+  private skillsWatchDebounce: ReturnType<typeof setTimeout> | null = null;
 
   constructor(data: AcpAgentManagerData) {
     super('acp', data, new IpcAgentEventEmitter());
@@ -352,15 +380,13 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
             this.saveAcpSessionId(sessionId);
           },
           onAskUserRequest: ({ callId, questions }) => {
-            this.handleAskUserRequest(
-              callId,
-              questions.map((question) => ({
-                index: question.index ?? 0,
-                topic: question.topic ?? '',
-                question: question.question ?? '',
-                options: question.options ?? [],
-              }))
-            );
+            const normalizedQuestions = questions.map((question) => ({
+              index: question.index ?? 0,
+              topic: question.topic ?? '',
+              question: question.question ?? '',
+              options: question.options ?? [],
+            }));
+            this.handleAskUserRequest(callId, normalizedQuestions, data);
           },
         });
       } else {
@@ -632,21 +658,37 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         //
         // Symlinks 仅在临时工作空间创建；自定义工作空间跳过 symlink 以避免污染用户目录。
         // Symlinks are only created for temp workspaces; custom workspaces skip symlinks.
-        // 因此自定义工作空间或不支持原生 skill 发现的 backend 都需要通过 prompt 注入 skills。
-        // So custom workspaces or backends without native skill discovery need prompt injection.
+        //
+        // Droid backend: always inject skills index via prompt because the SDK-created
+        // session does not auto-inject skill metadata into the system prompt (unlike
+        // the interactive terminal CLI). The index is lightweight (names + descriptions)
+        // and the agent reads full SKILL.md on demand.
+        //
+        // Other backends with native skill support + temp workspace: skip prompt
+        // injection and rely on workspace symlinks for CLI-native discovery.
         if (this.isFirstMessage) {
-          const useNativeSkills = hasNativeSkillSupport(this.options.backend) && !this.options.customWorkspace;
+          const useNativeSkills =
+            hasNativeSkillSupport(this.options.backend) && !this.options.customWorkspace && this.options.backend !== 'droid';
           if (useNativeSkills) {
             // Native skill discovery via workspace symlinks — only inject preset rules
             if (this.options.presetContext) {
               contentToSend = `[Assistant Rules - You MUST follow these instructions]\n${this.options.presetContext}\n\n[User Request]\n${contentToSend}`;
             }
           } else {
-            // Custom workspace or no native support — inject rules + skills via prompt
+            // Droid / custom workspace / no native support — inject rules + skills index via prompt
             contentToSend = await prepareFirstMessageWithSkillsIndex(contentToSend, {
               presetContext: this.options.presetContext,
               enabledSkills: this.options.enabledSkills,
             });
+          }
+        }
+
+        // Inject updated skills index when new skills were installed mid-session
+        if (this.skillsIndexStale) {
+          this.skillsIndexStale = false;
+          const reminder = await this.buildStaleSkillsReminder();
+          if (reminder) {
+            contentToSend = reminder + contentToSend;
           }
         }
 
@@ -657,6 +699,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         // 首条消息发送后标记，无论是否有 presetContext
         if (this.isFirstMessage) {
           this.isFirstMessage = false;
+          this.startSkillsWatcher();
         }
         // Note: cronBusyGuard.setProcessing(false) is not called here
         // because the response streaming is still in progress.
@@ -841,7 +884,24 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     });
   }
 
-  private handleAskUserRequest(callId: string, questions: AskUserConfirmationQuestion[]): void {
+  private handleAskUserRequest(
+    callId: string,
+    questions: AskUserConfirmationQuestion[],
+    data: Pick<AcpAgentManagerData, 'source' | 'channelPluginId'>
+  ): void {
+    if (isRemoteAskUserConversation(data)) {
+      const formatter = new DroidTextAskBridge(1000);
+      const confirmation = buildRemoteAskUserConfirmation(callId, questions, formatter);
+      this.addConfirmation(confirmation);
+      channelEventBus.emitAgentMessage(this.conversation_id, {
+        type: 'content',
+        conversation_id: this.conversation_id,
+        msg_id: `ask_user_${callId}`,
+        data: confirmation.description,
+      });
+      return;
+    }
+
     const description = questions.map((question) => question.question).join('\n');
     this.addConfirmation({
       title: 'Please answer the following questions',
@@ -958,6 +1018,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
         this.thinkingContent = '';
       }
       this.flushBufferedStreamTextMessages();
+      flushConversationMessages(this.conversation_id);
       skillSuggestWatcher.onFinish(this.conversation_id);
 
       // Cron detection on accumulated content
@@ -1420,6 +1481,46 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * Save context usage to database for restore on page switch.
    * 保存上下文使用量到数据库，以便在页面切换时恢复。
    */
+  private startSkillsWatcher(): void {
+    if (this.skillsWatcher) return;
+    try {
+      const skillsDir = getSkillsDir();
+      this.skillsWatcher = fs.watch(skillsDir, { persistent: false, recursive: true }, () => {
+        if (this.skillsWatchDebounce) clearTimeout(this.skillsWatchDebounce);
+        this.skillsWatchDebounce = setTimeout(() => {
+          this.skillsIndexStale = true;
+          AcpSkillManager.invalidate();
+          mainLog('[AcpAgentManager]', 'Skills directory changed, will refresh on next message');
+        }, 500);
+      });
+      this.skillsWatcher.on('error', () => {
+        this.stopSkillsWatcher();
+      });
+    } catch {
+      // Skills directory may not exist yet
+    }
+  }
+
+  private stopSkillsWatcher(): void {
+    if (this.skillsWatchDebounce) {
+      clearTimeout(this.skillsWatchDebounce);
+      this.skillsWatchDebounce = null;
+    }
+    if (this.skillsWatcher) {
+      this.skillsWatcher.close();
+      this.skillsWatcher = null;
+    }
+  }
+
+  private async buildStaleSkillsReminder(): Promise<string> {
+    const skillManager = AcpSkillManager.getInstance(this.options.enabledSkills);
+    await skillManager.discoverSkills(this.options.enabledSkills);
+    const skillsIndex = skillManager.getSkillsIndex();
+    if (skillsIndex.length === 0) return '';
+    const indexText = buildSkillsIndexText(skillsIndex);
+    return `<system-reminder>\n[Skills Updated]\n${indexText}\n</system-reminder>\n\n`;
+  }
+
   private clearBusyState(): void {
     cronBusyGuard.setProcessing(this.conversation_id, false);
     this.status = 'finished';
@@ -1510,6 +1611,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    */
   kill(_reason?: AgentKillReason) {
     this.flushBufferedStreamTextMessages();
+    this.stopSkillsWatcher();
 
     let killed = false;
     const GRACE_PERIOD_MS = 500; // Allow child process time to exit cleanly

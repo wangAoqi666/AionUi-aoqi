@@ -226,6 +226,40 @@ describe('AcpAgentManager — first-message skill injection', () => {
     });
   });
 
+  it('droid backend uses prompt injection even with temp workspace', async () => {
+    const manager = createManager({
+      backend: 'droid',
+      customWorkspace: false,
+      presetContext: 'You are helpful.',
+      enabledSkills: ['pptx'],
+    });
+
+    await sendFirstMessage(manager);
+
+    // Droid SDK sessions don't auto-inject skill metadata into system prompt,
+    // so we always inject skills index via prompt for the droid backend
+    expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
+      presetContext: 'You are helpful.',
+      enabledSkills: ['pptx'],
+    });
+  });
+
+  it('droid backend uses prompt injection with customWorkspace', async () => {
+    const manager = createManager({
+      backend: 'droid',
+      customWorkspace: true,
+      presetContext: 'You are helpful.',
+      enabledSkills: ['pptx'],
+    });
+
+    await sendFirstMessage(manager);
+
+    expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
+      presetContext: 'You are helpful.',
+      enabledSkills: ['pptx'],
+    });
+  });
+
   it('skips presetContext injection when presetContext is undefined (native path)', async () => {
     const manager = createManager({
       backend: 'claude',

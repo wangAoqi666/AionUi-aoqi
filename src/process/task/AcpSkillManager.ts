@@ -143,6 +143,17 @@ export class AcpSkillManager {
   }
 
   /**
+   * 使单例缓存失效，下次 getInstance + discoverSkills 时重新扫描文件系统
+   * Invalidate singleton cache so the next getInstance + discoverSkills re-scans
+   */
+  static invalidate(): void {
+    if (AcpSkillManager.instance) {
+      AcpSkillManager.instance.initialized = false;
+      AcpSkillManager.instance.autoInitialized = false;
+    }
+  }
+
+  /**
    * 初始化：发现并加载内置 skills 的索引（所有场景自动注入）
    * Initialize: discover and load index of builtin skills (auto-injected for all scenarios)
    */
