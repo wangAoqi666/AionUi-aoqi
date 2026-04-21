@@ -41,6 +41,12 @@ class ConversationManageWithDB {
     }, 2000);
   }
 
+  flush() {
+    if (this.stack.length === 0) return;
+    clearTimeout(this.timer);
+    this.save2DataBase();
+  }
+
   private save2DataBase() {
     this.savePromise = this.savePromise
       .then(() => this.dbPromise)
@@ -136,6 +142,15 @@ export const addOrUpdateMessage = (
   }
 
   ConversationManageWithDB.get(conversation_id).sync('accumulate', message);
+};
+
+/**
+ * Force-flush any pending debounced writes for a conversation.
+ * Call this on stream end so the DB is up-to-date before the renderer reloads messages.
+ */
+export const flushConversationMessages = (conversation_id: string): void => {
+  const manage = Cache.get(conversation_id);
+  if (manage) manage.flush();
 };
 
 /**
