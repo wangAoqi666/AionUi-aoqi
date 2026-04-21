@@ -109,12 +109,13 @@ function installOfficecli(emitStatus: StatusEmitter): boolean {
     emitStatus({ state: 'installing' });
     if (process.platform === 'win32') {
       execSync(
-        'powershell -Command "irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex"',
-        { stdio: 'inherit' }
+        'powershell -NoProfile -Command "irm https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.ps1 | iex"',
+        { stdio: 'pipe', windowsHide: true, timeout: 120000 }
       );
     } else {
       execSync('curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCli/main/install.sh | bash', {
-        stdio: 'inherit',
+        stdio: 'pipe',
+        timeout: 120000,
       });
       try {
         execSync('xattr -cr ~/.local/bin/officecli && codesign -s - --force ~/.local/bin/officecli', { stdio: 'pipe' });
@@ -172,6 +173,7 @@ async function startWatch(
   const child = spawn('officecli', ['watch', filePath, '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: getEnhancedEnv(),
+    windowsHide: true,
   });
 
   // Track session immediately so stop can kill it
