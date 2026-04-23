@@ -338,6 +338,11 @@ vi.mock('@arco-design/web-react', () => ({
     success: (...args: unknown[]) => mockArcoSuccess(...args),
   },
   Tag: ({ children }: { children?: React.ReactNode }) => React.createElement('div', {}, children),
+  Badge: (props: Record<string, unknown>) => React.createElement('span', { 'data-status': props.status }),
+  Empty: (props: { description?: string }) => React.createElement('div', {}, props.description),
+  Typography: {
+    Text: (props: Record<string, unknown>) => React.createElement('span', {}, props.children as React.ReactNode),
+  },
 }));
 
 vi.mock('@icon-park/react', () => ({

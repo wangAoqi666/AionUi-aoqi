@@ -1,0 +1,119 @@
+{
+  "flowId": "stream-events-dom",
+  "surface": "dom-test",
+  "status": "passed",
+  "assertions": {
+    "VAL-STREAM-001": {
+      "status": "passed",
+      "summary": "session_title updates conversation name end-to-end: test verifies ipcBridge.conversation.update.invoke, updateTabName, and emitter.emit('chat.history.refresh') are all called when session_title arrives for the active conversation.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'dispatches session_title → persists title, updates tab, refreshes sidebar (VAL-STREAM-001)'"
+      ]
+    },
+    "VAL-STREAM-002": {
+      "status": "passed",
+      "summary": "session_title is filtered by conversation_id: test confirms none of the 3 side effects fire when session_title arrives for a different conversation_id.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'session_title for different conversation_id is ignored (VAL-STREAM-002)'"
+      ]
+    },
+    "VAL-STREAM-003": {
+      "status": "passed",
+      "summary": "session_title does NOT change running state: test verifies running and aiProcessing remain unchanged after dispatching session_title.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'session_title does NOT flip running or aiProcessing (VAL-STREAM-003)'"
+      ]
+    },
+    "VAL-STREAM-004": {
+      "status": "passed",
+      "summary": "settings_updated emits acp.settings.updated with currentModelId: test confirms emitter fires with the correct model id payload.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'dispatches settings_updated → emits acp.settings.updated with currentModelId (VAL-STREAM-004)'"
+      ]
+    },
+    "VAL-STREAM-005": {
+      "status": "passed",
+      "summary": "settings_updated ignores mismatched conversation_id: test confirms no acp.settings.updated emission for different conversation.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'settings_updated for different conversation_id does not emit (VAL-STREAM-005)'"
+      ]
+    },
+    "VAL-STREAM-006": {
+      "status": "passed",
+      "summary": "mcp_status merges live status into mcpServers by server name: test verifies useDroidMcpLiveStatus updates zustand store's mcpServers array by matching server.name, not by index.",
+      "evidence": [
+        "tests/unit/renderer/useDroidMcpLiveStatus.dom.test.tsx — 'merges live status by server name, not index (VAL-STREAM-006)'"
+      ]
+    },
+    "VAL-STREAM-007": {
+      "status": "passed",
+      "summary": "mcp_status toolCount badge re-renders in real time: test verifies displayed toolCount updates from 2→7 without re-mounting.",
+      "evidence": [
+        "tests/unit/renderer/useDroidMcpLiveStatus.dom.test.tsx — 'toolCount badge updates 2→7 without remount (VAL-STREAM-007)'"
+      ]
+    },
+    "VAL-STREAM-008": {
+      "status": "passed",
+      "summary": "mcp_status event is conversation-scoped in useAcpMessage: test confirms useAcpMessage only processes mcp_status when message.conversation_id matches.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'mcp_status for different conversation_id is ignored (VAL-STREAM-008)'"
+      ]
+    },
+    "VAL-STREAM-009": {
+      "status": "passed",
+      "summary": "mcp_auth with authUrl renders notification with action button: test verifies Notification.info is called with an Authorize action button that calls shell.openExternal(authUrl).",
+      "evidence": [
+        "tests/unit/renderer/mcpAuthListener.dom.test.tsx — 'shows Notification.info with action button when authUrl is present (VAL-STREAM-009)'"
+      ]
+    },
+    "VAL-STREAM-010": {
+      "status": "passed",
+      "summary": "mcp_auth without authUrl renders informational notification with no action button: test verifies Notification.info is called but no action button is rendered.",
+      "evidence": [
+        "tests/unit/renderer/mcpAuthListener.dom.test.tsx — 'shows informational Notification without action button when authUrl is absent (VAL-STREAM-010)'"
+      ]
+    },
+    "VAL-STREAM-011": {
+      "status": "passed",
+      "summary": "Cross-conversation isolation: mcp_status is conversation-scoped (filtered by conversation_id), mcp_auth is app-global (fires for any conversation_id). Both behaviors verified in tests.",
+      "evidence": [
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'mcp_status for different conversation_id is ignored (VAL-STREAM-008)'",
+        "tests/unit/renderer/mcpAuthListener.dom.test.tsx — 'mcp_auth fires globally regardless of conversation_id (VAL-STREAM-011)'"
+      ]
+    },
+    "VAL-STREAM-012": {
+      "status": "passed",
+      "summary": "Stream invariant confirmed: session_title (line 343), settings_updated (line 358), mcp_status (line 375) all appear BEFORE default: (line 387) in useAcpMessage.ts switch statement.",
+      "evidence": [
+        "grep: src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts — lines 343, 358, 375 < 387",
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'invariant: new event cases appear BEFORE default in switch (VAL-STREAM-012)'"
+      ]
+    },
+    "VAL-STREAM-013": {
+      "status": "passed",
+      "summary": "Stream invariant confirmed: no setRunning(true) or setAiProcessing(true) calls exist within the session_title (lines 343-352), settings_updated (lines 358-370), or mcp_status (lines 375-385) handlers.",
+      "evidence": [
+        "grep: setRunning(true) found at lines 154, 162, 174, 212, 223, 262, 390 — none inside stream event handlers",
+        "grep: setAiProcessing(true) found at line 454 — not inside stream event handlers",
+        "tests/unit/renderer/useAcpMessage.dom.test.tsx — 'invariant: no stream-event handler sets running=true (VAL-STREAM-013)'"
+      ]
+    }
+  },
+  "commandsRun": [
+    {
+      "command": "bun run test -- --reporter=verbose tests/unit/renderer/useAcpMessage.dom.test.tsx tests/unit/renderer/useDroidMcpLiveStatus.dom.test.tsx tests/unit/renderer/mcpAuthListener.dom.test.tsx",
+      "exitCode": 0,
+      "observation": "All 49 tests passed across 3 test files (useAcpMessage.dom.test.tsx, useDroidMcpLiveStatus.dom.test.tsx, mcpAuthListener.dom.test.tsx). Test suite completed in 2.43s."
+    },
+    {
+      "command": "rg -n \"case 'session_title'|case 'settings_updated'|case 'mcp_status'|default:\" src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+      "exitCode": 0,
+      "observation": "session_title at line 343, settings_updated at line 358, mcp_status at line 375, default at line 387. All new event cases appear before default."
+    },
+    {
+      "command": "rg -n -C3 \"setRunning\\(true\\)|setAiProcessing\\(true\\)\" src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+      "exitCode": 0,
+      "observation": "setRunning(true) at lines 154,162,174,212,223,262,390. setAiProcessing(true) at line 454. None in session_title/settings_updated/mcp_status handlers."
+    }
+  ]
+}

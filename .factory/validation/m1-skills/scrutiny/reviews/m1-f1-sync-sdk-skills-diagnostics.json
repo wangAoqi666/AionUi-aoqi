@@ -1,0 +1,20 @@
+{
+  "featureId": "m1-f1-sync-sdk-skills-diagnostics",
+  "status": "fail",
+  "summary": "The structured diagnostics pieces landed, but SDK skills are still merged only into the default AcpSkillManager instance, so prompt injection drops them whenever a droid conversation has non-empty enabledSkills.",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "syncSdkSkills writes SDK-reported skills only into the default AcpSkillManager singleton, but the real prompt builders fetch a cache-keyed singleton via enabledSkills. As soon as a droid conversation has any enabledSkills configured, prepareFirstMessageWithSkillsIndex/buildStaleSkillsReminder recreate the manager with an empty sdkSkills map, so SDK-reported skills no longer reach prompt injection even after listSkills succeeds.",
+      "evidence": "src/process/agent/droid/DroidSdkAgent.ts:1806-1807 calls AcpSkillManager.getInstance() with no enabledSkills before setSdkSkills(...). AcpSkillManager.ts:183,202-212 initializes sdkSkills per-instance and recreates the singleton whenever the enabledSkills cache key changes. The prompt-injection paths use keyed instances via src/process/task/agentUtils.ts:110,180 and src/process/task/AcpAgentManager.ts:1763. The VAL-SKILLS-011 test only inspects the default manager/buildSkillsIndexText path in tests/unit/droidListSkills.test.ts:319-329, so it never exercises the non-empty enabledSkills case.",
+      "suggestedFix": "Persist SDK skills outside the enabledSkills-keyed singleton, or copy the sdkSkills map across cache-key changes, and add a regression test that calls prepareFirstMessageWithSkillsIndex/buildStaleSkillsReminder with a non-empty enabledSkills array after syncSdkSkills succeeds."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "observation": "The droid-backend-worker skill does not call out that AcpSkillManager is keyed by enabledSkills, so a worker can 'prove' SDK skill injection by inspecting the default manager only while the real prompt builders still lose sdkSkills on non-empty enabledSkills paths.",
+      "suggestedTarget": "skill",
+      "rationale": "Adding this constraint to the skill checklist/example coverage would force future SDK-skill features to exercise prepareFirstMessageWithSkillsIndex/buildStaleSkillsReminder with a non-empty enabledSkills array and catch this class of bug earlier."
+    }
+  ]
+}

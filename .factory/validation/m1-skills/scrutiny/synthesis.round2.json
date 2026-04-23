@@ -1,0 +1,58 @@
+{
+  "milestone": "m1-skills",
+  "round": 2,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bunx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "failedFeatures": ["m1-f1b-skill-manager-cache-integrity"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "m1-f1b-skill-manager-cache-integrity",
+      "severity": "blocking",
+      "description": "The fix hoists sdkSkills into a backend-agnostic shared map, so non-droid prompt-injection backends can inherit droid-only SDK skills and the new regression tests miss that negative case."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "When SDK-derived skill state is hoisted outside AcpSkillManager's enabledSkills cache key, require an explicit negative regression test proving non-droid prompt-injection backends do not inherit droid-only sdkSkills.",
+      "evidence": "m1-f1b added positive droid regression tests but no backend-isolation case; scrutiny found that a droid syncSdkSkills bootstrap can leak sdkSkills into the opencode/custom-workspace prompt-injection path.",
+      "isSystemic": true
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "When mission guidance accepts a narrower evidence scope than the original validation contract, record that override in normative guidance and sync the validation contract before the next scrutiny re-run.",
+      "evidence": "m1-f4b passed under the accepted live-skill-inventory baseline, but validation-contract.md still encodes the older office-cli/reply-level expectations, creating avoidable validator drift.",
+      "isSystemic": false
+    },
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "Tighten the follow-procedure checklist so workers may only mark followedProcedure=true after invoking required startup skills in order and using desktop-app-testing for manual CDP verification.",
+      "evidence": "m1-f4b's final handoff claimed followedProcedure=true even though the transcript did not invoke desktop-app-testing and did not start with droid-sdk-integration as required by the skill.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/m1-skills/scrutiny/synthesis.round1.json"
+}

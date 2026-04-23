@@ -1,0 +1,33 @@
+{
+  "events": [
+    {
+      "conversation_id": "de67dc8d",
+      "error": null,
+      "sdkSkillsCount": 101,
+      "source": "droid-sdk",
+      "ts": 1776860417530
+    },
+    {
+      "conversation_id": "de67dc8d",
+      "error": null,
+      "sdkSkillsCount": null,
+      "source": "skills-watcher",
+      "ts": 1776860417608
+    },
+    {
+      "conversation_id": "de67dc8d",
+      "error": null,
+      "sdkSkillsCount": 101,
+      "source": "droid-sdk",
+      "ts": 1776860437702
+    },
+    {
+      "conversation_id": "de67dc8d",
+      "error": null,
+      "sdkSkillsCount": null,
+      "source": "skills-watcher",
+      "ts": 1776860437703
+    }
+  ],
+  "startedAt": 1776860407052
+}

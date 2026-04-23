@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.1.7] - 2026-04-23
+
+本次版本是 Droid SDK 深度集成闭环的最终发布，覆盖 5 个里程碑（M1-M5）共 18 个 feature，确保每个后端能力均有前端入口、单测 + DOM 测试双层覆盖。
+
+### Skills Pipeline Integrity (M1)
+
+- **SDK Skills 无条件扫描**：`AcpSkillManager.scanDroidSkillsOnce()` 在 droid 后端下启动时无条件扫描 `~/.factory/skills/`，通过 `listSkills()` → `classifySdkSkill()` 分类为 core / user / workspace 并写入 `setSdkSkills()`（`src/process/task/AcpSkillManager.ts`）
+- **分类器词边界修复**：`classifySdkSkill()` 使用 `\b` 词边界正则替代 `includes()`，消除 `architect → architecture` 等假阳性（`src/process/task/AcpSkillManager.ts`）
+- **SkillsWatcher 重广播**：`fs.watch` 监听 `~/.factory/skills/` 目录变化 → 300ms 防抖 → 重新扫描 → 广播 `slash_commands_updated`；teardown 后不再触发多余事件（`src/process/task/AcpSkillManager.ts`）
+- **后端缓存隔离**：`sharedSdkSkills` 按 backend 分区缓存，切换 backend 时不会错误合并前一个后端的技能列表（`src/process/task/AcpSkillManager.ts`）
+- **slash_commands_updated 白名单**：`AcpAgentManager` 在 bootstrap guard 之后放行 `slash_commands_updated` 消息类型，确保热加载技能可传达到前端（`src/process/task/AcpAgentManager.ts`）
+
+### Mission Mode UX (M2)
+
+- **Mission Mode 注册**：在 `agentModes.ts` 注册 Mission 模式（`sessionMode: 'mission'`），映射 `DecompSessionType.Orchestrator` + Auto + Medium；`AgentModeSelector` / `AcpConfigSelector` / `AcpModelSelector` 三个 UI 面展示该模式（`src/renderer/utils/model/agentModes.ts`）
+- **MissionPanel 组件**：新增 `MissionPanel` + `useMissionState` 钩子，消费 6 个 `mission_*` 事件（created / milestone_completed / feature_started / feature_completed / progress / completed），实时展示 milestone 和 feature 进度（`src/renderer/pages/conversation/platforms/acp/MissionPanel/`）
+- **i18n 6 语言**：`agentMode` 命名空间新增 Mission 相关 keys（`locales/*/agentMode.json`，6 语言）
+
+### Stream Event Renderer Wiring (M3)
+
+- **session_title 消费**：`useAcpMessage` 新增 `session_title` case，更新会话标题并同步数据库（`src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts`）
+- **settings_updated 消费**：监听 `settings_updated` 事件 → 触发 `catalogRefresher` 刷新，配合 500ms 防抖 + 2s 冷却防死循环（`src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts`、`src/process/agent/droid/catalogRefresher.ts`）
+- **mcp_status 消费**：新增 `useDroidMcpLiveStatus` 钩子，将 `mcp_status` 事件映射为 `connected / disconnected / error` 状态，通过 emitter 广播到 MCP 面板（`src/renderer/hooks/mcp/useDroidMcpLiveStatus.ts`）
+- **mcp_auth 消费**：新增 `useMcpAuthNotification` 钩子，监听 `mcp_auth` 事件并弹出全局 Notification 提示用户完成 OAuth 授权（`src/renderer/hooks/mcp/useMcpAuthNotification.ts`）
+
+### IPC Exposure: Tools & MCP (M4)
+
+- **setEnabledToolIds 端到端**：`AllowedToolsSelector` 组件 → IPC `acp.set-enabled-tool-ids` → `AcpAgentManager.setEnabledToolIds()` → SDK `setEnabledToolIds()`，支持 undefined / [] / [ids] 三态语义（`src/renderer/components/agent/AllowedToolsSelector.tsx`、`src/process/task/AcpAgentManager.ts`）
+- **6 个 MCP IPC 方法**：`list / add / remove / update / enable / disable` 六个 MCP 方法通过 `ipcBridge.ts` 暴露为 IPC 通道，后端 guard + mutex 保护（`src/common/adapter/ipcBridge.ts`、`src/process/bridge/acpConversationBridge.ts`）
+- **MCP 面板 OAuth**：`useMcpOAuth` 钩子 + MCP Panel UI 消费实时 IPC 状态，展示连接状态、错误信息和 OAuth 授权流（`src/renderer/hooks/mcp/useMcpOAuth.ts`）
+- **IPC 覆盖率 meta-test**：`ipcExposureCoverage.test.ts` 通过 grep 确保所有 IPC 通道在 preload 和 bridge 中均有注册（`tests/unit/ipcExposureCoverage.test.ts`）
+
+### Quality Fixes (M5)
+
+- **Dead ternary 清理**：`DroidByokService.ts` 中 o1-preview/o1-pro 的 `supportsImageInput` 从死三元 `? false : false` 替换为字面量 `false`（`src/process/bridge/services/DroidByokService.ts`）
+- **PS7+ 执行策略检测**：`OfficeCliInstaller.ts` 将 PowerShell 7+ 执行策略检测扩展到 4 种信号 + GBK 编码回退（`src/process/bridge/services/OfficeCliInstaller.ts`）
+- **BYOK 能力 CLI 回环校验**：`catalogRefresher.ts` 新增 `verifyByokCapabilitiesAgainstCli()`，在 catalog 刷新时比对 CLI 返回的模型能力与本地推断，日志记录差异（`src/process/agent/droid/catalogRefresher.ts`）
+- **格式漂移清理**：全局运行 `bun run format` 修复约 16 个因历史积累导致的格式不一致文件（仅空白/引号/尾逗号变更，无语义改动）
+
+### Testing
+
+- 新增 18 个测试文件：`acpSkillManagerDroidScan` / `acpSkillManagerBackendCache` / `acpSkillsWatcher` / `droidListSkillsFallback` / `AcpAgentManagerSlashCommandsBootstrap` / `agentModeSelector.dom` / `MissionPanel.dom` / `settingsMigration` / `acpAgentManagerSetEnabledToolIds` / `acpAgentManagerMcpMethods` / `acpConversationBridgeMcp` / `setEnabledToolIds (integration)` / `allowedTools.dom` / `mcpPanel.dom` / `useDroidMcpLiveStatus.dom` / `useMcpOAuth.dom` / `mcpAuthListener.dom` / `ipcExposureCoverage`
+- 测试总数保持 ≥ 3479，全部通过；tsc `--noEmit` 与 oxlint 全程 0 error
+
 ## [0.1.6] - 2026-04-22
 
 本次版本围绕 Factory Droid SDK 深度集成做了系统性补齐，覆盖 SDK 原生能力闭环 (P0/P1/P2)、BYOK 站点化改造、officecli 降级链路。测试总规模从 3276 → 3479（+203），全程 0 tsc error、0 lint error。
@@ -18,7 +62,7 @@
 
 ### Factory Droid SDK 扩展能力 (P2)
 
-- **Mission / Decomp Orchestrator 模式**：新增 `sessionMode: 'mission'`，映射为 `DecompSessionType.Orchestrator` + Auto interactionMode + Medium autonomyLevel；`notificationMapper` 扩展 6 类 MISSION_* 通知（mission_created / milestone_completed / feature_started 等）
+- **Mission / Decomp Orchestrator 模式**：新增 `sessionMode: 'mission'`，映射为 `DecompSessionType.Orchestrator` + Auto interactionMode + Medium autonomyLevel；`notificationMapper` 扩展 6 类 MISSION\_\* 通知（mission_created / milestone_completed / feature_started 等）
 - **Tool Whitelist**：新增 `enabledToolIds` 三态语义（undefined=默认全开 / [] = 全禁 / [ids]=白名单）与 IPC `acp.set-enabled-tool-ids`；`setEnabledToolIds(null)` 显式清除
 - **提交 Bug 报告**：新增 `DroidBugReportModal` 入口（About 页 Bug 图标），自动附带 app/SDK 版本、平台、sessionId、stack trace；支持 402 重写；16 keys × 6 语言
 

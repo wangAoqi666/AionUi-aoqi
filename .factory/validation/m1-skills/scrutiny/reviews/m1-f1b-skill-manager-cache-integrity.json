@@ -1,0 +1,26 @@
+{
+  "featureId": "m1-f1b-skill-manager-cache-integrity",
+  "status": "fail",
+  "summary": "m1-f1b fixes the original droid-side cache-key and enabledSkills-persistence blockers, but it hoists SDK skills into a backend-agnostic global map. That lets non-droid prompt-injection backends inherit droid-only SDK skills, and the added regression tests do not cover that negative case or the real stale-reminder/helper entrypoints.",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "The fix stores sdkSkills in one global map instead of scoping them by backend, so any non-droid path that still uses prompt injection can surface droid-only SDK skills. This reintroduces cross-backend contamination in a new form.",
+      "evidence": "src/process/task/AcpSkillManager.ts:185 defines `sharedSdkSkills` as `Map<string, SdkSkill>`, and src/process/task/AcpSkillManager.ts:535-542,566-671 unconditionally reads that shared map from `getSkillsIndex()`, `hasAnySkills()`, `hasSkill()`, and `getSdkSkills()` for every manager instance. src/process/agent/droid/DroidSdkAgent.ts:1807 writes into that shared store from the droid session. Meanwhile src/process/task/AcpAgentManager.ts:702-715 still routes unsupported/custom-workspace non-droid backends through `prepareFirstMessageWithSkillsIndex`, and tests/unit/AcpAgentManagerSkillInjection.test.ts:214-227 explicitly asserts `backend: 'opencode'` uses prompt injection. After a droid session syncs skills, an opencode/custom-workspace conversation will therefore advertise those droid SDK skills too.",
+      "suggestedFix": "Store SDK skills per backend (for example `Map<string, Map<string, SdkSkill>>`) and only merge/read the droid bucket when the caller backend is `droid`. Keep the current enabledSkills-key preservation, but restore backend isolation for SDK-sourced skills."
+    },
+    {
+      "severity": "non_blocking",
+      "description": "The new regression tests validate the positive droid cases, but they do not actually exercise the named helper paths or a negative non-droid isolation case, so they would not catch the leak above.",
+      "evidence": "tests/unit/acpSkillManagerBackendCache.test.ts:94-189 only covers filesystem-discovery leakage and never sets SDK skills. tests/unit/droidListSkills.test.ts:609-689 creates `AcpSkillManager.getInstance(..., { backend: 'droid' })` directly and renders `buildSkillsIndexText(index)`, but it does not call `prepareFirstMessageWithSkillsIndex(...)`, does not call `AcpAgentManager.buildStaleSkillsReminder()`, and never asserts that a non-droid keyed manager (for example `backend: 'opencode'`) excludes droid SDK skills after `syncSdkSkills()`.",
+      "suggestedFix": "Add a negative regression test that performs a droid `syncSdkSkills()` bootstrap, then runs the real prompt-injection path for a non-droid backend (`prepareFirstMessageWithSkillsIndex` or an AcpAgentManager first-message path for `opencode`/customWorkspace) and asserts the droid SDK skills are absent. Also invoke the actual stale-reminder path instead of simulating it with `getSkillsIndex()`."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "observation": "The droid-backend-worker skill already warns about non-empty enabledSkills and cross-backend filesystem cache integrity, but it does not require a negative test for backend scoping when SDK-derived skill state is hoisted out of the keyed AcpSkillManager instance.",
+      "suggestedTarget": "skill",
+      "rationale": "That omission maps directly to the missed regression here: the worker added positive droid-only tests, but nothing in the skill checklist forced a `backend: 'opencode'/'claude'` negative case after `syncSdkSkills()`. Adding that rule would catch backend-blind hoisted state before scrutiny."
+    }
+  ]
+}

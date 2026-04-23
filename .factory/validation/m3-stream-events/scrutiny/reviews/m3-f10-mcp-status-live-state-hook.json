@@ -1,0 +1,51 @@
+{
+  "featureId": "m3-f10-mcp-status-live-state-hook",
+  "reviewedAt": "2026-04-23T01:45:00+08:00",
+  "commitId": "e3c165d82",
+  "transcriptSkeletonReviewed": false,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Solid implementation of mcp_status stream event consumer. The hook correctly merges by server name (not index), preserves existing IMcpServer fields during update, and avoids stale closures via functional updater. The useAcpMessage case is placed before default, preventing false running state flips. All 3 validation assertions (VAL-STREAM-006/007/008) are covered by tests. No blocking issues found.",
+    "issues": [
+      {
+        "file": "src/renderer/hooks/mcp/useDroidMcpLiveStatus.ts",
+        "line": 20,
+        "severity": "non_blocking",
+        "description": "The _mcpServers parameter is accepted but intentionally unused (prefixed with _). While the functional updater pattern makes this correct, the parameter exists only for API symmetry with the setter. Consider documenting why this param exists or removing it if the hook contract doesn't need it."
+      },
+      {
+        "file": "src/renderer/hooks/mcp/useDroidMcpLiveStatus.ts",
+        "line": 80,
+        "severity": "non_blocking",
+        "description": "createFromEvent generates placeholder tools as { name: 'tool-N' } with no description or inputSchema. This is reasonable for representing toolCount as an array length, but downstream consumers should be aware these are stubs, not real tool definitions. The JSDoc comment on createFromEvent documents this well."
+      },
+      {
+        "file": "src/renderer/hooks/mcp/useDroidMcpLiveStatus.ts",
+        "line": 87,
+        "severity": "non_blocking",
+        "description": "createFromEvent sets transport to { type: 'stdio', command: '' } — an empty command string. This is a valid minimal stub for a server discovered via live status (no transport config available), but could be slightly misleading. A comment noting this is a placeholder until the server's config is loaded would improve clarity."
+      },
+      {
+        "file": "src/renderer/utils/emitter.ts",
+        "line": 22,
+        "severity": "non_blocking",
+        "description": "McpStatusServer.error field is defined in the emitter type but IMcpServer has no error property — the error information from stream events is silently dropped during merge. This is correct given the current type definitions, but if error messages need to surface in UI later, IMcpServer would need to be extended."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The hook is exported from the barrel file (hooks/mcp/index.ts) but not yet consumed anywhere in the application. It's only referenced in a comment in useAcpMessage.ts. This is likely intentional for incremental delivery (hook ready, wiring comes in a later feature), but no convention documents whether exported-but-unused hooks are acceptable or should be wired immediately.",
+      "evidence": "grep for useDroidMcpLiveStatus in src/ shows only: definition (useDroidMcpLiveStatus.ts:19), export (index.ts:1), comment reference (useAcpMessage.ts:373). No actual call site."
+    },
+    {
+      "area": "conventions",
+      "observation": "The stream event case structure in useAcpMessage.ts follows a consistent pattern: conversation_id check → type assertion on message.data → emit to emitter. This pattern is now used by session_title, settings_updated, mcp_status, and mcp_auth. The pattern is well-established but not documented as a convention.",
+      "evidence": "useAcpMessage.ts lines 335-386 show 3 cases (session_title, settings_updated, mcp_status) all following the same pattern before the default branch."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "m3-f10 passes review. The useDroidMcpLiveStatus hook correctly implements merge-by-name semantics, preserves existing IMcpServer fields, avoids stale closures, and handles cleanup. The useAcpMessage mcp_status case is correctly placed before default and filters by conversation_id. Tests cover all 3 VAL-STREAM assertions (006/007/008). Four non-blocking observations noted: unused parameter convention, placeholder tool stubs, empty transport command in createFromEvent, and silently dropped error field. None require immediate action."
+}

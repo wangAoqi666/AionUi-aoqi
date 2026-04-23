@@ -159,6 +159,13 @@ const setActiveConversationState = (conversationId: string | null) => {
   activeConversationIdState = conversationId;
 };
 
+/**
+ * Return the currently active conversation ID (module-level state).
+ * Returns `null` when no conversation is selected.
+ * Safe to call outside React (e.g. from non-hook utility code).
+ */
+export const getActiveConversationId = (): string | null => activeConversationIdState;
+
 const initializeConversationListSyncStore = () => {
   if (isStoreInitialized) {
     return;

@@ -79,7 +79,11 @@ vi.mock('@arco-design/web-react', () => ({
           const groupTree = (tree: React.ReactNode): React.ReactNode =>
             React.Children.map(tree, (node) => {
               if (!React.isValidElement(node)) return node;
-              const nodeElement = node as React.ReactElement<{ value?: string; checked?: boolean; children?: React.ReactNode }>;
+              const nodeElement = node as React.ReactElement<{
+                value?: string;
+                checked?: boolean;
+                children?: React.ReactNode;
+              }>;
               const updated: Record<string, unknown> = {};
               if (typeof nodeElement.props.value === 'string') {
                 updated.checked = current.includes(nodeElement.props.value);
@@ -117,12 +121,7 @@ vi.mock('@arco-design/web-react', () => ({
       onChange?: (value: string) => void;
     }) => (
       <label>
-        <input
-          type='radio'
-          data-value={value}
-          checked={Boolean(checked)}
-          onChange={() => onChange?.(value || '')}
-        />
+        <input type='radio' data-value={value} checked={Boolean(checked)} onChange={() => onChange?.(value || '')} />
         {children}
       </label>
     ),
@@ -141,7 +140,11 @@ vi.mock('@arco-design/web-react', () => ({
           const groupTree = (tree: React.ReactNode): React.ReactNode =>
             React.Children.map(tree, (node) => {
               if (!React.isValidElement(node)) return node;
-              const nodeElement = node as React.ReactElement<{ value?: string; checked?: boolean; children?: React.ReactNode }>;
+              const nodeElement = node as React.ReactElement<{
+                value?: string;
+                checked?: boolean;
+                children?: React.ReactNode;
+              }>;
               const updated: Record<string, unknown> = {};
               if (typeof nodeElement.props.value === 'string') {
                 updated.checked = nodeElement.props.value === value;
@@ -170,15 +173,7 @@ vi.mock('@arco-design/web-react', () => ({
 }));
 
 vi.mock('@/renderer/components/base/AionModal', () => ({
-  default: ({
-    children,
-    onOk,
-    onCancel,
-  }: {
-    children?: React.ReactNode;
-    onOk?: () => void;
-    onCancel?: () => void;
-  }) => (
+  default: ({ children, onOk, onCancel }: { children?: React.ReactNode; onOk?: () => void; onCancel?: () => void }) => (
     <div>
       {children}
       <button type='button' onClick={onOk}>
@@ -350,7 +345,9 @@ describe('FactoryDroidByokModelEditModal', () => {
 
   it('is a no-op when opened with a null config', async () => {
     const closeSpy = vi.fn();
-    render(<FactoryDroidByokModelEditModal modalProps={{ visible: true }} modalCtrl={{ close: closeSpy }} config={null} />);
+    render(
+      <FactoryDroidByokModelEditModal modalProps={{ visible: true }} modalCtrl={{ close: closeSpy }} config={null} />
+    );
 
     await act(async () => {
       fireEvent.click(screen.getByText('confirm'));

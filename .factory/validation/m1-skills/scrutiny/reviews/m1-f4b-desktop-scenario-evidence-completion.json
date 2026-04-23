@@ -1,0 +1,18 @@
+{
+  "featureId": "m1-f4b-desktop-scenario-evidence-completion",
+  "status": "pass",
+  "summary": "Pass — m1-f4b adequately closes the two round-1 blockers under the mission's current accepted scope. Compared with m1-f4, it now archives complete VAL-SKILLS-013 evidence (screenshots + console + IPC showing `skills-watcher` rebroadcasts within 623/759/939/669 ms) and a committed VAL-SKILLS-014 integration test/output, and the shared BYOK baseline now matches the live `~/.factory/skills` inventory instead of assuming a standalone `office-cli` directory.",
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "observation": "Mission guidance is still internally inconsistent about VAL-SKILLS-013/014 scope: the validation contract still demands reply-level proof (`__val_tmp_skill__` appears after hot reload, fallback-scanned skills render in UI, CROSS-001 includes `office-cli`), while the accepted mission guidance/evidence now treats watcher rebroadcast plus the live skill inventory as the source of truth.",
+      "suggestedTarget": "AGENTS",
+      "rationale": "`validation-contract.md:111,118,599` still encode the older expectations; `.factory/library/user-testing.md:79` and `.factory/library/environment.md:48` document the real local inventory (no standalone `office-cli` skill directory); `m1-f4b/VAL-SKILLS-013/README.md:202-203` explicitly says SDK-cache refresh on SKILL.md add is out of scope. Adding an AGENTS-level clarification (or equivalent mission-level override) would keep future validators from re-opening this resolved feature over stale contract text."
+    },
+    {
+      "observation": "The final fix-session handoff says `skillFeedback.followedProcedure=true`, but the transcript did not invoke the required `desktop-app-testing` skill and did not invoke `droid-sdk-integration` as the first feature step.",
+      "suggestedTarget": "skill",
+      "rationale": "`.factory/skills/droid-backend-worker/SKILL.md:21-22,29,79` require `droid-sdk-integration` first and `desktop-app-testing` for manual CDP verification. `worker-transcripts.jsonl:8` shows the `ca62cd05-1b9c-496e-88e5-3f7ffbd48702` session starting with `mission-worker-base` + `droid-backend-worker` + reads/TodoWrite, invoking `droid-sdk-integration` later, and `grep 'desktop-app-testing' worker-transcripts.jsonl` returns no match. Tightening the skill or the follow-procedure checklist would make these deviations visible."
+    }
+  ]
+}

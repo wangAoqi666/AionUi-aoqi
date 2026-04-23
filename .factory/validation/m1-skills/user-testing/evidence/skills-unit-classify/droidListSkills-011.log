@@ -1,0 +1,30 @@
+$ vitest run tests/unit/droidListSkills.test.ts -t "VAL-SKILLS-011" "--reporter=verbose"
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi[39m
+
+[90mstdout[2m | tests/unit/droidListSkills.test.ts
+[22m[39mbuild.buildStorage global
+build.buildStorage system
+
+[90mstdout[2m | tests/unit/droidListSkills.test.ts
+[22m[39mbuild.buildStorage agent.chat
+build.buildStorage agent.chat.message
+build.buildStorage agent.config
+build.buildStorage agent.env
+
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mcalls session.listSkills exactly once after startSession succeeds
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22memits slash_commands_updated with merged sdkSkills when listSkills resolves (VAL-SKILLS-001)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mrecords structured failure + still emits slash_commands_updated when listSkills rejects (VAL-SKILLS-002)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mno-ops when session.listSkills is undefined (VAL-SKILLS-003)
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mprompt injection includes SDK-reported skills after syncSdkSkills (VAL-SKILLS-011)[32m 3[2mms[22m[39m
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mclassifies subagent-like skills as kind="subagent" (P0-4)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mdoes not classify skills located under agent-factory project paths as subagents (VAL-SKILLS-008)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mclassifies SDK skills with subagent/custom-droid segment or structured kind as subagent (VAL-SKILLS-009)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22muses segment/word-boundary match rather than naive substring (VAL-SKILLS-010)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mprepareFirstMessageWithSkillsIndex with non-empty enabledSkills INCLUDES sdkSkills after syncSdkSkills resolves (m1-f1b)
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/droidListSkills.test.ts[2m > [22mDroidSdkAgent — session.listSkills integration[2m > [22mbuildStaleSkillsReminder with non-empty enabledSkills includes sdkSkills (m1-f1b)
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m1 passed[39m[22m[2m | [22m[33m10 skipped[39m[90m (11)[39m
+[2m   Start at [22m 18:52:52
+[2m   Duration [22m 539ms[2m (transform 313ms, setup 34ms, import 412ms, tests 4ms, environment 0ms)[22m

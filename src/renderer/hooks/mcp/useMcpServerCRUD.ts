@@ -4,10 +4,68 @@ import { useTranslation } from 'react-i18next';
 import { Message } from '@arco-design/web-react';
 import { ConfigStorage } from '@/common/config/storage';
 import type { IMcpServer } from '@/common/config/storage';
+import { ipcBridge } from '@/common';
+import { getActiveConversationId } from '@/renderer/pages/conversation/GroupedHistory/hooks/useConversationListSync';
+
+/**
+ * Fire the live-session IPC for add/remove/toggle.
+ * Returns `true` when the IPC succeeds or no session is active (no-op).
+ * Returns `false` when the IPC call fails — caller should surface
+ * a localised Message.error and optionally rollback.
+ */
+const tryLiveIpc = async (
+  action: 'add' | 'remove' | 'toggle',
+  payload: { server?: IMcpServer; name?: string; enabled?: boolean }
+): Promise<{ ok: boolean; error?: string }> => {
+  const conversationId = getActiveConversationId();
+  if (!conversationId) return { ok: true }; // no active session — config-only is fine
+
+  try {
+    if (action === 'add' && payload.server) {
+      const result = await ipcBridge.acpConversation.addMcpServer.invoke({
+        conversationId,
+        params: {
+          name: payload.server.name,
+          transport: payload.server.transport,
+          enabled: payload.server.enabled,
+        },
+      });
+      if (result && (!result.success || (result.data && !result.data.success))) {
+        return { ok: false, error: result.data?.error || result.msg || 'Unknown error' };
+      }
+    } else if (action === 'remove' && payload.name) {
+      const result = await ipcBridge.acpConversation.removeMcpServer.invoke({
+        conversationId,
+        name: payload.name,
+      });
+      if (result && (!result.success || (result.data && !result.data.success))) {
+        return { ok: false, error: result.data?.error || result.msg || 'Unknown error' };
+      }
+    } else if (action === 'toggle' && payload.name != null && payload.enabled != null) {
+      const result = await ipcBridge.acpConversation.toggleMcpServer.invoke({
+        conversationId,
+        name: payload.name,
+        enabled: payload.enabled,
+      });
+      if (result && (!result.success || (result.data && !result.data.success))) {
+        return { ok: false, error: result.data?.error || result.msg || 'Unknown error' };
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+};
 
 /**
  * MCP服务器CRUD操作Hook
  * 处理MCP服务器的增加、编辑、删除、启用/禁用等操作
+ *
+ * After every config write the hook also fires the corresponding
+ * `acp.add-mcp-server` / `acp.remove-mcp-server` / `acp.toggle-mcp-server`
+ * IPC when an active Droid session is present.  If the IPC fails the user
+ * sees a localised `Message.error` — config is NOT rolled back because the
+ * server may still be needed for the next session start.
  */
 export const useMcpServerCRUD = (
   mcpServers: IMcpServer[],
@@ -51,6 +109,14 @@ export const useMcpServerCRUD = (
           return [...prevServers, newServer];
         }
       });
+
+      // Fire live-session IPC (best-effort — config is already persisted)
+      if (serverToSync) {
+        const ipcResult = await tryLiveIpc('add', { server: serverToSync });
+        if (!ipcResult.ok) {
+          Message.error(t('settings.mcpIpcAddFailed', { error: ipcResult.error }));
+        }
+      }
 
       // 检查安装状态
       if (serverToSync) {
@@ -158,6 +224,12 @@ export const useMcpServerCRUD = (
 
       if (!targetServer) return;
 
+      // Fire live-session IPC for remove (best-effort)
+      const ipcResult = await tryLiveIpc('remove', { name: targetServer.name });
+      if (!ipcResult.ok) {
+        Message.error(t('settings.mcpIpcRemoveFailed', { error: ipcResult.error }));
+      }
+
       // 删除后直接更新安装状态，不触发检测
       setAgentInstallStatus((prev) => {
         const updated = { ...prev };
@@ -208,6 +280,12 @@ export const useMcpServerCRUD = (
       });
 
       if (!targetServer || !updatedTargetServer) return;
+
+      // Fire live-session IPC for toggle (best-effort)
+      const ipcResult = await tryLiveIpc('toggle', { name: targetServer.name, enabled });
+      if (!ipcResult.ok) {
+        Message.error(t('settings.mcpIpcToggleFailed', { error: ipcResult.error }));
+      }
 
       try {
         if (enabled) {

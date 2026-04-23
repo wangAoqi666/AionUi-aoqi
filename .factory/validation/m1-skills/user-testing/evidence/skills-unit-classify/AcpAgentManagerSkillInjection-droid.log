@@ -1,0 +1,25 @@
+$ vitest run tests/unit/AcpAgentManagerSkillInjection.test.ts -t "droid backend uses prompt injection" "--reporter=verbose"
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi[39m
+
+[90mstdout[2m | tests/unit/AcpAgentManagerSkillInjection.test.ts
+[22m[39mbuild.buildStorage global
+build.buildStorage system
+
+[90mstdout[2m | tests/unit/AcpAgentManagerSkillInjection.test.ts
+[22m[39mbuild.buildStorage agent.chat
+build.buildStorage agent.chat.message
+build.buildStorage agent.config
+build.buildStorage agent.env
+
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22muses native skills (no prompt injection) for supported backend without customWorkspace
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22mfalls back to prompt injection for supported backend WITH customWorkspace
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22mfalls back to prompt injection for unsupported backend regardless of customWorkspace
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22mdroid backend uses prompt injection even with temp workspace[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22mdroid backend uses prompt injection with customWorkspace[32m 0[2mms[22m[39m
+ [2m[90m↓[39m[22m [30m[43m node [49m[39m tests/unit/AcpAgentManagerSkillInjection.test.ts[2m > [22mAcpAgentManager — first-message skill injection[2m > [22mskips presetContext injection when presetContext is undefined (native path)
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m2 passed[39m[22m[2m | [22m[33m4 skipped[39m[90m (6)[39m
+[2m   Start at [22m 18:52:53
+[2m   Duration [22m 419ms[2m (transform 210ms, setup 33ms, import 291ms, tests 3ms, environment 0ms)[22m

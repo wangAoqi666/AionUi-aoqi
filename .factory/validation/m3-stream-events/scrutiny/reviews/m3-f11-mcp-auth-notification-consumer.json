@@ -1,0 +1,92 @@
+{
+  "featureId": "m3-f11-mcp-auth-notification-consumer",
+  "reviewedAt": "2026-04-23T02:30:00+08:00",
+  "commitId": "6b7076807",
+  "transcriptSkeletonReviewed": false,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The mcp_auth consumer is well-implemented with correct placement BEFORE the conversation_id filter (line 126, early return at line 141, filter at line 144). The useMcpAuthNotification hook correctly listens for emitter events, shows Notification.info with unique IDs per serverName, conditionally renders an action button with openExternal, and properly cleans up on unmount. React.createElement usage is justified since the file is .ts (not .tsx). The openExternal call is safe because the shellBridge provider validates URLs. All 5 VAL-STREAM assertions are covered by tests. One non-blocking i18n issue found.",
+    "issues": [
+      {
+        "file": "src/renderer/hooks/mcp/useMcpAuthNotification.ts",
+        "line": 44,
+        "severity": "non_blocking",
+        "description": "Hardcoded 'Open' string violates project i18n convention. Per AGENTS.md: 'All user-facing text must use i18n keys — never hardcode strings.' Other hooks in the same hooks/mcp/ directory (useMcpConnection, useMcpServerCRUD) use useTranslation. Should be `t('mcp.auth.openButton')` or similar. Not blocking because the feature works correctly and this is a style/convention gap."
+      }
+    ]
+  },
+  "validationAssertionsCoverage": {
+    "VAL-STREAM-009": {
+      "covered": true,
+      "evidence": "mcpAuthListener.dom.test.tsx line 33-34: 'shows Notification.info with action button when authUrl is present'. Also useAcpMessage.dom.test.tsx verifies emitter relay."
+    },
+    "VAL-STREAM-010": {
+      "covered": true,
+      "evidence": "mcpAuthListener.dom.test.tsx line 78-79: 'shows Notification.info without action button when authUrl is absent'. Tests btn is undefined and openExternal not called."
+    },
+    "VAL-STREAM-011": {
+      "covered": true,
+      "evidence": "useAcpMessage.dom.test.tsx ~line 682: 'emits mcp.auth.required even for a different conversation_id (app-global)'. Sends mcp_auth with conversation_id 'C2' to hook mounted with 'C1', verifies emitter fires."
+    },
+    "VAL-STREAM-012": {
+      "covered": true,
+      "evidence": "useAcpMessage.dom.test.tsx ~line 707: 'stream-default-branch invariant (VAL-STREAM-012)'. Tests all 4 new event types (session_title, settings_updated, mcp_status, mcp_auth) do not reach default branch."
+    },
+    "VAL-STREAM-013": {
+      "covered": true,
+      "evidence": "useAcpMessage.dom.test.tsx ~line 800+: Tests unmount cleanup (stream off called), remount reseeding from DB, and no effect duplication."
+    }
+  },
+  "reviewChecklist": {
+    "1_mcp_auth_before_conversation_filter": {
+      "pass": true,
+      "detail": "mcp_auth handler at line 126, conversation_id filter at line 144. Early return at line 141."
+    },
+    "2_early_return_prevents_filtering": {
+      "pass": true,
+      "detail": "The return statement at line 141 exits handleResponseMessage before conversation_id check."
+    },
+    "3_notification_info_correct_props": {
+      "pass": true,
+      "detail": "id=`mcp-auth-${serverName}`, title=serverName, content=message, btn=conditional Button."
+    },
+    "4_action_button_calls_openExternal": {
+      "pass": true,
+      "detail": "onClick calls ipcBridge.shell.openExternal.invoke(authUrl) with the exact authUrl string."
+    },
+    "5_btn_undefined_without_authUrl": {
+      "pass": true,
+      "detail": "Ternary: authUrl ? React.createElement(Button,...) : undefined"
+    },
+    "6_hook_mounted_once_at_layout": {
+      "pass": true,
+      "detail": "useMcpAuthNotification() called in Layout.tsx (line 107), no other mount points found."
+    },
+    "7_val_stream_012_checks_all_4_types": {
+      "pass": true,
+      "detail": "Test iterates session_title, settings_updated, mcp_status, mcp_auth to verify none reach default."
+    },
+    "8_val_stream_013_covers_cleanup_remount": {
+      "pass": true,
+      "detail": "Tests cover unmount (stream off), remount (reseed from DB), and no effect duplication."
+    },
+    "9_react_createElement_justified": {
+      "pass": true,
+      "detail": "File is .ts not .tsx, so JSX is unavailable. React.createElement is the correct approach."
+    },
+    "10_strict_mode_duplicate_risk": {
+      "pass": true,
+      "detail": "No React.StrictMode usage found in the project. Also, the hook uses emitter.on/off cleanup pattern which is idempotent per useEffect cycle."
+    }
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Worker created useMcpAuthNotification.ts with a hardcoded 'Open' string (line 44) despite the project convention requiring all user-facing text to use i18n keys. Other hooks in the same directory (useMcpConnection, useMcpServerCRUD) properly use useTranslation. AGENTS.md states: 'All user-facing text must use i18n keys — never hardcode strings.' This suggests the worker either missed the convention or deliberately skipped it for this notification-only hook.",
+      "evidence": "src/renderer/hooks/mcp/useMcpAuthNotification.ts:44 has literal 'Open'. Compare: src/renderer/hooks/mcp/useMcpConnection.ts uses `const { t } = useTranslation()` and src/renderer/hooks/mcp/useMcpServerCRUD.ts does the same."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "m3-f11 passes review. The implementation is architecturally sound: mcp_auth is correctly placed BEFORE the conversation_id filter for app-global behavior, the useMcpAuthNotification hook properly manages emitter subscriptions with cleanup, and all 5 validation assertions (VAL-STREAM-009 through 013) have corresponding test coverage. One non-blocking issue: the hardcoded 'Open' button text should use i18n keys per project conventions. No bugs, security issues, or edge case gaps found."
+}

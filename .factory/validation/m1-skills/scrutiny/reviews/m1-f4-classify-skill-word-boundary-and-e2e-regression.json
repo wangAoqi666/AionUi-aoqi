@@ -1,0 +1,31 @@
+{
+  "featureId": "m1-f4-classify-skill-word-boundary-and-e2e-regression",
+  "status": "fail",
+  "summary": "The classifySdkSkill code change is sound, but the feature did not complete the required desktop regression coverage: the contracted office-cli baseline was missing, and there is no evidence that the hot-reload or listSkills-failure scenarios were actually exercised.",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "The feature was marked successful without satisfying its contracted BYOK verification baseline. The feature spec requires `~/.factory/skills/office-cli/SKILL.md` and a reply containing `office-cli`, but the handoff itself records that `office-cli` was not installed and the manual check instead relied on a different skill set.",
+      "evidence": "features.json:657,662 require the office-cli precondition/result; .factory/library/environment.md:48 and .factory/library/user-testing.md:79 repeat the same baseline; handoff 2026-04-22T03-24-10-370Z...json (lines 93-100 in the file excerpt) states office-cli was missing but still reports success.",
+      "suggestedFix": "Do not mark the feature complete until the office-cli precondition is restored or the validation contract is updated to the actual installed skill set and the desktop BYOK regression is re-run against that approved baseline."
+    },
+    {
+      "severity": "blocking",
+      "description": "The feature description explicitly assigns VAL-SKILLS-013 hot-reload and VAL-SKILLS-014 listSkills-failure fallback verification to m1-f4, but the transcript/evidence only show a single `你有什么技能` run. There is no trace of creating `__val_tmp_skill__`, observing `slash_commands_updated`, or forcing a `listSkills()` rejection path.",
+      "evidence": "features.json:663,669 require the hot-reload and failure-path checks plus screenshot/console/IPC artifacts; grep for `__val_tmp_skill__|VAL-SKILLS-013|VAL-SKILLS-014` in worker-transcripts.jsonl returned no matches; the evidence directory contains only `m1-f4-evidence-byok-reply-top.png` and `m1-f4-evidence-byok-reply-bottom.png`.",
+      "suggestedFix": "Run the two missing desktop scenarios explicitly: (1) add/remove `~/.factory/skills/__val_tmp_skill__/SKILL.md` and capture the `slash_commands_updated` evidence, and (2) execute the documented listSkills-rejection harness/failure path and archive the console + IPC log proving fallback-scanned skills still surface."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "observation": "The shared mission/library docs still treat `~/.factory/skills/office-cli/SKILL.md` as the required BYOK verification baseline, but this machine's actual installed skills are `star-office-helper`, `pptx`, `morph-ppt`, `docx`, etc. That mismatch directly affected m1-f4 review/verification.",
+      "suggestedTarget": "library",
+      "rationale": "Update the shared environment/user-testing guidance so future workers and validators do not silently validate against the wrong local skill inventory."
+    },
+    {
+      "observation": "`droid-backend-worker` Step 3 requires screenshots plus DevTools console and IPC network logs for manual CDP verification, but the archived m1-f4 evidence contains screenshots only. The worker also marked `skillFeedback.followedProcedure` as true.",
+      "suggestedTarget": "skill",
+      "rationale": "Tighten the skill or its checklist so follow-procedure claims require console/IPС artifacts whenever a feature's verificationSteps ask for them."
+    }
+  ]
+}

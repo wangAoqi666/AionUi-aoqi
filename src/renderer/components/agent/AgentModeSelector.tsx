@@ -13,6 +13,7 @@ import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
 import { Down, Robot } from '@icon-park/react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import AllowedToolsSelector from './AllowedToolsSelector';
 import MarqueePillLabel from './MarqueePillLabel';
 import SkipPermissionsConfirmModal from './SkipPermissionsConfirmModal';
 
@@ -434,6 +435,9 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
           onConfirm={() => void handleYoloConfirm()}
           onCancel={handleYoloCancel}
         />
+      )}
+      {isDroidBackend && conversationId && (
+        <AllowedToolsSelector conversationId={conversationId} visible={isDroidBackend} />
       )}
     </div>
   );

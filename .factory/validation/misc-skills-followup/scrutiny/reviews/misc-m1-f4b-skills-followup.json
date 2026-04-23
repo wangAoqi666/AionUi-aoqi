@@ -1,0 +1,49 @@
+{
+  "featureId": "misc-m1-f4b-skills-followup",
+  "reviewedAt": "2026-04-23T15:10:00+08:00",
+  "commitId": "748569fb3",
+  "repoPath": "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi",
+  "transcriptSkeletonReviewed": false,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Three independent sub-tasks (documentation + test + template) all implemented correctly. The new Vitest test correctly validates the debounce-coalescing behavior of the skills watcher — simulating 5 rapid fs.watch events across different roots and asserting that mainLog fires exactly once after the 500ms debounce window elapses. The two library documents are thorough, well-structured, and grounded in actual evidence from the m1-f4b validation cycle. One minor redundant assertion in the test, and one hardcoded path in the CDP template — both non-blocking.",
+    "issues": [
+      {
+        "file": "tests/unit/acpSkillsWatcher.test.ts",
+        "line": 510,
+        "severity": "non_blocking",
+        "description": "Redundant assertion: `expect(logCallsAfter.length).toBeLessThanOrEqual(1)` on line 510 is strictly weaker than `expect(logCallsAfter).toHaveLength(1)` on line 511. The second assertion subsumes the first — if length is 1, it is automatically ≤ 1. The ≤1 check adds no additional information and slightly hurts readability by suggesting the test would pass with 0 occurrences (which it wouldn't, due to the next line).",
+        "suggestedFix": "Remove line 510 (`expect(logCallsAfter.length).toBeLessThanOrEqual(1);`). The `toHaveLength(1)` assertion alone is sufficient and clearer about intent."
+      },
+      {
+        "file": ".factory/library/cdp-scenario-template.md",
+        "line": 117,
+        "severity": "non_blocking",
+        "description": "Hardcoded absolute path in the CDP template's default repoRoot fallback: `path.resolve(os.homedir(), 'Desktop/我的云盘/git_repo/AionUi-aoqi')`. This is specific to the current developer's machine layout and won't work for other contributors. The template already shows the portable `process.env.REPO_ROOT` approach (lines 42-45 in the pitfalls section), but the main code sample defaults to this hardcoded path when REPO_ROOT is unset.",
+        "suggestedFix": "Change the fallback from the hardcoded homedir path to something more portable, e.g., `path.resolve(import.meta.dirname ?? '.', '../..')` or require REPO_ROOT to be set and throw if missing."
+      },
+      {
+        "file": "tests/unit/acpSkillsWatcher.test.ts",
+        "line": 477,
+        "severity": "suggestion",
+        "description": "The test only validates a single debounce cluster. It does not test that a second cluster of events (after the first debounce fires) produces a second independent log call. This would strengthen confidence that the debounce timer properly resets between clusters. However, the existing tests in the file already cover multi-cluster scenarios implicitly via the stop/start watcher tests, so this is purely a nice-to-have.",
+        "suggestedFix": "Consider adding a follow-up section to the test that fires another burst of events after the first debounce resolves, then asserts mainLog call count goes to 2."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The commit 22f97892e uses type prefix `fix(skills-watcher)` but the change is purely additive — it adds a new test case without modifying any production code. Per conventional commits, `test(skills-watcher)` would be the more accurate type prefix. The other two commits correctly use `chore(skills-followup)` for documentation-only changes.",
+      "evidence": "Commit 22f97892e message: 'fix(skills-watcher): add test asserting log fires once per debounced cluster for N rapid fs.watch events' — only touches tests/unit/acpSkillsWatcher.test.ts, no production code changes."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The CDP template documents a real pitfall with Node 22 module resolution failing for non-ASCII paths when importing `ws` from outside the repo. This is valuable knowledge that could affect any future CDP-based validation or E2E testing scenario. The workaround (explicit absolute import from repo node_modules) is well-documented in the template.",
+      "evidence": ".factory/library/cdp-scenario-template.md, 'ws import fails from /tmp on macOS with non-ASCII paths' section."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "All three sub-tasks are correctly implemented. (A) The SDK cache root-cause doc thoroughly explains why listSkills() returns stale data (server-side CLI snapshot, not client-side cache), correctly identifies that no client-side fix is possible, and recommends an upstream feature request — well-reasoned and accurate. (B) The new Vitest test correctly validates debounce coalescing by simulating 5 rapid fs.watch events and asserting exactly 1 mainLog call after the 500ms boundary; has one redundant assertion (non-blocking). (C) The CDP template is comprehensive with pitfalls, code samples, and adaptation guidance; has one hardcoded path (non-blocking). No blocking issues found — PASS."
+}

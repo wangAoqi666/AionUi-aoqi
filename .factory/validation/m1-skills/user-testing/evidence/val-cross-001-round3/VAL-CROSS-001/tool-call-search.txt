@@ -1,0 +1,1 @@
+No forbidden filesystem-search tool-call markers found in console.log

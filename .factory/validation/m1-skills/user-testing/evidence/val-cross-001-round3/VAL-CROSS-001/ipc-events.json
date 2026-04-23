@@ -1,0 +1,13 @@
+{
+  "count": 1,
+  "events": [
+    {
+      "conversation_id": "fc90139c",
+      "error": null,
+      "sdkSkillsCount": 101,
+      "source": "droid-sdk",
+      "ts": 1776861578661
+    }
+  ],
+  "url": "http://localhost:5173/#/conversation/fc90139c"
+}

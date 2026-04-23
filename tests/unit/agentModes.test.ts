@@ -38,13 +38,21 @@ describe('AGENT_MODES.claude', () => {
 describe('AGENT_MODES.droid', () => {
   const droidModes = AGENT_MODES.droid;
 
-  it('includes SPEC mode for Factory Droid', () => {
+  it('has exactly 6 modes with mission as the last entry', () => {
+    expect(droidModes).toHaveLength(6);
     const values = droidModes.map((mode) => mode.value);
-    expect(values).toEqual(['default', 'spec', 'acceptEdits', 'auto', 'yolo']);
+    expect(values).toEqual(['default', 'spec', 'acceptEdits', 'auto', 'yolo', 'mission']);
   });
 
   it('uses SPEC as the visible label', () => {
     expect(droidModes.find((mode) => mode.value === 'spec')?.label).toBe('SPEC');
+  });
+
+  it('exposes mission entry with non-empty label and description', () => {
+    const mission = droidModes.find((mode) => mode.value === 'mission');
+    expect(mission).toBeDefined();
+    expect(mission!.label).toBeTruthy();
+    expect(mission!.description).toBeTruthy();
   });
 });
 

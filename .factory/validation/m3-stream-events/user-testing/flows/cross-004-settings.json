@@ -1,0 +1,40 @@
+{
+  "flowId": "cross-004-settings",
+  "surface": "code-review+dom-test",
+  "status": "passed",
+  "assertions": {
+    "VAL-CROSS-004": {
+      "status": "passed",
+      "summary": "Settings change propagation verified: (1) settings_updated case at line 358 appears before default at line 387 in useAcpMessage.ts; (2) handler emits acp.settings.updated with { conversationId, currentModelId }; (3) AcpModelSelector (line 231) and AcpConfigSelector (line 108) both subscribe to acp.settings.updated via emitter.on; (4) handler contains no running/aiProcessing state mutation — only emits and breaks; (5) all 40 unit tests pass including 4 settings_updated-specific tests covering happy path, conversation mismatch, and running-state invariants.",
+      "evidence": [
+        "grep: settings_updated case at line 358, default at line 387 in src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+        "grep: emitter.emit('acp.settings.updated', { conversationId, currentModelId }) at line 364",
+        "grep: AcpModelSelector subscribes at line 231, AcpConfigSelector subscribes at line 108",
+        "grep: handler body lines 358-370 has no running/aiProcessing mutation",
+        "test: 40/40 tests passed (exit code 0) including settings_updated suite"
+      ]
+    }
+  },
+  "commandsRun": [
+    {
+      "command": "rg -n \"case 'settings_updated'|default:\" src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+      "exitCode": 0,
+      "observation": "settings_updated at line 358, default at line 387 — case appears before default"
+    },
+    {
+      "command": "rg -A 25 \"case 'settings_updated'\" src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+      "exitCode": 0,
+      "observation": "Handler checks conversation_id match, extracts currentModelId from data, emits acp.settings.updated event, then breaks. No running/aiProcessing mutation."
+    },
+    {
+      "command": "rg -rn \"acp.settings.updated\" src/renderer/",
+      "exitCode": 0,
+      "observation": "Found in useAcpMessage.ts (emit), AcpModelSelector.tsx (on/off at lines 231/233), AcpConfigSelector.tsx (on/off at lines 108/110), emitter.ts (type definition at line 70)"
+    },
+    {
+      "command": "bun run test -- --reporter=verbose tests/unit/renderer/useAcpMessage.dom.test.tsx",
+      "exitCode": 0,
+      "observation": "1 test file, 40 tests passed, 0 failed. settings_updated suite: 'emits acp.settings.updated with currentModelId on matching settings_updated' ✓, 'does NOT emit when conversation_id does not match' ✓, 'does NOT flip running or aiProcessing when received mid-turn' ✓, 'does NOT set running=true when received while idle' ✓"
+    }
+  ]
+}

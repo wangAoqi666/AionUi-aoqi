@@ -20,5 +20,28 @@
   "yoloConfirmBody": "開啟「真 YOLO」後，智能體工廠會向 Droid CLI 下發 skipPermissionsUnsafe，Droid 將跳過所有權限提示，直接執行包括刪除檔案、推送程式碼、執行不可逆命令在內的一切操作。",
   "yoloConfirmWarning": "此設定僅對當前會話生效，切換至其他模式時會自動關閉。請確認你真的要在可控環境下使用。",
   "yoloConfirmConfirmButton": "我確認風險，啟用真 YOLO",
-  "yoloConfirmCancelButton": "取消"
+  "yoloConfirmCancelButton": "取消",
+  "allowedTools": "允許的工具",
+  "allowedToolsDefault": "使用 SDK 預設值",
+  "allowedToolsNone": "停用所有工具",
+  "allowedToolsCustom": "自訂",
+  "allowedToolsUnsupported": "工具白名單僅支援 Droid 後端",
+  "mission": "任務",
+  "missionDescription": "將任務分解為子任務",
+  "missionPanel": {
+    "idle": "閒置",
+    "noFeatures": "尚無功能",
+    "heartbeat": "最近心跳",
+    "state": {
+      "planning": "規劃中",
+      "running": "執行中",
+      "completed": "已完成",
+      "failed": "失敗",
+      "cancelled": "已取消"
+    },
+    "worker": {
+      "success": "成功",
+      "failure": "失敗"
+    }
+  }
 }

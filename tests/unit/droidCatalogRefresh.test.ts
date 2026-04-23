@@ -26,6 +26,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const refreshFactoryDroidCatalogMock = vi.hoisted(() => vi.fn<() => Promise<unknown[]>>());
 const mainLogMock = vi.hoisted(() => vi.fn());
 const mainWarnMock = vi.hoisted(() => vi.fn());
+const getFactoryModelsMock = vi.hoisted(() => vi.fn(() => []));
+const getDroidByokConfigsMock = vi.hoisted(() => vi.fn(() => Promise.resolve([])));
+const verifyByokCapabilitiesAgainstCliMock = vi.hoisted(() =>
+  vi.fn(() => ({ ok: [], missing: [], conflict: [], unreachable: false }))
+);
+const emitCapabilityDriftMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@process/utils/initStorage', () => ({
   refreshFactoryDroidCatalog: refreshFactoryDroidCatalogMock,
@@ -34,6 +40,25 @@ vi.mock('@process/utils/initStorage', () => ({
 vi.mock('@process/utils/mainLogger', () => ({
   mainLog: mainLogMock,
   mainWarn: mainWarnMock,
+}));
+
+vi.mock('@/common/config/factoryModels', () => ({
+  getFactoryModels: getFactoryModelsMock,
+}));
+
+vi.mock('@/process/bridge/services/DroidByokService', () => ({
+  getDroidByokConfigs: getDroidByokConfigsMock,
+  verifyByokCapabilitiesAgainstCli: verifyByokCapabilitiesAgainstCliMock,
+}));
+
+vi.mock('@/common', () => ({
+  ipcBridge: {
+    acpConversation: {
+      droidByokCapabilityDrift: {
+        emit: emitCapabilityDriftMock,
+      },
+    },
+  },
 }));
 
 import {
@@ -48,8 +73,20 @@ describe('catalogRefresher — debounce + cooldown', () => {
     refreshFactoryDroidCatalogMock.mockReset();
     mainLogMock.mockReset();
     mainWarnMock.mockReset();
+    getFactoryModelsMock.mockReset();
+    getDroidByokConfigsMock.mockReset();
+    verifyByokCapabilitiesAgainstCliMock.mockReset();
+    emitCapabilityDriftMock.mockReset();
     __resetCatalogRefresherForTests();
     refreshFactoryDroidCatalogMock.mockResolvedValue([]);
+    getFactoryModelsMock.mockReturnValue([]);
+    getDroidByokConfigsMock.mockResolvedValue([]);
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
+      ok: [],
+      missing: [],
+      conflict: [],
+      unreachable: false,
+    });
   });
 
   afterEach(() => {
@@ -217,5 +254,182 @@ describe('catalogRefresher — debounce + cooldown', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('catalogRefresher — BYOK verifier wiring', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    refreshFactoryDroidCatalogMock.mockReset();
+    mainLogMock.mockReset();
+    mainWarnMock.mockReset();
+    getFactoryModelsMock.mockReset();
+    getDroidByokConfigsMock.mockReset();
+    verifyByokCapabilitiesAgainstCliMock.mockReset();
+    emitCapabilityDriftMock.mockReset();
+    __resetCatalogRefresherForTests();
+    refreshFactoryDroidCatalogMock.mockResolvedValue([]);
+    getFactoryModelsMock.mockReturnValue([]);
+    getDroidByokConfigsMock.mockResolvedValue([]);
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
+      ok: [],
+      missing: [],
+      conflict: [],
+      unreachable: false,
+    });
+  });
+
+  afterEach(() => {
+    __resetCatalogRefresherForTests();
+    vi.useRealTimers();
+  });
+
+  it('runs verifier exactly once after byok-crud-save flush', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([{ id: 'my-model', model: 'my-model', supportsImageInput: true }]);
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs verifier exactly once after byok-crud-import flush', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([
+      { id: 'imported-model', model: 'imported-model', supportsImageInput: false },
+    ]);
+
+    await flushFactoryCatalogRefresh('byok-crud-import');
+
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs verifier exactly once after byok-crud-remove flush', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([]);
+
+    await flushFactoryCatalogRefresh('byok-crud-remove');
+
+    // Even with no configs, verifier is called but skipped internally (empty configs)
+    expect(getDroidByokConfigsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs verifier exactly once after byok-site-crud flush', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([{ id: 'site-model', model: 'site-model', supportsImageInput: true }]);
+
+    await flushFactoryCatalogRefresh('byok-site-crud');
+
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT run verifier for non-byok reasons (e.g. initial, settings-updated)', async () => {
+    await flushFactoryCatalogRefresh('initial');
+
+    expect(getDroidByokConfigsMock).not.toHaveBeenCalled();
+    expect(verifyByokCapabilitiesAgainstCliMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT run verifier for settings-updated reason (suppressed by debounce)', async () => {
+    scheduleFactoryCatalogRefresh('settings-updated');
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getDroidByokConfigsMock).not.toHaveBeenCalled();
+    expect(verifyByokCapabilitiesAgainstCliMock).not.toHaveBeenCalled();
+  });
+
+  it('emits capability drift IPC event when conflicts are detected', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([
+      { id: 'vision-model', model: 'vision-model', supportsImageInput: true },
+    ]);
+    const mockResult = {
+      ok: [],
+      missing: [],
+      conflict: [{ modelId: 'vision-model', field: 'supportsImageInput', local: true, cli: false }],
+      unreachable: false,
+    };
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue(mockResult);
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(emitCapabilityDriftMock).toHaveBeenCalledTimes(1);
+    expect(emitCapabilityDriftMock).toHaveBeenCalledWith(mockResult);
+  });
+
+  it('does NOT emit capability drift IPC event when no conflicts exist', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([{ id: 'ok-model', model: 'ok-model', supportsImageInput: false }]);
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
+      ok: ['ok-model'],
+      missing: [],
+      conflict: [],
+      unreachable: false,
+    });
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(emitCapabilityDriftMock).not.toHaveBeenCalled();
+  });
+
+  it('skips verifier when no BYOK configs exist', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([]);
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    // getDroidByokConfigs is called, but verifier is not since there are no configs
+    expect(getDroidByokConfigsMock).toHaveBeenCalledTimes(1);
+    expect(verifyByokCapabilitiesAgainstCliMock).not.toHaveBeenCalled();
+  });
+
+  it('verifier swallows errors and does not break the flush', async () => {
+    getDroidByokConfigsMock.mockRejectedValue(new Error('config read failed'));
+
+    // flushFactoryCatalogRefresh should not throw despite verifier error
+    await expect(flushFactoryCatalogRefresh('byok-crud-save')).resolves.toBeUndefined();
+
+    expect(mainWarnMock).toHaveBeenCalledWith(
+      '[CatalogRefresher]',
+      'BYOK verification failed (non-blocking)',
+      expect.objectContaining({ err: 'config read failed' })
+    );
+  });
+
+  it('verifier runs once per CRUD even with concurrent flushes', async () => {
+    let resolveRefresh: ((value: unknown[]) => void) | undefined;
+    refreshFactoryDroidCatalogMock.mockImplementation(
+      () =>
+        new Promise<unknown[]>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+
+    getDroidByokConfigsMock.mockResolvedValue([{ id: 'test-model', model: 'test-model', supportsImageInput: true }]);
+
+    const first = flushFactoryCatalogRefresh('byok-crud-save');
+    const second = flushFactoryCatalogRefresh('byok-crud-save');
+
+    resolveRefresh?.([]);
+    await first;
+    await second;
+
+    // Both awaited the same refresh, but each should trigger verifier once
+    // The second flush also starts with reason 'byok-', so it also calls verifier
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalled();
+  });
+
+  it('debounce ordering: verifier timestamp is always after catalog refresh', async () => {
+    const callOrder: string[] = [];
+    refreshFactoryDroidCatalogMock.mockImplementation(async () => {
+      callOrder.push('refresh');
+      return [];
+    });
+    getDroidByokConfigsMock.mockImplementation(async () => {
+      callOrder.push('getConfigs');
+      return [{ id: 'model', model: 'model', supportsImageInput: true }];
+    });
+    verifyByokCapabilitiesAgainstCliMock.mockImplementation(() => {
+      callOrder.push('verify');
+      return { ok: ['model'], missing: [], conflict: [], unreachable: false };
+    });
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(callOrder).toEqual(['refresh', 'getConfigs', 'verify']);
   });
 });

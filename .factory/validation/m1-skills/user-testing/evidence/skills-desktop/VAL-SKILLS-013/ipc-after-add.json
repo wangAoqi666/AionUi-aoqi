@@ -1,0 +1,20 @@
+{
+  "tAdd": 1776856570850,
+  "deltaMs": 719,
+  "events": [
+    {
+      "ts": 1776856571568,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "error": null,
+      "conversation_id": "f9ed3950"
+    },
+    {
+      "ts": 1776856571569,
+      "source": "skills-watcher",
+      "sdkSkillsCount": null,
+      "error": null,
+      "conversation_id": "f9ed3950"
+    }
+  ]
+}

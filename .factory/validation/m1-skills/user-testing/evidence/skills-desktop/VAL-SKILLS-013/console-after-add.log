@@ -1,0 +1,6 @@
+[log] %c[Main:[AcpAgentManager]]%c Skills directory changed; refreshing SDK skills and slash-command menu color:#7c3aed;font-weight:bold color:inherit
+[log] %c[Main:[DroidSdkAgent]]%c listSkills merged 101 skills (subagents: 0) color:#7c3aed;font-weight:bold color:inherit
+[warning] [transformMessage] Unsupported message type 'slash_commands_updated'. All non-standard message types should be pre-processed by respective AgentManagers.
+[log] [VAL-TAP] {"ts":1776856571568,"source":"droid-sdk","sdkSkillsCount":101,"error":null,"conversation_id":"f9ed3950"}
+[warning] [transformMessage] Unsupported message type 'slash_commands_updated'. All non-standard message types should be pre-processed by respective AgentManagers.
+[log] [VAL-TAP] {"ts":1776856571569,"source":"skills-watcher","sdkSkillsCount":null,"error":null,"conversation_id":"f9ed3950"}

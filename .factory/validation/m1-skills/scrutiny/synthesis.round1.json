@@ -1,0 +1,93 @@
+{
+  "milestone": "m1-skills",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bunx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 1,
+    "failed": 3,
+    "failedFeatures": [
+      "m1-f1-sync-sdk-skills-diagnostics",
+      "m1-f2-skill-manager-droid-unconditional-discovery",
+      "m1-f4-classify-skill-word-boundary-and-e2e-regression"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "m1-f1-sync-sdk-skills-diagnostics",
+      "severity": "blocking",
+      "description": "syncSdkSkills writes SDK-reported skills only into the default AcpSkillManager instance, so prepareFirstMessageWithSkillsIndex/buildStaleSkillsReminder lose sdkSkills when enabledSkills is non-empty and VAL-SKILLS-011 is not actually satisfied."
+    },
+    {
+      "featureId": "m1-f2-skill-manager-droid-unconditional-discovery",
+      "severity": "blocking",
+      "description": "AcpSkillManager caches instances only by enabledSkills, not backend, so droid/non-droid initialization order can skip ~/.factory/skills scanning for droid or leak droid-populated skills into non-droid flows."
+    },
+    {
+      "featureId": "m1-f4-classify-skill-word-boundary-and-e2e-regression",
+      "severity": "blocking",
+      "description": "The feature was marked complete even though its contracted office-cli-based BYOK verification baseline was not present on this machine; the manual run used a different local skill set without updating the shared baseline."
+    },
+    {
+      "featureId": "m1-f4-classify-skill-word-boundary-and-e2e-regression",
+      "severity": "blocking",
+      "description": "There is no review evidence that the required VAL-SKILLS-013 hot-reload or VAL-SKILLS-014 listSkills-failure desktop scenarios were executed; only a single BYOK reply screenshot set was archived."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Updated .factory/library/environment.md to replace the stale office-cli-only BYOK baseline with the actual ~/.factory/skills snapshot and to document that the checked-in services.yaml test command uses stale Vitest CLI flags.",
+      "sourceFeature": "scrutiny-validator-m1-skills"
+    },
+    {
+      "target": "library",
+      "description": "Updated .factory/library/user-testing.md so future validators check the live ~/.factory/skills inventory and run plain bun run test instead of the stale services.yaml test command.",
+      "sourceFeature": "scrutiny-validator-m1-skills"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "When validating SDK skill injection, explicitly exercise prepareFirstMessageWithSkillsIndex/buildStaleSkillsReminder with a non-empty enabledSkills array and call out that AcpSkillManager is cache-keyed by enabledSkills.",
+      "evidence": "m1-f1 passed unit coverage against the default AcpSkillManager instance only, but prompt injection later re-created a keyed instance and dropped sdkSkills on non-empty enabledSkills paths.",
+      "isSystemic": true
+    },
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "When AcpAgentManager gains new imports from @process/utils/initStorage, audit existing vi.mock('@process/utils/initStorage') sites and extend them before hardening production code with broad fallback try/catch blocks.",
+      "evidence": "m1-f3 introduced an outer startSkillsWatcher() try/catch largely to tolerate tests/unit/AcpAgentManagerSkillInjection.test.ts partially mocking initStorage without the new skill-dir getters.",
+      "isSystemic": true
+    },
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "Require console and IPC artifacts whenever manual verification steps ask for them; screenshots alone should not count as 'followed procedure' for desktop-app-testing evidence.",
+      "evidence": "m1-f4 archived screenshots only even though the feature verification steps and handoff contract required screenshot + DevTools console + IPC log artifacts for the BYOK regression scenarios.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Overwrite .factory/services.yaml test command to plain bun run test.",
+      "reason": "This validator only applied additive shared-state fixes; the stale manifest command was documented in library notes for orchestrator follow-up instead of overwriting the existing services.yaml entry."
+    }
+  ],
+  "previousRound": null
+}

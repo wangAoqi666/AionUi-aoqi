@@ -1,0 +1,20 @@
+{
+  "featureId": "m1-f3-skills-watcher-rebroadcast",
+  "status": "pass",
+  "summary": "The three-root watcher, debounce, SDK re-sync, and slash_commands_updated rebroadcast are implemented and well-covered, but there is still a teardown race where an already-started refresh can emit a stale watcher event after the manager has begun shutting down.",
+  "issues": [
+    {
+      "severity": "non_blocking",
+      "description": "stopSkillsWatcher() only cancels pending timers and closes fs watchers. Once the debounce has already fired, the async syncSdkSkills() task keeps running and always emits slash_commands_updated afterwards. A skills change immediately followed by kill() can therefore send a late watcher event for a conversation that is already tearing down, which can incorrectly bump renderer state back toward session_active.",
+      "evidence": "src/process/task/AcpAgentManager.ts:1727-1733 launches an untracked async IIFE and always calls emitSkillsWatcherSlashCommandsUpdated(); src/process/task/AcpAgentManager.ts:1747-1759 and 1862-1864 only clear the timer / close watchers during stopSkillsWatcher() and kill(); tests/unit/acpSkillsWatcher.test.ts:478 covers stopping before the debounce fires, but there is no regression case for stopping after runSkillsRefreshPipeline() has already started.",
+      "suggestedFix": "Track watcher teardown with a disposed flag or generation token checked before emitSkillsWatcherSlashCommandsUpdated(), and add a test that starts the refresh pipeline, calls stopSkillsWatcher()/kill(), then verifies no watcher event is emitted after teardown."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "observation": "This feature had to add a broad outer try/catch in startSkillsWatcher() because tests/unit/AcpAgentManagerSkillInjection.test.ts partially mocks @process/utils/initStorage without the newly imported skill-dir getters.",
+      "suggestedTarget": "skill",
+      "rationale": "The worker transcript and handoff explicitly note the missing initStorage getters as the reason for the workaround, and the test file still only mocks ProcessConfig at tests/unit/AcpAgentManagerSkillInjection.test.ts:50. Adding a note to the droid-backend-worker skill about auditing related vi.mock('@process/utils/initStorage') sites when AcpAgentManager gains new initStorage imports would prevent future workers from hardening production code for harness-specific gaps."
+    }
+  ]
+}

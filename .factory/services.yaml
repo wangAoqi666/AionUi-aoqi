@@ -1,0 +1,47 @@
+commands:
+  install: bun install
+  typecheck: bunx tsc --noEmit
+  test: bun run test
+  lint: bun run lint
+  lint-fix: bun run lint:fix
+  format: bun run format
+  format-check: bun run format:check
+  i18n-types: bun run i18n:types
+  i18n-check: node scripts/check-i18n.js
+  prek: prek run --from-ref cbeaab34 --to-ref HEAD
+
+services:
+  electron_dev:
+    start: "echo 'WORKER: DO NOT start electron; user owns this process' && false"
+    stop: "echo 'WORKER: DO NOT stop electron; user owns this process' && false"
+    healthcheck: 'lsof -nP -iTCP:9230 -sTCP:LISTEN | rg -q LISTEN && curl -sSf http://127.0.0.1:9230/json/version > /dev/null'
+    port: 9230
+    depends_on: []
+
+  vite_renderer:
+    start: "echo 'WORKER: vite runs inside the user-managed electron process; DO NOT start separately' && false"
+    stop: "echo 'noop' && true"
+    healthcheck: 'lsof -nP -iTCP:5173 -sTCP:LISTEN | rg -q LISTEN'
+    port: 5173
+    depends_on: [electron_dev]
+
+# NOTES FOR WORKERS
+#
+# - The Electron desktop app (CDP 9230 + Vite dev server 5173) is STARTED AND MANAGED BY THE USER.
+#   Workers must NEVER run `bun start` / `electron-vite dev` / equivalents.
+#   Workers may only READ from CDP 9230 via `agent-browser connect 9230` (see .factory/skills/desktop-app-testing).
+#
+# - For backend unit tests that need to exercise DroidSession behaviour, mock the SDK (prefer vitest hoisted mocks
+#   against `@factory/droid-sdk` at the import boundary).
+#
+# - For DOM tests that need to simulate SDK events into useAcpMessage, dispatch synthetic event objects directly
+#   into the hook's event source — do NOT spin up a second Electron / SDK instance.
+#
+# - `test` command is plain `bun run test` (delegates to vitest.config.ts for pool/threads).
+#   The previous `--poolOptions.threads.maxThreads=4` CLI form is rejected by Vitest 4.1.0
+#   (m1-skills scrutiny round 1 drift). Thread-pool cap is configured inside vitest.config.ts,
+#   not via CLI flag.
+#
+# - Pre-existing scripts (`start`, `webui`, `dist:*`, `build:*`, `debug:*`, `test:e2e`, `test:packaged:*`) are
+#   NOT to be invoked by workers during this mission. Only `test`, `test:watch`, `test:contract`,
+#   `test:integration`, `lint*`, `format*`, `i18n:types` are in scope.

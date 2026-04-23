@@ -27,7 +27,10 @@
  */
 
 import { refreshFactoryDroidCatalog } from '@process/utils/initStorage';
+import { getFactoryModels } from '@/common/config/factoryModels';
 import { mainLog, mainWarn } from '@process/utils/mainLogger';
+import { getDroidByokConfigs, verifyByokCapabilitiesAgainstCli } from '@/process/bridge/services/DroidByokService';
+import { ipcBridge } from '@/common';
 
 /** 默认 debounce 间隔（~500ms）。多次连续调用会合并成一次刷新。 */
 const DEFAULT_DEBOUNCE_MS = 500;
@@ -109,6 +112,7 @@ export function scheduleFactoryCatalogRefresh(reason: string, delayMs = DEFAULT_
  * - 如果已有 in-flight 刷新，复用同一个 promise（`refreshFactoryDroidCatalog` 内部
  *   也有 in-flight dedup，这里只是让并发 flush 等到同一个结果）。
  * - 错误只会在内部被 log；返回 promise 永远 resolve。
+ * - 当 reason 以 `byok-` 开头时，刷新成功后运行一次 BYOK 能力校验。
  *
  * 主要用于 BYOK CRUD IPC handler：调用方 save BYOK 成功后立刻 flush 刷新，
  * 让主进程内存 catalog 立即反映新 / 删除的模型。
@@ -125,6 +129,57 @@ export async function flushFactoryCatalogRefresh(reason: string = 'flush'): Prom
     });
   }
   await pendingInvocation;
+
+  // Run BYOK capability verification after BYOK CRUD operations
+  if (reason.startsWith('byok-')) {
+    await runByokVerification();
+  }
+}
+
+/**
+ * Run BYOK capability verification against the refreshed CLI catalog.
+ *
+ * Called once after each BYOK CRUD flush. Reads local BYOK configs,
+ * compares them against the just-refreshed `getFactoryModels()` catalog,
+ * and emits a non-blocking IPC event if any conflicts are detected.
+ *
+ * Never throws — all errors are caught and logged.
+ */
+async function runByokVerification(): Promise<void> {
+  try {
+    const byokConfigs = await getDroidByokConfigs();
+    if (byokConfigs.length === 0) {
+      return;
+    }
+
+    const catalogModels = getFactoryModels();
+    // Map FactoryModel → the shape verifier expects (id + noImageSupport)
+    const cliModels = catalogModels.map((m) => ({
+      id: m.id,
+      noImageSupport: m.supportsImageInput !== true ? true : undefined,
+    }));
+
+    const localConfigs = byokConfigs.map((c) => ({
+      id: c.id,
+      model: c.model,
+      supportsImageInput: c.supportsImageInput,
+    }));
+
+    const result = verifyByokCapabilitiesAgainstCli(localConfigs, cliModels);
+
+    if (result.conflict.length > 0) {
+      ipcBridge.acpConversation.droidByokCapabilityDrift.emit(result);
+      mainLog('[CatalogRefresher]', 'BYOK capability drift detected', {
+        conflicts: result.conflict.length,
+        ok: result.ok.length,
+        missing: result.missing.length,
+      });
+    }
+  } catch (error) {
+    mainWarn('[CatalogRefresher]', 'BYOK verification failed (non-blocking)', {
+      err: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**

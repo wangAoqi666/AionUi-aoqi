@@ -20,5 +20,28 @@
   "yoloConfirmBody": "Gerçek YOLO etkinleştirildiğinde AgentFactory, Droid CLI'ya skipPermissionsUnsafe parametresini gönderir. Droid artık izin sormaz; dosya silme, kod gönderme ve geri alınamaz komutlar dahil tüm işlemleri onaysız çalıştırır.",
   "yoloConfirmWarning": "Bu ayar yalnızca geçerli oturumu etkiler ve YOLO dışındaki bir moda geçtiğinizde otomatik olarak kapanır. Lütfen yalnızca güvenilir ve izole bir ortamda etkinleştirin.",
   "yoloConfirmConfirmButton": "Riski kabul ediyorum, Gerçek YOLO'yu etkinleştir",
-  "yoloConfirmCancelButton": "İptal"
+  "yoloConfirmCancelButton": "İptal",
+  "allowedTools": "İzin Verilen Araçlar",
+  "allowedToolsDefault": "SDK Varsayılanlarını Kullan",
+  "allowedToolsNone": "Tüm Araçları Devre Dışı Bırak",
+  "allowedToolsCustom": "Özel",
+  "allowedToolsUnsupported": "Araç beyaz listesi yalnızca Droid arka ucunda desteklenir",
+  "mission": "Görev",
+  "missionDescription": "Görevi alt görevlere ayırır",
+  "missionPanel": {
+    "idle": "Boşta",
+    "noFeatures": "Henüz özellik yok",
+    "heartbeat": "Son kalp atışı",
+    "state": {
+      "planning": "Planlanıyor",
+      "running": "Çalışıyor",
+      "completed": "Tamamlandı",
+      "failed": "Başarısız",
+      "cancelled": "İptal edildi"
+    },
+    "worker": {
+      "success": "Başarılı",
+      "failure": "Başarısız"
+    }
+  }
 }

@@ -1,0 +1,125 @@
+{
+  "milestone": "m3-stream-events",
+  "validatedAt": "2026-04-23T02:45:00+08:00",
+  "baselineCommit": "cbeaab34",
+  "headCommit": "6b7076807",
+  "validators": {
+    "test": {
+      "command": "bun run test",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "All 99 test suites pass (460 tests). 0 failures."
+    },
+    "typecheck": {
+      "command": "bunx tsc --noEmit",
+      "exitCode": 2,
+      "result": "pass_with_preexisting",
+      "summary": "1 TS2322 error in FactoryDroidByokSiteCard.tsx (line 105) — pre-existing from baseline commit cbeaab34, not modified by any m3-stream-events feature. No new type errors introduced."
+    },
+    "lint": {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "0 errors, 1444 warnings (all pre-existing). No new lint issues introduced."
+    }
+  },
+  "features": [
+    {
+      "id": "m3-f8-session-title-event-consumer",
+      "commitId": "35d1014c7",
+      "reviewStatus": "pass",
+      "issues": [
+        {
+          "severity": "non_blocking",
+          "description": "Missing refreshConversationCache() call after title update — could cause stale SWR cache vs. manual rename path in useTitleRename.ts"
+        },
+        {
+          "severity": "non_blocking",
+          "description": "Redundant conversation_id check inside case body (already filtered at line 143 early return) — consistent with other handlers, defensive pattern"
+        }
+      ],
+      "assertionsCovered": ["VAL-STREAM-001", "VAL-STREAM-002", "VAL-STREAM-003"]
+    },
+    {
+      "id": "m3-f9-settings-updated-event-consumer-and-byok-cross-flow",
+      "commitId": "f402ee99a",
+      "reviewStatus": "pass",
+      "issues": [
+        {
+          "severity": "non_blocking",
+          "description": "Missing negative test for absent currentModelId in settings_updated payload"
+        },
+        {
+          "severity": "non_blocking",
+          "description": "AcpModelSelector effect deps [conversationId] omits stable refs (ipcBridge, setModelInfo) — could benefit from exhaustive-deps comment"
+        }
+      ],
+      "assertionsCovered": ["VAL-STREAM-004", "VAL-STREAM-005"]
+    },
+    {
+      "id": "m3-f10-mcp-status-live-state-hook",
+      "commitId": "e3c165d82",
+      "reviewStatus": "pass",
+      "issues": [
+        {
+          "severity": "non_blocking",
+          "description": "Unused _mcpServers parameter in hook — correct (functional updater pattern) but could be documented"
+        },
+        {
+          "severity": "non_blocking",
+          "description": "createFromEvent generates placeholder tool stubs with no description/inputSchema"
+        },
+        {
+          "severity": "non_blocking",
+          "description": "createFromEvent sets empty transport command string — valid minimal stub but could be commented"
+        },
+        {
+          "severity": "non_blocking",
+          "description": "McpStatusServer.error field defined in emitter type but silently dropped during IMcpServer merge"
+        }
+      ],
+      "assertionsCovered": ["VAL-STREAM-006", "VAL-STREAM-007", "VAL-STREAM-008"]
+    },
+    {
+      "id": "m3-f11-mcp-auth-notification-consumer",
+      "commitId": "6b7076807",
+      "reviewStatus": "pass",
+      "issues": [
+        {
+          "severity": "non_blocking",
+          "description": "Hardcoded 'Open' string in useMcpAuthNotification.ts:44 violates project i18n convention — should use t('mcp.auth.openButton')"
+        }
+      ],
+      "assertionsCovered": ["VAL-STREAM-009", "VAL-STREAM-010", "VAL-STREAM-011", "VAL-STREAM-012", "VAL-STREAM-013"]
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Stream event handlers in useAcpMessage.ts all include a redundant conversation_id check inside their case body, despite an early return at line 143 already filtering mismatched conversations. This defensive pattern is consistent across all 4 new handlers but undocumented.",
+      "recommendation": "Document the 'must be before default, must filter conversation_id, must not touch running/aiProcessing' invariant in AGENTS.md or architecture.md"
+    },
+    {
+      "area": "conventions",
+      "observation": "The stream-event emitter pattern (case BEFORE default → filter conversation_id → guard data → emit typed event → break) is now a well-established pattern used by all 4 stream metadata consumers. Could be documented as a project convention.",
+      "recommendation": "Add a brief pattern description to docs/tech/architecture.md under stream event handling"
+    },
+    {
+      "area": "consistency",
+      "observation": "session_title handler does not call refreshConversationCache() after title update, whereas manual rename path (useTitleRename.ts:78) does. Could cause stale SWR cache in edge cases.",
+      "recommendation": "Consider adding refreshConversationCache() call in session_title handler for consistency"
+    },
+    {
+      "area": "i18n",
+      "observation": "useMcpAuthNotification.ts has hardcoded 'Open' button text, violating the project i18n convention that requires all user-facing strings to use i18n keys.",
+      "recommendation": "Replace with t('mcp.auth.openButton') and add key to locales"
+    },
+    {
+      "area": "unused-exports",
+      "observation": "useDroidMcpLiveStatus hook is exported from barrel but not consumed anywhere in the application yet. Intentional for incremental delivery — hook ready, wiring to be done in a later feature.",
+      "recommendation": "Wire the hook where MCP server lists are rendered, or document the deferred wiring plan"
+    }
+  ],
+  "overallVerdict": "pass",
+  "summary": "Milestone m3-stream-events passes scrutiny validation. All 4 features (m3-f8 through m3-f11) pass code review with no blocking issues. Tests pass (460 tests, 0 failures), lint passes (0 errors), typecheck has 1 pre-existing error unrelated to this milestone. All 13 VAL-STREAM assertions (001-013) have corresponding test coverage. 9 non-blocking issues found across all features — primarily documentation gaps, a minor i18n convention violation, and a potential SWR cache staleness edge case. The stream event handling pattern is well-established and consistent across all handlers."
+}

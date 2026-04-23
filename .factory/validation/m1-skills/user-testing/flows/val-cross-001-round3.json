@@ -1,0 +1,104 @@
+{
+  "groupId": "val-cross-001-round3",
+  "surface": "desktop-app-testing",
+  "testedAt": "2026-04-22T12:49:03.648180Z",
+  "status": "pass",
+  "isolation": {
+    "app": "user-managed Electron dev app",
+    "cdp": "127.0.0.1:9230",
+    "renderer": "http://localhost:5173",
+    "conversationId": "fc90139c",
+    "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+    "session": "val-cross-001-round3"
+  },
+  "toolsUsed": ["desktop-app-testing", "agent-browser"],
+  "assertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "summary": "Fresh BYOK conversation fc90139c returned a natural-Chinese skill answer, the renderer tap captured a boot-path slash_commands_updated event from source=droid-sdk with 101 merged skills, and the saved console showed no forbidden filesystem-search tool-call markers.",
+      "steps": [
+        {
+          "action": "Open #/guid, verify/select agentsapi-claude-opus-4-6-thinking [BYOK], and install renderer tap before sending",
+          "expected": "Cold/fresh conversation uses the requested BYOK model and boot-path events can be observed from the renderer stream",
+          "observed": "The model label stayed on agentsapi-claude-opus-4-6-thinking [BYOK]; ipcBridge.acpConversation.responseStream.on tap installed successfully before the message was sent."
+        },
+        {
+          "action": "Send 你有什么技能 in a fresh droid conversation",
+          "expected": "Assistant replies in natural Chinese and enumerates actually-installed skills without filesystem-search tool calls",
+          "observed": "The settled reply enumerated live installed capabilities including 天气查询 (weather), 记账(艾财) (yaocai-bookkeeping), and 招聘帖发布（X/小红书） (xiaohongshu-recruiter); console search found no forbidden filesystem-search tool-call markers."
+        },
+        {
+          "action": "Inspect renderer IPC tap and console output after session boot",
+          "expected": "At least one slash_commands_updated event is emitted during boot, preferably source=droid-sdk, and SDK skill sync is visible",
+          "observed": "Captured 1 slash_commands_updated event(s); first source=droid-sdk sdkSkillsCount=101 conversation_id=fc90139c; console also logged listSkills merged 101 skills (subagents: 0)."
+        }
+      ],
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/final-reply.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/body-text.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/installed-skills.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/console.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/errors.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/ipc-events.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/ipc-tap-install.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/conversation-url.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/tool-call-search.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-round3/VAL-CROSS-001/README.md"
+      ],
+      "commands": [
+        {
+          "command": "curl -sSf http://127.0.0.1:9230/json/version",
+          "exitCode": 0,
+          "observation": "Confirmed the user-managed Electron CDP endpoint was reachable."
+        },
+        {
+          "command": "lsof -nP -iTCP -sTCP:LISTEN | rg \"5173|9230|25809\"",
+          "exitCode": 0,
+          "observation": "Confirmed the renderer dev server, CDP port, and WebUI port were listening."
+        },
+        {
+          "command": "ps -p 87594 -o lstart= && git show -s --format=%cI 101dcb7ec",
+          "exitCode": 0,
+          "observation": "Verified the live Electron process started after the fix commit time."
+        },
+        {
+          "command": "agent-browser --session \"val-cross-001-round3\" connect 9230 && open http://localhost:5173/#/guid",
+          "exitCode": 0,
+          "observation": "Connected to the running Electron app and opened the guid surface."
+        },
+        {
+          "command": "agent-browser --session \"val-cross-001-round3\" eval <install responseStream tap> && fill/focus/Enter \"你有什么技能\"",
+          "exitCode": 0,
+          "observation": "Installed the renderer tap before send, then created fresh conversation fc90139c and triggered the BYOK skill-answer flow."
+        },
+        {
+          "command": "agent-browser screenshot/console/errors/get url/eval exports + rg forbidden-marker scan",
+          "exitCode": 0,
+          "observation": "Archived the settled reply screenshot, logs, tap outputs, conversation URL, and the forbidden-tool marker scan result."
+        }
+      ],
+      "details": {
+        "conversationId": "fc90139c",
+        "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+        "rendererTapMethod": "ipcBridge.acpConversation.responseStream.on",
+        "slashCommandsUpdatedCount": 1,
+        "slashCommandsUpdatedSource": "droid-sdk",
+        "slashCommandsUpdatedSdkSkillsCount": 101,
+        "consoleHasListSkillsMerged": true,
+        "forbiddenFilesystemToolMarkersFound": false,
+        "bodyTextSource": "manual transcription from final-reply.png"
+      }
+    }
+  ],
+  "frictions": [
+    {
+      "description": "document.body.innerText did not include the rendered rich-text reply body on this run.",
+      "resolved": true,
+      "resolution": "Transcribed the visible reply from final-reply.png into body-text.txt.",
+      "affectedAssertions": ["VAL-CROSS-001"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 1 assertion: 1 passed, 0 failed, 0 blocked."
+}

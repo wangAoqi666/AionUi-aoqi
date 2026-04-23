@@ -1,0 +1,43 @@
+{
+  "milestone": "m1-skills",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 16,
+    "passed": 15,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-SKILLS-001",
+    "VAL-SKILLS-002",
+    "VAL-SKILLS-003",
+    "VAL-SKILLS-004",
+    "VAL-SKILLS-005",
+    "VAL-SKILLS-006",
+    "VAL-SKILLS-007",
+    "VAL-SKILLS-015",
+    "VAL-SKILLS-008",
+    "VAL-SKILLS-009",
+    "VAL-SKILLS-010",
+    "VAL-SKILLS-011",
+    "VAL-SKILLS-014",
+    "VAL-SKILLS-012",
+    "VAL-SKILLS-013"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "reason": "The BYOK reply rendered and enumerated many skills, but fresh-conversation boot did not expose any observable slash_commands_updated event within the monitored window, so the cross-area contract was not fully met."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added flow-validator guidance sections for `unit-test` and `desktop-app-testing`, documenting isolation rules and artifact requirements before spawning subagents.",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null
+}

@@ -1,4 +1,6 @@
+export { useDroidMcpLiveStatus } from './useDroidMcpLiveStatus';
 export { useMcpAgentStatus } from './useMcpAgentStatus';
+export { useMcpAuthNotification } from './useMcpAuthNotification';
 export { useMcpConnection } from './useMcpConnection';
 export { useMcpModal } from './useMcpModal';
 export { useMcpOperations } from './useMcpOperations';

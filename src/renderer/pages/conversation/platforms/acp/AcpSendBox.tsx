@@ -32,6 +32,7 @@ import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
+import { MissionPanel, useMissionState } from './MissionPanel';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { useSlashCommands } from '@/renderer/hooks/chat/useSlashCommands';
 import { useAcpMessage } from './useAcpMessage';
@@ -88,6 +89,8 @@ const AcpSendBox: React.FC<{
   teamId?: string;
   agentSlotId?: string;
 }> = ({ conversation_id, backend, sessionMode, cachedConfigOptions, agentName, teamId, agentSlotId }) => {
+  const isMission = sessionMode === 'mission';
+  const { missionData, dispatch: missionDispatch, reset: missionReset } = useMissionState(conversation_id);
   const {
     running,
     hasHydratedRunningState,
@@ -97,7 +100,7 @@ const AcpSendBox: React.FC<{
     resetState,
     tokenUsage,
     contextLimit,
-  } = useAcpMessage(conversation_id);
+  } = useAcpMessage(conversation_id, isMission ? missionDispatch : undefined);
   const { t } = useTranslation();
   const teamPermission = useTeamPermission();
   // In team mode, only the lead agent shows the permission mode selector
@@ -126,7 +129,11 @@ const AcpSendBox: React.FC<{
 
   useEffect(() => {
     setSelectedMode(sessionMode || 'default');
-  }, [sessionMode]);
+    // Reset mission data when switching away from mission mode
+    if (sessionMode !== 'mission') {
+      missionReset();
+    }
+  }, [sessionMode, missionReset]);
 
   const syncSelectedModeFromManager = useCallback(() => {
     void ipcBridge.acpConversation.getMode
@@ -350,6 +357,7 @@ Please check your local CLI tool authentication status`,
 
   return (
     <div className='w-full flex flex-col mt-auto mb-8px'>
+      {isMission && <MissionPanel missionData={missionData} />}
       <ThoughtDisplay running={running || aiProcessing} onStop={handleStop} />
       <CommandQueuePanel
         items={queuedCommands}

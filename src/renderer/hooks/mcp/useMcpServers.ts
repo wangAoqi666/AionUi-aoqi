@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Message } from '@arco-design/web-react';
 import { ConfigStorage } from '@/common/config/storage';
 import type { IMcpServer } from '@/common/config/storage';
 import { ipcBridge } from '@/common';
+import { getActiveConversationId } from '@/renderer/pages/conversation/GroupedHistory/hooks/useConversationListSync';
 
 /**
  * MCP服务器状态管理Hook
  * 管理MCP服务器列表的加载、保存和状态更新
  * 包含用户配置的 MCP servers 和扩展贡献的 MCP servers
+ *
+ * When a live Droid session is active, the hook also calls
+ * `acp.list-mcp-servers` to populate the list from the live session.
+ * Config-file state is shown as fallback when no session is active.
  */
 export const useMcpServers = () => {
   const [mcpServers, setMcpServers] = useState<IMcpServer[]>([]);
@@ -52,6 +58,68 @@ export const useMcpServers = () => {
       });
   }, []);
 
+  /**
+   * Refresh the server list from the live Droid session (if active).
+   * Merges live status into the config-based list by server name.
+   * Safe to call at any time — silently no-ops when no session is active.
+   */
+  const refreshFromLiveSession = useCallback(async () => {
+    const conversationId = getActiveConversationId();
+    if (!conversationId) return; // no active session — config-only fallback
+
+    try {
+      const result = await ipcBridge.acpConversation.listMcpServers.invoke({ conversationId });
+      if (result && result.success && result.data && Array.isArray(result.data.servers)) {
+        // Merge live status into the existing config-based server list
+        setMcpServers((prev) => {
+          const liveByName = new Map<string, Record<string, unknown>>();
+          for (const ls of result.data!.servers as Array<Record<string, unknown>>) {
+            if (ls.name && typeof ls.name === 'string') {
+              liveByName.set(ls.name, ls);
+            }
+          }
+
+          return prev.map((server) => {
+            const live = liveByName.get(server.name);
+            if (!live) return server;
+            return {
+              ...server,
+              // Merge live status fields if present
+              ...(live.status != null && typeof live.status === 'string'
+                ? { status: live.status as IMcpServer['status'] }
+                : {}),
+              ...(live.toolCount != null && typeof live.toolCount === 'number' ? { toolCount: live.toolCount } : {}),
+              ...(live.error != null && typeof live.error === 'string' ? { error: live.error } : {}),
+              ...(live.needsLogin != null && typeof live.needsLogin === 'boolean'
+                ? { needsLogin: live.needsLogin }
+                : {}),
+            };
+          });
+        });
+      } else if (result && result.data && result.data.error) {
+        // IPC returned an error — surface to user
+        Message.warning(result.data.error);
+      }
+      // Also fetch live tools list to enrich server entries
+      try {
+        const toolsResult = await ipcBridge.acpConversation.listMcpTools.invoke({ conversationId });
+        if (toolsResult?.success && toolsResult.data && Array.isArray(toolsResult.data.tools)) {
+          // Tools fetched — consumers can use this for AllowedToolsSelector hints
+          // (state enrichment deferred to a follow-up feature)
+        }
+      } catch {
+        // listMcpTools is best-effort — ignore failures silently
+      }
+    } catch {
+      // Silently ignore — live session may have ended
+    }
+  }, []);
+
+  // Try to refresh from live session on mount
+  useEffect(() => {
+    void refreshFromLiveSession();
+  }, [refreshFromLiveSession]);
+
   // 保存MCP服务器配置（仅保存用户配置的，不保存扩展的）
   const saveMcpServers = useCallback((serversOrUpdater: IMcpServer[] | ((prev: IMcpServer[]) => IMcpServer[])) => {
     return new Promise<void>((resolve, reject) => {
@@ -83,5 +151,6 @@ export const useMcpServers = () => {
     extensionMcpServers,
     setMcpServers,
     saveMcpServers,
+    refreshFromLiveSession,
   };
 };

@@ -1,0 +1,76 @@
+{
+  "milestone": "m1-skills",
+  "round": 3,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bunx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Updated `.factory/library/environment.md` to reflect that `.factory/services.yaml` already runs tests via plain `bun run test`.",
+      "sourceFeature": "m1-f1c-skill-manager-sdk-skills-backend-partition"
+    },
+    {
+      "target": "library",
+      "description": "Updated `.factory/library/user-testing.md` to align Vitest invocation and concurrency notes with the current `.factory/services.yaml` manifest.",
+      "sourceFeature": "m1-f1c-skill-manager-sdk-skills-backend-partition"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "droid-backend-worker skill",
+      "suggestion": "Extend the AcpSkillManager cache-integrity checklist so SDK-skill partitioning or hoisting changes must assert both a non-droid prompt-injection negative case and droid-scoped read-backs via `AcpSkillManager.getInstance(..., { backend: \"droid\" })` after `syncSdkSkills()`.",
+      "evidence": "m1-f1b missed the non-droid leak created by a backend-blind shared sdkSkills store. m1-f1c fixed it and had to update tests/read-backs to query the droid bucket explicitly.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "The droid-backend-worker skill does not call out the enabledSkills-keyed AcpSkillManager trap for SDK skill injection.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "The droid-backend-worker skill needs a separate generic warning about cross-backend cache-integrity whenever discovery state is shared.",
+      "reason": "superseded-by-more-specific-sdk-backend-partition-guidance"
+    },
+    {
+      "observation": "New AcpAgentManager imports can be protected by a broad outer try/catch when tests partially mock initStorage getters.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "BYOK skill-answering validation should rely on an office-cli-only skill baseline.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "VAL-SKILLS-013/014 still rely on the old reply-level proof rather than the accepted watcher-broadcast evidence model.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "Required startup/manual-verification skills are not explicitly documented for droid-backend-worker handoffs.",
+      "reason": "already-documented"
+    }
+  ],
+  "previousRound": ".factory/validation/m1-skills/scrutiny/synthesis.round2.json"
+}

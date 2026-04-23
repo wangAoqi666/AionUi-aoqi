@@ -11,6 +11,7 @@ import {
   isFactoryCustomModel,
   subscribeFactoryModelCatalog,
   type FactoryModel,
+  type ReasoningLevel,
 } from '@/common/config/factoryModels';
 import { Button, Collapse, Divider, Input, Popconfirm, Tag, Tooltip } from '@arco-design/web-react';
 import { Check, Close, Delete, Edit, Key, LinkCloud, Pic, Plus, Refresh, Write } from '@icon-park/react';
@@ -104,21 +105,24 @@ const resolveSiteDisplayModels = (
 
   const fallback: DisplayModel[] = ownedConfigs
     .filter((config) => !matchedConfigIds.has(config.id))
-    .map((config) => ({
-      id: `managed-byok:${config.id}`,
-      name: config.displayName,
-      sourceModelId: config.model,
-      modelProvider: config.provider,
-      isCustom: true,
-      // Use real capabilities from the stored BYOK config so the card shows
-      // actual reasoning levels + multimodal state instead of a lossy 'none'.
-      reasoningLevels:
-        Array.isArray(config.reasoningLevels) && config.reasoningLevels.length > 0 ? config.reasoningLevels : ['none'],
-      defaultReasoning: config.defaultReasoning ?? 'none',
-      ...(config.supportsImageInput === true ? { supportsImageInput: true } : {}),
-      fallbackOnly: true,
-      managedConfig: config,
-    }));
+    .map((config) =>
+      Object.assign(
+        {
+          id: `managed-byok:${config.id}`,
+          name: config.displayName,
+          sourceModelId: config.model,
+          modelProvider: config.provider,
+          isCustom: true,
+          reasoningLevels:
+            Array.isArray(config.reasoningLevels) && config.reasoningLevels.length > 0
+              ? config.reasoningLevels
+              : ([`none`] as ReasoningLevel[]),
+          defaultReasoning: config.defaultReasoning ?? `none`,
+        },
+        config.supportsImageInput === true ? { supportsImageInput: true } : {},
+        { fallbackOnly: true, managedConfig: config }
+      )
+    );
 
   return [...fallback, ...customFromCatalog];
 };

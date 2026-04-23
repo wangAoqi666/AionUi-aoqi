@@ -204,13 +204,34 @@ function setStatus(listener: OfficeCliStatusListener | undefined, next: OfficeCl
 }
 
 /**
- * Classify a Windows install failure stderr payload. We look for the two
- * strings PowerShell surfaces when ExecutionPolicy blocks the install script.
+ * Language-independent execution-policy signals.
+ *
+ * PowerShell versions ≥ 7 may emit localized messages, but these four tokens
+ * appear in ALL localizations we have observed (EN, zh-CN, ja-JP):
+ *
+ *   1. `execution of scripts is disabled` — English-only human-readable sentence
+ *   2. `unauthorizedaccess` — .NET category name (never translated)
+ *   3. `about_execution_policies` — MSDN URL path / anchor (never translated)
+ *   4. `pssecurityexception` — .NET exception class (never translated)
+ *
+ * Any single match is sufficient (logical OR).
  */
-function isWindowsExecutionPolicyError(stderr: string): boolean {
+const EXECUTION_POLICY_SIGNALS: readonly string[] = [
+  'execution of scripts is disabled',
+  'unauthorizedaccess',
+  'about_execution_policies',
+  'pssecurityexception',
+];
+
+/**
+ * Classify a Windows install failure stderr payload.
+ * Returns `true` when any of the four known execution-policy signals appears
+ * anywhere in the (case-folded) stderr string.
+ */
+export function isWindowsExecutionPolicyError(stderr: string): boolean {
   if (!stderr) return false;
   const lower = stderr.toLowerCase();
-  return lower.includes('execution of scripts is disabled') || lower.includes('unauthorizedaccess');
+  return EXECUTION_POLICY_SIGNALS.some((s) => lower.includes(s));
 }
 
 /**
@@ -220,7 +241,11 @@ function isWindowsExecutionPolicyError(stderr: string): boolean {
 function runInstallCommand(): { ok: boolean; stderr: string } {
   try {
     if (process.platform === 'win32') {
-      execSync(MANUAL_COMMAND_WIN, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: INSTALL_TIMEOUT_MS });
+      execSync(MANUAL_COMMAND_WIN, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+        timeout: INSTALL_TIMEOUT_MS,
+      });
     } else {
       execSync(MANUAL_COMMAND_UNIX, { stdio: ['ignore', 'pipe', 'pipe'], timeout: INSTALL_TIMEOUT_MS });
       try {
@@ -239,11 +264,35 @@ function runInstallCommand(): { ok: boolean; stderr: string } {
   }
 }
 
-function extractStderr(err: unknown): string {
+/**
+ * Decode a Buffer to string, attempting UTF-8 first and falling back to
+ * GBK / GB18030 when the result contains replacement characters (U+FFFD).
+ * This handles Windows CJK locales where `child_process` stderr is returned
+ * as a Buffer encoded in the system ANSI codepage (e.g. GBK for zh-CN).
+ */
+function decodeBuffer(buf: Buffer): string {
+  const utf8 = buf.toString('utf-8');
+  if (!utf8.includes('\uFFFD')) return utf8;
+
+  // Fallback: try GBK / GB18030 via WHATWG TextDecoder.
+  for (const encoding of ['gbk', 'gb18030'] as const) {
+    try {
+      const decoded = new TextDecoder(encoding, { fatal: false }).decode(buf);
+      if (!decoded.includes('\uFFFD')) return decoded;
+    } catch {
+      // TextDecoder doesn't support this label on the current runtime — skip.
+    }
+  }
+
+  // If all attempts still contain replacement chars, return the UTF-8 version.
+  return utf8;
+}
+
+export function extractStderr(err: unknown): string {
   if (!err || typeof err !== 'object') return '';
   const candidate = err as { stderr?: Buffer | string; message?: string };
   if (candidate.stderr) {
-    return typeof candidate.stderr === 'string' ? candidate.stderr : candidate.stderr.toString('utf-8');
+    return typeof candidate.stderr === 'string' ? candidate.stderr : decodeBuffer(candidate.stderr);
   }
   return candidate.message ?? '';
 }
@@ -330,12 +379,15 @@ function getUpdateMarkerPath(): string | null {
 
 function getLatestRemoteVersion(): string | null {
   try {
-    const effective = execSync(`curl -fsSL -o /dev/null -w "%{url_effective}" ${OFFICECLI_MANUAL_INSTALL_URL}/releases/latest`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10_000,
-      windowsHide: true,
-    }).trim();
+    const effective = execSync(
+      `curl -fsSL -o /dev/null -w "%{url_effective}" ${OFFICECLI_MANUAL_INSTALL_URL}/releases/latest`,
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 10_000,
+        windowsHide: true,
+      }
+    ).trim();
     const tail = effective.split('/').pop() ?? '';
     const remote = tail.replace(/^v/, '').trim();
     return remote.length > 0 ? remote : null;

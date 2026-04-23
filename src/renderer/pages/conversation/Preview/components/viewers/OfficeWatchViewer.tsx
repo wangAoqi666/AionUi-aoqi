@@ -90,7 +90,8 @@ function detectPlatform(): ViewerPlatform {
   const source = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`.toLowerCase();
   if (source.includes('darwin') || source.includes('mac')) return 'darwin';
   if (source.includes('linux')) return 'linux';
-  if (source.includes('win32') || source.includes('win64') || source.includes('windows') || source.includes('winnt')) return 'windows';
+  if (source.includes('win32') || source.includes('win64') || source.includes('windows') || source.includes('winnt'))
+    return 'windows';
   return 'other';
 }
 
@@ -303,9 +304,7 @@ const OfficeWatchViewer: React.FC<OfficeWatchViewerProps> = ({ docType, filePath
           className='w-full max-w-520px rounded-8px bg-bg-2 border border-solid border-color-border p-20px'
           data-testid='officecli-failure-card'
         >
-          <div className='text-15px font-medium text-t-primary mb-8px'>
-            {t('preview.officecli.failed.title')}
-          </div>
+          <div className='text-15px font-medium text-t-primary mb-8px'>{t('preview.officecli.failed.title')}</div>
           <div className='text-13px text-danger mb-12px break-words'>{error}</div>
           <div className='text-12px text-t-secondary mb-16px leading-relaxed'>{t(hintKey)}</div>
 
@@ -323,12 +322,7 @@ const OfficeWatchViewer: React.FC<OfficeWatchViewerProps> = ({ docType, filePath
             <Button type='secondary' size='small' onClick={handleManualInstall}>
               {t('preview.officecli.actions.manualInstall')}
             </Button>
-            <Button
-              type='secondary'
-              size='small'
-              icon={<Copy theme='outline' size='14' />}
-              onClick={handleCopyCommand}
-            >
+            <Button type='secondary' size='small' icon={<Copy theme='outline' size='14' />} onClick={handleCopyCommand}>
               {t('preview.officecli.actions.copyCommand')}
             </Button>
           </div>

@@ -1,0 +1,16 @@
+$ vitest run tests/unit/acpSkillsWatcher.test.ts "--reporter=verbose"
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi[39m
+
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mwatches user, builtin, and autoSkills directories (VAL-SKILLS-007)[32m 3[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mdebounced watcher invalidates cache, re-syncs SDK skills, and broadcasts slash_commands_updated (VAL-SKILLS-006)[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mcoalesces multiple rapid fs events within the debounce window into one pipeline (VAL-SKILLS-006)[32m 1[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mfile-change on the builtin root triggers the same pipeline (VAL-SKILLS-007)[32m 1[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mfile-change on the autoSkills root triggers the same pipeline (VAL-SKILLS-007)[32m 0[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mstartSkillsWatcher is idempotent — a second call does NOT create more watchers[32m 0[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillsWatcher.test.ts[2m > [22mAcpAgentManager.skillsWatcher — droid SDK re-broadcast pipeline[2m > [22mstopSkillsWatcher closes every registered watcher and clears the pending debounce[32m 0[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m   Start at [22m 18:49:11
+[2m   Duration [22m 249ms[2m (transform 119ms, setup 34ms, import 112ms, tests 8ms, environment 0ms)[22m

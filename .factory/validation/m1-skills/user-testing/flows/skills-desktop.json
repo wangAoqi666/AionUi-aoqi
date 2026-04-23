@@ -1,0 +1,126 @@
+{
+  "groupId": "skills-desktop",
+  "surface": "desktop-app-testing",
+  "status": "fail",
+  "assertions": [
+    {
+      "id": "VAL-SKILLS-012",
+      "status": "pass",
+      "summary": "BYOK reply rendered in Chinese and enumerated installed skills (for example lark-doc/lark-sheets/docx/pptx); console showed listSkills merging 101 skills and no filesystem-search tool-call evidence.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/reply-late.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/body-text.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/skills-dir-list.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/console-late.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/errors-late.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-012/conversation-url.txt"
+      ],
+      "commands": [
+        {
+          "command": "agent-browser --session 6ad73df32ce8__u1 open \"http://localhost:5173/#/guid\"",
+          "exitCode": 0,
+          "observation": "Opened a fresh BYOK compose surface using the existing Electron window."
+        },
+        {
+          "command": "agent-browser --session 6ad73df32ce8__u1 fill <message-box> \"你有什么技能\" && click <send>",
+          "exitCode": 0,
+          "observation": "Created conversation f9ed3950 and triggered the BYOK skill-enumeration reply."
+        },
+        {
+          "command": "agent-browser screenshot/eval/console/errors export + python3 ~/.factory/skills directory snapshot",
+          "exitCode": 0,
+          "observation": "Final reply rendered after an additional wait; body text contained real installed skill names (for example lark-doc, lark-sheets, docx, pptx) and console contained no read_file/glob/list_directory/grep/run_shell_command tool-call lines."
+        }
+      ],
+      "details": {
+        "conversationId": "f9ed3950",
+        "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+        "notes": "The first in-progress screenshot briefly showed raw json-renderer content while the response was still streaming, but the final settled reply rendered correctly."
+      }
+    },
+    {
+      "id": "VAL-SKILLS-013",
+      "status": "pass",
+      "summary": "Adding and then moving a temporary probe skill triggered renderer-observed slash_commands_updated events with source=skills-watcher in 719ms and 618ms respectively; Electron PID stayed unchanged.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/screenshot-baseline.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/screenshot-after-add.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/screenshot-after-remove.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/ipc-after-add.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/ipc-after-remove.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/console-after-add.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/console-after-remove.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/pid-before.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/pid-after.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-SKILLS-013/tap-install.json"
+      ],
+      "commands": [
+        {
+          "command": "node (CDP validation script) -> import renderer ipcBridge and subscribe to acpConversation.responseStream slash_commands_updated events",
+          "exitCode": 0,
+          "observation": "Installed a renderer-side tap on conversation f9ed3950 and captured an empty baseline before the probe change."
+        },
+        {
+          "command": "python3 create ~/.factory/skills/__val_tmp_skill_<epoch>/SKILL.md",
+          "exitCode": 0,
+          "observation": "Add-side evidence captured a droid-sdk event followed by skills-watcher in 719ms; console logged “Skills directory changed; refreshing SDK skills and slash-command menu”."
+        },
+        {
+          "command": "python3 move ~/.factory/skills/__val_tmp_skill_<epoch>__ /tmp/m1-f4b-trash/...",
+          "exitCode": 0,
+          "observation": "Remove-side evidence captured a second skills-watcher event in 618ms; Electron PID remained 92076 before and after the scenario."
+        }
+      ],
+      "details": {
+        "conversationId": "f9ed3950",
+        "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+        "tapMethod": "renderer ipcBridge.acpConversation.responseStream.on(...)",
+        "notes": "This renderer stream is the UI consumer of the same slash_commands_updated payloads. Ad-hoc direct window.electronAPI.on listeners injected via CDP eval were unreliable in this automation context, so the validation tap was attached one layer downstream in the renderer message pipeline."
+      }
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "fail",
+      "summary": "The BYOK reply rendered and enumerated many skills, but fresh-conversation boot did not expose any observable slash_commands_updated event within the monitored window, so the cross-area contract was not fully met.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/reply.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/body-text.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/skills-dir-list.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/console.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/ipc-events.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/ipc-monitor.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/errors.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-desktop/VAL-CROSS-001/conversation-url.txt"
+      ],
+      "commands": [
+        {
+          "command": "agent-browser --session 6ad73df32ce8__u1 open \"http://localhost:5173/#/guid\" && fill/click send for \"你有什么技能\"",
+          "exitCode": 0,
+          "observation": "Created fresh conversation 5ade2720 and produced a final Chinese skill summary that included real installed capabilities such as docx/xlsx/pptx and multiple lark-* skills."
+        },
+        {
+          "command": "node (15s CDP background monitor) -> subscribe to renderer acpConversation.responseStream before sending from /guid",
+          "exitCode": 0,
+          "observation": "A second fresh conversation ef20ac35 reached /conversation/ef20ac35 and entered processing, but the renderer IPC monitor still recorded zero slash_commands_updated events during the boot window."
+        },
+        {
+          "command": "agent-browser screenshot/eval/console export after reply completion",
+          "exitCode": 0,
+          "observation": "Console again showed listSkills merging 101 skills and no filesystem-search tool-call lines, but both ipc-events.json and ipc-monitor.json remained empty, so the required boot-path IPC emission could not be confirmed."
+        }
+      ],
+      "details": {
+        "conversationId": "5ade2720",
+        "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+        "monitorConversationId": "ef20ac35",
+        "validatorNotes": "VAL-CROSS-001/errors.log contains callback-is-not-a-function noise from an exploratory two-argument window.electronAPI.on listener attempt while debugging the runbook tap signature; that file was not used to determine the product verdict."
+      }
+    }
+  ],
+  "toolsUsed": ["desktop-app-testing", "agent-browser"],
+  "frictions": [
+    "Ad-hoc window.electronAPI.on listener injection from CDP eval was unreliable in this runtime. To capture renderer IPC for VAL-SKILLS-013 I subscribed to the renderer's acpConversation.responseStream consumer, which receives the same slash_commands_updated payloads that the UI uses.",
+    "agent-browser intermittently returned snapshot/daemon errors such as “Invalid response: unexpected end of hex escape” and “Resource temporarily unavailable”; I worked around that by using shorter commands, extra waits, and direct CDP one-off scripts for IPC capture."
+  ],
+  "blockers": []
+}

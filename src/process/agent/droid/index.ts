@@ -5,5 +5,11 @@
  */
 
 export { DroidSdkAgent } from './DroidSdkAgent';
-export type { DroidSdkAgentConfig } from './DroidSdkAgent';
+export type {
+  DroidSdkAgentConfig,
+  AddMcpServerParams,
+  AuthMcpServerParams,
+  McpServerSummary,
+  McpToolSummary,
+} from './DroidSdkAgent';
 export { DroidMessageMapper } from './messageMapper';

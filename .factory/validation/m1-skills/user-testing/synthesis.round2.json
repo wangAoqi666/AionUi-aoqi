@@ -1,0 +1,27 @@
+{
+  "milestone": "m1-skills",
+  "round": 2,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 1
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "Blocked by stale user-managed Electron app state: live Electron PID 92076 started at 2026-04-22 15:11:10, before fix commit 101dcb7ec (2026-04-22T20:02:12+08:00). Workers cannot relaunch Electron, so the fresh-conversation rerun still exercised pre-fix main-process code."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added a preflight rule to compare the live Electron PID start time with the target fix commit time for main-process assertions in the user-managed dev app; stale processes should be treated as blocked reruns.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/synthesis.round1.json"
+}

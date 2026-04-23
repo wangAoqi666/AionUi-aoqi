@@ -1,0 +1,33 @@
+$ vitest run tests/unit/droidListSkillsFallback.test.ts -t "VAL-SKILLS-014" "--reporter=verbose"
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi[39m
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts
+[22m[39mbuild.buildStorage global
+build.buildStorage system
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts
+[22m[39mbuild.buildStorage agent.chat
+build.buildStorage agent.chat.message
+build.buildStorage agent.config
+build.buildStorage agent.env
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts[2m > [22m[2mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22m[2mrejects listSkills without crashing, logs structured failure, and filesystem scan still surfaces ≥2 skills (VAL-SKILLS-014)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts[2m > [22m[2mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22m[2mrejects listSkills without crashing, logs structured failure, and filesystem scan still surfaces ≥2 skills (VAL-SKILLS-014)
+[22m[39m[AcpSkillManager] Discovered 2 optional skills
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts[2m > [22m[2mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22m[2msecond startSession invocation does not duplicate the failure counter or slash broadcast (idempotence under repeated boot)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/droidListSkillsFallback.test.ts[2m > [22m[2mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22m[2msecond startSession invocation does not duplicate the failure counter or slash broadcast (idempotence under repeated boot)
+[22m[39m[AcpSkillManager] Discovered 2 optional skills
+
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/droidListSkillsFallback.test.ts[2m > [22mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22mrejects listSkills without crashing, logs structured failure, and filesystem scan still surfaces ≥2 skills (VAL-SKILLS-014)[32m 7[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/droidListSkillsFallback.test.ts[2m > [22mVAL-SKILLS-014 — listSkills rejection falls back to filesystem-scanned skills[2m > [22msecond startSession invocation does not duplicate the failure counter or slash broadcast (idempotence under repeated boot)[32m 3[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m   Start at [22m 18:52:54
+[2m   Duration [22m 359ms[2m (transform 165ms, setup 32ms, import 226ms, tests 11ms, environment 0ms)[22m

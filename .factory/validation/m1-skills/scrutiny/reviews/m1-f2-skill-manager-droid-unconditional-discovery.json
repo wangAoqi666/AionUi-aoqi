@@ -1,0 +1,14 @@
+{
+  "featureId": "m1-f2-skill-manager-droid-unconditional-discovery",
+  "status": "fail",
+  "summary": "The feature adds the droid backend hint and malformed-frontmatter logging, but the AcpSkillManager singleton cache is still keyed only by enabledSkills, so backend-specific discovery can be stale across backend switches and violates both the new droid scan behavior and preserved non-droid gating.",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "AcpSkillManager now makes discovery backend-sensitive, but its singleton cache still ignores backend. If a non-droid flow initializes the singleton first, a later droid call with the same enabledSkills key returns early from discoverSkills() before evaluating the droid branch, so ~/.factory/skills is never scanned. The reverse order also leaks the droid-populated skill set into later non-droid flows, breaking the promised backward-compatible gating.",
+      "evidence": "src/process/task/AcpSkillManager.ts:202-214 caches the singleton by enabledSkills only; src/process/task/AcpSkillManager.ts:377-384 returns immediately when initialized before consulting options.backend; droid and non-droid entrypoints both reuse that singleton via src/process/task/agentUtils.ts:110-113,180-183, src/process/task/AcpAgentManager.ts:1763-1767, and src/process/task/GeminiAgentManager.ts:213-214,855-856.",
+      "suggestedFix": "Include backend in the AcpSkillManager cache key or track separate initialization state per backend, and add a regression test that reuses the singleton across droid/non-droid calls in both orders to prove droid still scans ~/.factory/skills and non-droid still stays gated."
+    }
+  ],
+  "sharedStateObservations": []
+}

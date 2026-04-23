@@ -665,6 +665,110 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
     }
   );
 
+  // ── MCP live-session management (Droid SDK only) ────────────────────
+  // All 6 providers follow the same try/catch + AcpAgentManager guard
+  // pattern as setEnabledToolIds: wrap errors into structured failures,
+  // list methods return `{ servers/tools: [], error }` on failure.
+  //
+  // MCP 实时会话管理（仅 Droid SDK 后端）。每个 provider 都包含 try/catch 并
+  // 将错误转为结构化 {success:false, msg} / {servers/tools:[], error}。
+
+  ipcBridge.acpConversation.addMcpServer.provider(async ({ conversationId, params }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.addMcpServer(params as Parameters<typeof task.addMcpServer>[0]);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { success: true } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
+  ipcBridge.acpConversation.removeMcpServer.provider(async ({ conversationId, name }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.removeMcpServer(name);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { success: true } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
+  ipcBridge.acpConversation.toggleMcpServer.provider(async ({ conversationId, name, enabled }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.toggleMcpServer(name, enabled);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { success: true } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
+  ipcBridge.acpConversation.listMcpServers.provider(async ({ conversationId }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: true, data: { servers: [], error: 'Conversation not found' } };
+      }
+      const result = await task.listMcpServers();
+      return { success: true, data: result };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: true, data: { servers: [], error: errorMsg } };
+    }
+  });
+
+  ipcBridge.acpConversation.listMcpTools.provider(async ({ conversationId }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: true, data: { tools: [], error: 'Conversation not found' } };
+      }
+      const result = await task.listMcpTools();
+      return { success: true, data: result };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: true, data: { tools: [], error: errorMsg } };
+    }
+  });
+
+  ipcBridge.acpConversation.authenticateMcpServer.provider(async ({ conversationId, params }) => {
+    try {
+      const task = await workerTaskManager.getOrBuildTask(conversationId);
+      if (!task || !(task instanceof AcpAgentManager)) {
+        return { success: false, msg: 'Conversation not found' };
+      }
+      const result = await task.authenticateMcpServer(params as Parameters<typeof task.authenticateMcpServer>[0]);
+      if (!result.success) {
+        return { success: false, msg: result.msg };
+      }
+      return { success: true, data: { success: true } };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, msg: errorMsg };
+    }
+  });
+
   // Get non-model config options for ACP agents (e.g., reasoning effort)
   // 获取 ACP 代理的非模型配置选项（如推理级别）
   // Use getTaskById (cache-only) to avoid spawning a worker process on read-only queries

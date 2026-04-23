@@ -1,0 +1,108 @@
+{
+  "flowName": "ipc-unit-dom-core",
+  "milestone": "m4-ipc-exposure",
+  "runDate": "2026-04-23",
+  "assertions": {
+    "VAL-IPC-001": {
+      "status": "passed",
+      "summary": "AllowedToolsSelector.tsx invokes ipcBridge.acpConversation.setEnabledToolIds.invoke({conversationId, toolIds}). DOM test in allowedTools.dom.test.tsx confirms renderer→IPC round-trip. Grep confirms 1 invoke call site.",
+      "evidence": [
+        "tests/unit/renderer/allowedTools.dom.test.tsx — 7 tests passed",
+        "grep: src/renderer/components/agent/AllowedToolsSelector.tsx:setEnabledToolIds.invoke"
+      ]
+    },
+    "VAL-IPC-002": {
+      "status": "passed",
+      "summary": "Unit test exercises null (SDK defaults), [] (disable all), [id,...] (whitelist). DOM test confirms UI drives all three states.",
+      "evidence": [
+        "tests/unit/acpAgentManagerSetEnabledToolIds.test.ts — 8 tests passed",
+        "tests/unit/renderer/allowedTools.dom.test.tsx — 7 tests passed"
+      ]
+    },
+    "VAL-IPC-003": {
+      "status": "passed",
+      "summary": "acpAgentManagerSetEnabledToolIds.test.ts confirms non-droid backends (qwen, claude) return structured failure {success:false}.",
+      "evidence": [
+        "tests/unit/acpAgentManagerSetEnabledToolIds.test.ts — 8 tests passed (includes backend guard cases)"
+      ]
+    },
+    "VAL-IPC-004": {
+      "status": "passed",
+      "summary": "Integration test proves setEnabledToolIds changes DroidSdkAgent live session behavior. droidEnabledToolIds.test.ts verifies SDK-level forwarding.",
+      "evidence": [
+        "tests/integration/setEnabledToolIds.test.ts — 3 tests passed",
+        "tests/unit/droidEnabledToolIds.test.ts — 13 tests passed"
+      ]
+    },
+    "VAL-IPC-005": {
+      "status": "passed",
+      "summary": "addMcpServer IPC quartet: ipcBridge.ts definition → acpConversationBridge.ts provider → AcpAgentManager → DroidSdkAgent. Unit tests confirm happy + error paths.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — 26 tests passed",
+        "tests/unit/droidMcpManagement.test.ts — 34 tests passed",
+        "grep: src/common/adapter/ipcBridge.ts:addMcpServer"
+      ]
+    },
+    "VAL-IPC-006": {
+      "status": "passed",
+      "summary": "removeMcpServer IPC quartet confirmed. Symmetric to add. Unit tests cover happy/error/guard paths.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — includes removeMcpServer tests",
+        "tests/unit/droidMcpManagement.test.ts — includes remove tests",
+        "grep: src/common/adapter/ipcBridge.ts:removeMcpServer"
+      ]
+    },
+    "VAL-IPC-007": {
+      "status": "passed",
+      "summary": "toggleMcpServer IPC quartet confirmed. Unit tests verify toggle between enabled states.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — includes toggleMcpServer tests",
+        "grep: src/common/adapter/ipcBridge.ts:toggleMcpServer"
+      ]
+    },
+    "VAL-IPC-008": {
+      "status": "passed",
+      "summary": "listMcpServers IPC quartet confirmed. Returns server list from live SDK session.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — includes listMcpServers tests",
+        "tests/unit/droidMcpManagement.test.ts — includes list tests",
+        "grep: src/common/adapter/ipcBridge.ts:listMcpServers"
+      ]
+    },
+    "VAL-IPC-009": {
+      "status": "passed",
+      "summary": "listMcpTools IPC quartet confirmed. AllowedTools selector populates options from live listMcpTools results.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — includes listMcpTools tests",
+        "grep: src/common/adapter/ipcBridge.ts:listMcpTools"
+      ]
+    },
+    "VAL-IPC-010": {
+      "status": "passed",
+      "summary": "authenticateMcpServer IPC quartet confirmed. useMcpOAuth.ts calls invoke, DOM tests verify auth flow and shell.openExternal on authUrl.",
+      "evidence": [
+        "tests/unit/renderer/useMcpOAuth.dom.test.tsx — 7 tests passed",
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — includes authenticateMcpServer tests",
+        "grep: src/renderer/hooks/mcp/useMcpOAuth.ts:authenticateMcpServer.invoke"
+      ]
+    },
+    "VAL-IPC-011": {
+      "status": "passed",
+      "summary": "All 6 MCP methods + setEnabledToolIds use identical backend guard pattern: non-droid → {success:false, msg}. Tested in acpAgentManagerMcpMethods.test.ts.",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — 26 tests passed (includes unsupported-backend tests for each method)"
+      ]
+    },
+    "VAL-IPC-012": {
+      "status": "passed",
+      "summary": "Mutex serialization tested in acpAgentManagerMcpMethods.test.ts. Test confirms add+remove on same server are serialized (add-start→add-end→remove-start→remove-end).",
+      "evidence": [
+        "tests/unit/acpAgentManagerMcpMethods.test.ts — mutex test case passed",
+        "Test verifies callOrder: add-start < add-end < remove-start (serialized)"
+      ]
+    }
+  },
+  "toolsUsed": ["vitest", "rg"],
+  "frictions": [],
+  "blockers": []
+}

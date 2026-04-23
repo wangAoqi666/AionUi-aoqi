@@ -94,6 +94,55 @@ import type { IDroidByokModelConfig } from '@/common/adapter/ipcBridge';
 type DroidSessionSettings = Parameters<DroidSession['updateSettings']>[0];
 
 /**
+ * Bounded tokens used by `classifySdkSkill` to identify subagent-style
+ * skills. Lowercase, exact form expected inside the haystack — the bounded
+ * match logic in `containsBoundedToken` treats path/word separators as
+ * boundaries, so e.g. `/.../subagent/...` and `research-subagent` both
+ * match while `agent-factory` / `droidflyer` / `droid-skill-agent-of-truth`
+ * do NOT.
+ *
+ * NEVER add bare `agent` or `droid` here — the whole point of the m1-f4
+ * hardening is that substring-matching those words false-positively flags
+ * user-installed skills whose path happens to live under the
+ * `agent-factory/` project directory.
+ */
+const SUBAGENT_BOUNDED_TOKENS = ['subagent', 'custom-droid', 'custom_droid'] as const;
+
+/**
+ * Characters treated as token boundaries when scanning `name` / `filePath`
+ * for subagent markers. `/` and `\` catch path segments; `.`, `_`, `-`, and
+ * whitespace cover hyphen/underscore-delimited compound names (e.g.
+ * `my-subagent`, `research_subagent`).
+ */
+const BOUNDARY_CHAR_PATTERN = /[/\\._\-\s]/;
+
+/**
+ * Return true iff `haystack` contains one of `tokens` bounded on both sides
+ * by either a string edge or one of the boundary characters defined in
+ * `BOUNDARY_CHAR_PATTERN`. The comparison is case-insensitive.
+ *
+ * 在 haystack 中查找任意 token, 左右必须是字符串边界或路径 / 词分隔符，
+ * 目的是避免 `includes('agent')` / `includes('droid')` 造成的假阳性。
+ */
+function containsBoundedToken(haystack: string, tokens: readonly string[]): boolean {
+  const lower = haystack.toLowerCase();
+  for (const token of tokens) {
+    if (token.length === 0) continue;
+    let fromIndex = 0;
+    while (fromIndex <= lower.length) {
+      const idx = lower.indexOf(token, fromIndex);
+      if (idx === -1) break;
+      const beforeOk = idx === 0 || BOUNDARY_CHAR_PATTERN.test(lower.charAt(idx - 1));
+      const afterIdx = idx + token.length;
+      const afterOk = afterIdx === lower.length || BOUNDARY_CHAR_PATTERN.test(lower.charAt(afterIdx));
+      if (beforeOk && afterOk) return true;
+      fromIndex = idx + 1;
+    }
+  }
+  return false;
+}
+
+/**
  * Public-facing shape for `listMcpServers()` entries. Re-exported as a type
  * alias to avoid forcing callers of `DroidSdkAgent` to depend on the SDK
  * module — hard constraint #1 from the task spec.
@@ -421,6 +470,20 @@ export class DroidSdkAgent {
    */
   private enabledToolIds: string[] | undefined;
 
+  /**
+   * Process-lifetime counter for `syncSdkSkills` failures (VAL-SKILLS-002).
+   *
+   * Incremented whenever `session.listSkills()` rejects. Surviving across
+   * session restarts / resumes is intentional — a user who opens several
+   * conversations with the same failing backend should see the cumulative
+   * evidence in `Help → Bug Report`. Absence of `listSkills` (older SDK /
+   * mock) is NOT a failure and MUST NOT bump this counter.
+   *
+   * syncSdkSkills 的失败计数器，覆盖整个 agent 生命周期（不清零）。仅在
+   * `session.listSkills()` reject 的路径 +1；session 缺失 listSkills 不算失败。
+   */
+  private syncSdkSkillsFailureCount = 0;
+
   constructor(config: DroidSdkAgentConfig) {
     this.config = config;
     this.mapper = new DroidMessageMapper(config.id);
@@ -704,10 +767,14 @@ export class DroidSdkAgent {
     }
     this._isConnected = false;
     // Drop SDK skills registered by the just-closed session so a later
-    // non-Droid / different Droid conversation doesn't see stale entries.
-    // 会话关闭时清空 SDK skills 缓存，避免过期 / 跨会话污染。
+    // Droid conversation doesn't see stale entries.
+    // 会话关闭时清空 Droid 后端的 SDK skills 缓存，避免过期 / 跨会话污染。
+    // m1-f1c — thread `backend: 'droid'` so the clear targets the
+    // droid-scoped slot, matching where `syncSdkSkills` writes. A bare
+    // `getInstance()` would operate on the legacy no-backend slot and
+    // leave the actual droid slot populated with stale entries.
     try {
-      AcpSkillManager.getInstance().clearSdkSkills();
+      AcpSkillManager.getInstance(undefined, { backend: 'droid' }).clearSdkSkills();
     } catch (error) {
       mainWarn('[DroidSdkAgent]', 'Failed to clear SDK skills on session close', error);
     }
@@ -1664,12 +1731,23 @@ export class DroidSdkAgent {
    * - MUST tolerate older / mocked sessions that don't expose `listSkills`.
    * - SDK skills are classified into `kind: 'skill' | 'subagent'` (P0-4) so the
    *   UI / agent prompt can mark custom-droid subagents distinctly.
+   *
+   * Promoted to `public` in m1-f3 so `AcpAgentManager.startSkillsWatcher()`
+   * can re-sync SDK skills whenever the filesystem changes under any of the
+   * three skill roots (user / builtin / autoSkills). The method remains
+   * idempotent and safe to invoke many times.
    */
-  private async syncSdkSkills(): Promise<void> {
+  async syncSdkSkills(): Promise<void> {
     if (!this.session) return;
+    const sessionId = this.session.sessionId ?? null;
     const sessionWithListSkills = this.session as DroidSession & {
       listSkills?: () => Promise<ListSkillsResult>;
     };
+    // Sessions without `listSkills` short-circuit silently (VAL-SKILLS-003):
+    // absence is the fallback path, NOT a failure — do not bump the counter
+    // and do not emit slash_commands_updated because there is nothing to
+    // broadcast. The filesystem discovery path in
+    // `prepareFirstMessageWithSkillsIndex` still provides the skills index.
     if (typeof sessionWithListSkills.listSkills !== 'function') {
       mainLog('[DroidSdkAgent]', 'session.listSkills unavailable; skipping SDK skill sync');
       return;
@@ -1679,11 +1757,36 @@ export class DroidSdkAgent {
     try {
       result = await sessionWithListSkills.listSkills();
     } catch (error) {
-      mainWarn(
-        '[DroidSdkAgent]',
-        'listSkills() failed; falling back to prompt-injection path',
-        error instanceof Error ? error.message : String(error)
-      );
+      // VAL-SKILLS-002: listSkills rejection MUST NOT throw. We record a
+      // structured log with stable key `droid.sync_sdk_skills.failed`
+      // (name, message, sessionId — NEVER the raw Error object, to avoid
+      // leaking stack traces / SDK internals into logs), bump the
+      // observable failure counter, and still emit a `slash_commands_updated`
+      // event so the UI can distinguish "SDK declined skills" from "we
+      // never asked". The fallback prompt-injection path keeps working
+      // because AcpSkillManager's filesystem discovery runs independently.
+      //
+      // 失败路径：结构化日志 + 失败计数器自增 + 仍发 slash_commands_updated
+      // (sdkSkills: [], error: "..."); 绝不 throw, 绝不中断 startSession。
+      const errName = error instanceof Error ? error.name : 'Error';
+      const errMessage = error instanceof Error ? error.message : String(error);
+      this.syncSdkSkillsFailureCount += 1;
+      mainWarn('[DroidSdkAgent]', 'droid.sync_sdk_skills.failed', {
+        sessionId,
+        message: errMessage,
+        name: errName,
+      });
+      this.config.onStreamEvent({
+        type: 'slash_commands_updated',
+        conversation_id: this.config.id,
+        msg_id: '',
+        data: {
+          source: 'droid-sdk',
+          sessionId,
+          error: errMessage,
+          sdkSkills: [],
+        },
+      });
       return;
     }
 
@@ -1704,7 +1807,15 @@ export class DroidSdkAgent {
       }));
 
     try {
-      const manager = AcpSkillManager.getInstance();
+      // m1-f1c — thread `backend: 'droid'` so the write lands in the
+      // droid-scoped bucket of `sharedSdkSkillsByBackend`. Without this,
+      // droid SDK skills leak into non-droid keyed instances (claude /
+      // opencode / qwen / iflow) via every consumer method
+      // (getSkillsIndex / hasAnySkills / hasSkill / getSdkSkills), and then
+      // into `prepareFirstMessageWithSkillsIndex` /
+      // `buildStaleSkillsReminder` prompt streams for those non-droid
+      // conversations.
+      const manager = AcpSkillManager.getInstance(undefined, { backend: 'droid' });
       manager.setSdkSkills(sdkSkills);
       // Force the next `prepareFirstMessageWithSkillsIndex` to re-scan the FS
       // (which is cheap) so user-installed builtin / optional skills stay fresh
@@ -1719,16 +1830,18 @@ export class DroidSdkAgent {
       `listSkills merged ${sdkSkills.length} skills (subagents: ${sdkSkills.filter((s) => s.kind === 'subagent').length})`
     );
 
-    // Notify UI to refresh the slash-command / skill menu. During initial
-    // bootstrap `AcpAgentManager.handleStreamEvent` suppresses events, but
-    // any subsequent turn will see the refreshed list via `getSkillsIndex`.
+    // Notify UI to refresh the slash-command / skill menu.
+    // VAL-CROSS-001: `AcpAgentManager.handleStreamEvent` now whitelists
+    // `slash_commands_updated` so the renderer receives this emission even
+    // during initial bootstrap; there is no longer a suppression caveat on
+    // the fresh-conversation boot path.
     this.config.onStreamEvent({
       type: 'slash_commands_updated',
       conversation_id: this.config.id,
       msg_id: '',
       data: {
         source: 'droid-sdk',
-        sessionId: this.session?.sessionId || null,
+        sessionId,
         sdkSkills: sdkSkills.map((skill) => ({
           name: skill.name,
           description: skill.description,
@@ -1740,27 +1853,69 @@ export class DroidSdkAgent {
   }
 
   /**
+   * Public diagnostics snapshot for the Droid SDK backend. Used by the
+   * Bug Report modal and by integration tests to observe counters that would
+   * otherwise be invisible (e.g. silent `listSkills` rejection cascades).
+   *
+   * The returned object is a value snapshot — mutating it has no effect on
+   * the live agent state. Fields may grow in future releases; callers must
+   * treat unknown keys as informational and ignore them.
+   *
+   * 对外暴露的诊断快照，目前只包含 `syncSdkSkillsFailureCount`。
+   * 不可变数据，仅用于 Bug Report 展示 / 单测断言。
+   */
+  getDiagnosticsSnapshot(): { syncSdkSkillsFailureCount: number } {
+    return {
+      syncSdkSkillsFailureCount: this.syncSdkSkillsFailureCount,
+    };
+  }
+
+  /**
    * Classify an SDK skill as a regular `skill` or a `subagent` (custom droid /
    * Task-style) so the UI can badge them differently.
    *
-   * The task specification requests a deliberately broad match on
-   * `subagent` / `droid` / `agent` in the skill's `name` or `location`
-   * (see P0-4 in `droid-sdk-integration/references/gaps-and-guidance.md`).
+   * m1-f4 hardening — replaces the previous `haystack.includes('agent')` /
+   * `haystack.includes('droid')` substring checks which false-positively
+   * flagged user-installed skills living under the `agent-factory/` project
+   * directory (e.g. `office-cli`). The new rule is:
+   *
+   *   1. If the SDK payload carries a structured `kind: 'subagent'` field
+   *      (passthrough on `SkillInfoSchema` — not in the strict type yet),
+   *      honour it verbatim.
+   *   2. Otherwise scan the skill `name` and `filePath` for the bounded
+   *      tokens `subagent`, `custom-droid`, `custom_droid` (NEVER the bare
+   *      words `agent` or `droid`). A token is "bounded" when it is either
+   *      at the start/end of the string or surrounded by a path/word
+   *      separator (`/`, `\`, `.`, `_`, `-`, or whitespace). This prevents
+   *      segments like `agent-factory` / `droidflyer` / `managed-skill` /
+   *      `droid-skill-agent-of-truth` from matching while still allowing
+   *      `my-subagent`, `research-subagent`, `/subagent/helper`,
+   *      `/custom-droid/reviewer`, and `custom_droid` path segments to
+   *      surface as subagents.
+   *   3. Anything else falls through to `'skill'`.
+   *
+   * VAL-SKILLS-008 / 009 / 010 pin this classifier contract.
+   *
+   * 词边界 / 路径分段匹配：结构化 `kind` → bounded 名称 / 路径匹配 → 其他一律 `skill`。
    */
   private classifySdkSkill(info: Pick<SkillInfo, 'name' | 'location' | 'filePath'>): SdkSkillKind {
-    const haystack = [info.name, info.location, info.filePath]
-      .filter((value): value is string => typeof value === 'string')
-      .join('\n')
-      .toLowerCase();
-    if (
-      haystack.includes('subagent') ||
-      haystack.includes('custom-droid') ||
-      haystack.includes('custom_droid') ||
-      haystack.includes('droid') ||
-      haystack.includes('agent')
-    ) {
+    // (1) Structured SDK signal takes precedence — if `@factory/droid-sdk`
+    //     grows a `kind` discriminator (already allowed by the passthrough
+    //     zod schema), we trust it and short-circuit the text matching.
+    const structuredKind = (info as Record<string, unknown>).kind;
+    if (typeof structuredKind === 'string' && structuredKind.toLowerCase() === 'subagent') {
       return 'subagent';
     }
+
+    // (2) Bounded token match on `name` and `filePath`. `location` is an
+    //     enum ('project' | 'personal' | 'builtin') which never carries
+    //     user-controlled text, so we deliberately exclude it to keep the
+    //     surface tight.
+    const haystacks = [info.name, info.filePath].filter((value): value is string => typeof value === 'string');
+    if (haystacks.some((value) => containsBoundedToken(value, SUBAGENT_BOUNDED_TOKENS))) {
+      return 'subagent';
+    }
+
     return 'skill';
   }
 
@@ -2619,6 +2774,14 @@ export class DroidSdkAgent {
     ];
     if (sessionId) {
       metadataLines.push(`- Session ID: ${sessionId}`);
+    }
+    // Surface the agent's diagnostics snapshot so the Factory team can
+    // correlate silent SDK failures (listSkills etc.) with the user's
+    // reported issue. Only non-default values are included to keep
+    // `userComment` concise; zeroed counters are noise.
+    const diagnostics = this.getDiagnosticsSnapshot();
+    if (diagnostics.syncSdkSkillsFailureCount > 0) {
+      metadataLines.push(`- syncSdkSkills failures: ${diagnostics.syncSdkSkillsFailureCount}`);
     }
 
     const userComment = [

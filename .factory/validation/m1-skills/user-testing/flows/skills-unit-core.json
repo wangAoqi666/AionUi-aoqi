@@ -1,0 +1,138 @@
+{
+  "groupId": "skills-unit-core",
+  "surface": "unit-test",
+  "status": "pass",
+  "assertions": [
+    {
+      "id": "VAL-SKILLS-001",
+      "status": "pass",
+      "summary": "The targeted droidListSkills unit case passed and confirmed merged sdkSkills plus one slash_commands_updated emission on listSkills success.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `emits slash_commands_updated with merged sdkSkills when listSkills resolves (VAL-SKILLS-001)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-002",
+      "status": "pass",
+      "summary": "The targeted droidListSkills rejection-path case passed and confirmed structured failure logging, failure-count increment, and fallback slash_commands_updated emission.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `records structured failure + still emits slash_commands_updated when listSkills rejects (VAL-SKILLS-002)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-003",
+      "status": "pass",
+      "summary": "The targeted droidListSkills no-op case passed and confirmed sessions without listSkills do not emit slash_commands_updated or increment failure diagnostics.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/droidListSkills.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `no-ops when session.listSkills is undefined (VAL-SKILLS-003)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-004",
+      "status": "pass",
+      "summary": "The droid-scan test file passed both unconditional user-skill discovery cases for droid backend with enabledSkills undefined and [].",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/acpSkillManagerDroidScan.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/acpSkillManagerDroidScan.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows both `scans user skills dir unconditionally under droid backend ... (VAL-SKILLS-004)` cases passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-005",
+      "status": "pass",
+      "summary": "The non-droid gating test passed and preserved enabledSkills-based user-skill loading outside the droid backend path.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/acpSkillManagerDroidScan.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/acpSkillManagerDroidScan.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `preserves enabledSkills gating for non-droid backends (VAL-SKILLS-005)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-006",
+      "status": "pass",
+      "summary": "The watcher pipeline test passed and confirmed debounce-driven invalidate + syncSdkSkills + slash_commands_updated forwarding behavior.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/acpSkillsWatcher.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillsWatcher.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/acpSkillsWatcher.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillsWatcher.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows both watcher refresh cases for `VAL-SKILLS-006` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-007",
+      "status": "pass",
+      "summary": "The watcher registration test passed and confirmed fs.watch registration for user, builtin, and autoSkills roots plus refresh on builtin/autoSkills changes.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/acpSkillsWatcher.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillsWatcher.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/acpSkillsWatcher.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillsWatcher.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `watches user, builtin, and autoSkills directories (VAL-SKILLS-007)` and both root-trigger cases passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-015",
+      "status": "pass",
+      "summary": "The malformed frontmatter discovery coverage passed, showing parse-failure logging, healthy sibling skill indexing, and post-failure getSkillsIndex queryability.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/acpSkillManagerDroidScan.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log"
+      ],
+      "commands": [
+        {
+          "command": "cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/acpSkillManagerDroidScan.test.ts\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-core/acpSkillManagerDroidScan.test.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows all `VAL-SKILLS-015` malformed-frontmatter and queryability cases passed."
+        }
+      ]
+    }
+  ],
+  "toolsUsed": ["bun run test"],
+  "frictions": [],
+  "blockers": []
+}

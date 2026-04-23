@@ -23,6 +23,7 @@ import { processCustomCss } from '@renderer/utils/theme/customCssProcessor';
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { useConversationShortcuts } from '@renderer/hooks/ui/useConversationShortcuts';
 import { useSectionRouteMemory } from '@renderer/hooks/ui/useSectionRouteMemory';
+import { useMcpAuthNotification } from '@renderer/hooks/mcp';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { getSelectedSpaceGuidState } from '@renderer/utils/workspace/selectedSpace';
 import { computeCssSyncDecision, resolveCssByActiveTheme } from '@renderer/utils/theme/themeCssSync';
@@ -103,6 +104,7 @@ const Layout: React.FC<{
   const { contextHolder: directorySelectionContextHolder } = useDirectorySelection();
   useDeepLink();
   useNotificationClick();
+  useMcpAuthNotification();
   const navigate = useNavigate();
   useConversationShortcuts({ navigate });
   const location = useLocation();

@@ -1,0 +1,24 @@
+{
+  "featureId": "m2-f6-mission-mode-ui-visibility-and-setmode-wire",
+  "milestone": "m2-mission-ux",
+  "reviewer": "scrutiny-feature-reviewer",
+  "reviewedAt": "2026-04-22T16:35:00.000Z",
+  "commitId": "0c10d66ad975b733c1dde75ac30e8e3add9f8eb0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "verdict": "pass",
+  "codeReview": {
+    "summary": "Feature m2-f6 is a TDD-only commit: 13 DOM tests in a single new file (`tests/unit/renderer/agentModeSelector.dom.test.tsx`). No production code was modified. The tests comprehensively cover all three AgentModeSelector surfaces (GuidActionRow pre-conversation, ChatLayout header pill, AcpSendBox compact pill) for: (1) Mission menuitem visibility with `data-key='mission'` when `backend='droid'`, (2) Mission hidden for non-droid backends (`qwen`), (3) correct IPC call shape `setMode.invoke({ conversationId, mode: 'mission' })` for in-conversation surfaces, (4) `onModeSelect('mission')` callback for GuidActionRow, (5) compact pill label rendering via `modeLabelFormatter`, and (6) SkipPermissionsConfirmModal (YOLO modal) NOT mounting when mission is selected. Tests pass (13/13), tsc clean, lint clean, format clean.",
+    "issues": []
+  },
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "target": "skills",
+      "observation": "The renderer-worker SKILL.md procedure step 5 says 'Manual desktop-CDP verification' but the worker correctly skipped this for a pure test-only feature since there are no production code changes to verify visually. The skill could clarify that CDP verification is optional when the feature is test-only with no production code diff.",
+      "sourceFeature": "m2-f6-mission-mode-ui-visibility-and-setmode-wire"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. Pure TDD feature adding 13 DOM tests for Mission mode across all three AgentModeSelector surfaces. Tests correctly verify: mission visible for droid backend with data-key='mission', hidden for qwen, IPC setMode.invoke called with correct shape, onModeSelect callback fires for GuidActionRow, compact pill label renders translated key, and YOLO modal does NOT mount. The production AgentModeSelector code already supports mission mode (added in m2-f5 catalog entry) — the YOLO_MODE_IDS set on line 24 excludes 'mission', so the SkipPermissionsConfirmModal correctly never mounts. All 13 tests pass in 495ms. VAL-MISSION-003 and VAL-MISSION-004 assertions are adequately addressed by these tests."
+}

@@ -1,5 +1,6 @@
 import { AcpAgent } from '@process/agent/acp';
 import { DroidSdkAgent } from '@process/agent/droid';
+import type { AddMcpServerParams, AuthMcpServerParams, McpServerSummary, McpToolSummary } from '@process/agent/droid';
 import { channelEventBus } from '@process/channels/agent/ChannelEventBus';
 import { teamEventBus } from '@process/team/teamEventBus';
 import { ipcBridge } from '@/common';
@@ -54,7 +55,7 @@ import { hasNativeSkillSupport } from '@/common/types/acpTypes';
 import { prepareFirstMessageWithSkillsIndex } from '@process/task/agentUtils';
 import { AcpSkillManager, buildSkillsIndexText } from '@process/task/AcpSkillManager';
 import { extractTextFromMessage, processCronInMessage } from './MessageMiddleware';
-import { getSkillsDir } from '@process/utils/initStorage';
+import { getSkillsDir, getBuiltinSkillsCopyDir, getAutoSkillsDir } from '@process/utils/initStorage';
 import fs from 'fs';
 
 interface AcpAgentManagerData {
@@ -174,9 +175,13 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
   private acpAvailableSlashWaiters: Array<(commands: SlashCommandItem[]) => void> = [];
   private readonly streamDbFlushIntervalMs = 120;
   private readonly bufferedStreamTextMessages = new Map<string, BufferedStreamTextMessage>();
-  private skillsWatcher: fs.FSWatcher | null = null;
+  private skillsWatchers: fs.FSWatcher[] = [];
   private skillsIndexStale: boolean = false;
   private skillsWatchDebounce: ReturnType<typeof setTimeout> | null = null;
+  /** Set to `true` by `stopSkillsWatcher` / `kill` to prevent in-flight refresh pipelines from emitting events post-teardown. */
+  private skillsWatcherDisposed: boolean = false;
+  /** Per-server-name mutex for serializing concurrent add/remove MCP operations (VAL-IPC-019). */
+  private readonly mcpServerLocks = new Map<string, Promise<unknown>>();
 
   constructor(data: AcpAgentManagerData) {
     super('acp', data, new IpcAgentEventEmitter());
@@ -709,10 +714,13 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
               contentToSend = `[Assistant Rules - You MUST follow these instructions]\n${this.options.presetContext}\n\n[User Request]\n${contentToSend}`;
             }
           } else {
-            // Droid / custom workspace / no native support — inject rules + skills index via prompt
+            // Droid / custom workspace / no native support — inject rules + skills index via prompt.
+            // Passing `backend` lets AcpSkillManager scan `~/.factory/skills/` unconditionally for
+            // droid sessions (VAL-SKILLS-004) while preserving gating for other backends (VAL-SKILLS-005).
             contentToSend = await prepareFirstMessageWithSkillsIndex(contentToSend, {
               presetContext: this.options.presetContext,
               enabledSkills: this.options.enabledSkills,
+              backend: this.options.backend,
             });
           }
         }
@@ -960,6 +968,23 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * and forwarding to IPC/Channel/Team buses.
    */
   private handleStreamEvent(message: IResponseMessage, data: AcpAgentManagerData): void {
+    // VAL-CROSS-001: whitelist `slash_commands_updated` past the bootstrap
+    // filter. The renderer slash-command consumer (useAcpMessage case
+    // `slash_commands_updated`) needs this event during the fresh-conversation
+    // boot path — otherwise the first `syncSdkSkills` emission (both success
+    // at DroidSdkAgent.ts ~line 1837 and failure at ~line 1780) is silently
+    // dropped here before it reaches `ipcBridge.acpConversation.responseStream.emit(...)`.
+    // The two peer emission paths that already bypass this gate
+    // (`emitSkillsWatcherSlashCommandsUpdated` and ACP's
+    // `onAvailableCommandsUpdate`) emit directly to ipcBridge, so mirroring
+    // that pattern here keeps the UI refresh broadcast consistent. All other
+    // event types stay gated by `bootstrapping` as before to avoid leaking
+    // partial turn state, DB writes, or thinking-tag noise into the renderer
+    // before the session is fully initialized.
+    if (message.type === 'slash_commands_updated') {
+      ipcBridge.acpConversation.responseStream.emit(message);
+      return;
+    }
     if (this.bootstrapping) return;
 
     // Reduce status noise: show full lifecycle only for the first turn.
@@ -1484,6 +1509,148 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     };
   }
 
+  // ── MCP live-session management (Droid SDK only) ─────────────────────
+  // All 6 methods follow the same guard pattern as setEnabledToolIds:
+  //   1. backend !== 'droid' → structured failure (NEVER throws)
+  //   2. agent not ready     → structured failure
+  //   3. forward to DroidSdkAgent → translate result
+  //
+  // add/remove are serialized per server name via `withMcpServerLock()` to
+  // prevent interleaved SDK calls on the same server (VAL-IPC-019).
+
+  /**
+   * Acquire a per-server-name lock before executing `fn`. Concurrent callers
+   * targeting the same `name` queue up sequentially; different names run in
+   * parallel. The lock is released after `fn` settles (resolved or rejected).
+   */
+  private async withMcpServerLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.mcpServerLocks.get(name) ?? Promise.resolve();
+    let release: () => void;
+    const next = new Promise<void>((r) => {
+      release = r;
+    });
+    this.mcpServerLocks.set(name, next);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release!();
+      // Clean up if nothing else queued behind us.
+      if (this.mcpServerLocks.get(name) === next) {
+        this.mcpServerLocks.delete(name);
+      }
+    }
+  }
+
+  /**
+   * Register a new MCP server on the live Droid SDK session.
+   * Non-droid backends return structured failure.
+   */
+  async addMcpServer(params: AddMcpServerParams): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'addMcpServer is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const agent = this.agent;
+    return this.withMcpServerLock(params.name, async () => {
+      const result = await agent.addMcpServer(params);
+      if (!result.success) {
+        return { success: false, msg: result.error || 'Failed to add MCP server' };
+      }
+      return { success: true };
+    });
+  }
+
+  /**
+   * Remove an MCP server by name from the live Droid SDK session.
+   * Non-droid backends return structured failure.
+   */
+  async removeMcpServer(name: string): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'removeMcpServer is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const agent = this.agent;
+    return this.withMcpServerLock(name, async () => {
+      const result = await agent.removeMcpServer(name);
+      if (!result.success) {
+        return { success: false, msg: result.error || 'Failed to remove MCP server' };
+      }
+      return { success: true };
+    });
+  }
+
+  /**
+   * Toggle an MCP server on/off.
+   * Non-droid backends return structured failure.
+   */
+  async toggleMcpServer(name: string, enabled: boolean): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { success: false, msg: 'toggleMcpServer is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const result = await this.agent.toggleMcpServer(name, enabled);
+    if (!result.success) {
+      return { success: false, msg: result.error || 'Failed to toggle MCP server' };
+    }
+    return { success: true };
+  }
+
+  /**
+   * List MCP servers from the live Droid SDK session.
+   * Non-droid backends return empty array + error.
+   */
+  async listMcpServers(): Promise<{ servers: McpServerSummary[]; error?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { servers: [], error: 'listMcpServers is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { servers: [], error: 'Droid SDK session not yet available' };
+    }
+    return this.agent.listMcpServers();
+  }
+
+  /**
+   * List MCP tools from the live Droid SDK session.
+   * Non-droid backends return empty array + error.
+   */
+  async listMcpTools(): Promise<{ tools: McpToolSummary[]; error?: string }> {
+    if (this.options.backend !== 'droid') {
+      return { tools: [], error: 'listMcpTools is only supported for the Droid SDK backend' };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { tools: [], error: 'Droid SDK session not yet available' };
+    }
+    return this.agent.listMcpTools();
+  }
+
+  /**
+   * Authenticate an MCP server (OAuth flow).
+   * Non-droid backends return structured failure.
+   */
+  async authenticateMcpServer(params: AuthMcpServerParams): Promise<{ success: boolean; msg?: string }> {
+    if (this.options.backend !== 'droid') {
+      return {
+        success: false,
+        msg: 'authenticateMcpServer is only supported for the Droid SDK backend',
+      };
+    }
+    if (!this.agent || !(this.agent instanceof DroidSdkAgent)) {
+      return { success: false, msg: 'Droid SDK session not yet available' };
+    }
+    const result = await this.agent.authenticateMcpServer(params);
+    if (!result.success) {
+      return { success: false, msg: result.error || 'Failed to authenticate MCP server' };
+    }
+    return { success: true };
+  }
+
   private shouldManagerAutoApprove(mode: string, explicitValue?: boolean): boolean {
     if (this.options.backend === 'droid') {
       return false;
@@ -1605,40 +1772,163 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
    * Save context usage to database for restore on page switch.
    * 保存上下文使用量到数据库，以便在页面切换时恢复。
    */
+  /**
+   * Start a first-class skills watcher that keeps the SDK skill catalog and
+   * the UI slash-command list in sync with the filesystem.
+   *
+   * m1-f3 promotes the watcher from a cache-invalidation-only hook to a full
+   * pipeline:
+   *   (a) register `fs.watch` on THREE distinct roots — `getSkillsDir()`,
+   *       `getBuiltinSkillsCopyDir()`, and the autoSkills directory — so a
+   *       change in any of them triggers the refresh. Each root is watched
+   *       independently; missing directories are tolerated silently.
+   *   (b) a 500ms debounce coalesces bursts of fs events (multi-file saves,
+   *       recursive dir creation, etc.) into a single pipeline run.
+   *   (c) on each debounced flush: call `AcpSkillManager.invalidate()`,
+   *       then when `backend === 'droid'` call
+   *       `DroidSdkAgent.syncSdkSkills()` (promoted to public in m1-f3),
+   *       then forward a `slash_commands_updated` event with
+   *       `data.source === 'skills-watcher'` so the UI's slash-command menu
+   *       re-fetches without needing a conversation restart.
+   *
+   * See VAL-SKILLS-006 + VAL-SKILLS-007 in `validation-contract.md`.
+   */
   private startSkillsWatcher(): void {
-    if (this.skillsWatcher) return;
-    try {
-      const skillsDir = getSkillsDir();
-      this.skillsWatcher = fs.watch(skillsDir, { persistent: false, recursive: true }, () => {
-        if (this.skillsWatchDebounce) clearTimeout(this.skillsWatchDebounce);
-        this.skillsWatchDebounce = setTimeout(() => {
-          this.skillsIndexStale = true;
-          AcpSkillManager.invalidate();
-          mainLog('[AcpAgentManager]', 'Skills directory changed, will refresh on next message');
-        }, 500);
-      });
-      this.skillsWatcher.on('error', () => {
-        this.stopSkillsWatcher();
-      });
-    } catch {
-      // Skills directory may not exist yet
+    if (this.skillsWatchers.length > 0) return;
+    this.skillsWatcherDisposed = false;
+    // Resolve the three roots defensively. Each resolver is called
+    // independently so a single getter failure does not prevent the
+    // remaining roots from being watched. Use a Set to dedupe in case
+    // two getters collapse to the same path.
+    const candidatePaths: string[] = [];
+    const tryResolve = (resolver: () => string): void => {
+      try {
+        if (typeof resolver !== 'function') return;
+        const value = resolver();
+        if (typeof value === 'string' && value.length > 0) {
+          candidatePaths.push(value);
+        }
+      } catch {
+        // Getter not available — skip this root.
+      }
+    };
+    tryResolve(getSkillsDir);
+    tryResolve(getBuiltinSkillsCopyDir);
+    tryResolve(getAutoSkillsDir);
+    const roots = Array.from(new Set(candidatePaths));
+    for (const rootPath of roots) {
+      try {
+        const watcher = fs.watch(rootPath, { persistent: false, recursive: true }, () => {
+          this.scheduleSkillsRefresh();
+        });
+        watcher.on('error', () => {
+          // A single failing watcher should NOT tear down the other two —
+          // close only the failing instance and keep the remaining roots
+          // live so users still get partial refreshes.
+          try {
+            watcher.close();
+          } catch {
+            // ignore — watcher may already be torn down
+          }
+          const index = this.skillsWatchers.indexOf(watcher);
+          if (index >= 0) {
+            this.skillsWatchers.splice(index, 1);
+          }
+        });
+        this.skillsWatchers.push(watcher);
+      } catch {
+        // Directory may not exist yet; the remaining roots can still be watched.
+      }
     }
   }
 
+  private scheduleSkillsRefresh(): void {
+    if (this.skillsWatchDebounce) clearTimeout(this.skillsWatchDebounce);
+    this.skillsWatchDebounce = setTimeout(() => {
+      this.skillsWatchDebounce = null;
+      this.runSkillsRefreshPipeline();
+    }, 500);
+  }
+
+  /**
+   * Debounced skills-refresh pipeline — invoked by `scheduleSkillsRefresh`
+   * 500ms after the last filesystem event on any watched root.
+   *
+   * Order of operations is intentional:
+   *   1. `skillsIndexStale = true` so the next outgoing user prompt re-builds
+   *      the skills index via `buildStaleSkillsReminder`.
+   *   2. `AcpSkillManager.invalidate()` resets the singleton's cached flags
+   *      so the next `getInstance().discoverSkills()` re-scans disk.
+   *   3. For droid backends only: `DroidSdkAgent.syncSdkSkills()` refreshes
+   *      the SDK-reported skill list (merged into AcpSkillManager as SDK
+   *      skills) and emits its own structured `slash_commands_updated` with
+   *      `source === 'droid-sdk'` (VAL-SKILLS-001). This watcher forwards
+   *      a SEPARATE `slash_commands_updated` with `source === 'skills-watcher'`
+   *      regardless of whether syncSdkSkills succeeded — the UI uses the
+   *      source tag to tell the two pathways apart.
+   */
+  private runSkillsRefreshPipeline(): void {
+    if (this.skillsWatcherDisposed) return;
+    this.skillsIndexStale = true;
+    AcpSkillManager.invalidate();
+    mainLog('[AcpAgentManager]', 'Skills directory changed; refreshing SDK skills and slash-command menu');
+
+    const agent = this.agent;
+    if (agent instanceof DroidSdkAgent) {
+      // The SDK re-sync is async and the slash-command re-broadcast MUST
+      // follow it so renderers that listen for the event see the freshest
+      // catalog. syncSdkSkills itself is best-effort (structured diagnostics
+      // already handled inside DroidSdkAgent — it never throws in practice)
+      // but we still wrap the call in try/catch in case the agent instance
+      // has been torn down between the debounce scheduling and this tick.
+      void (async () => {
+        try {
+          await agent.syncSdkSkills();
+        } catch (error) {
+          mainWarn('[AcpAgentManager]', 'skillsWatcher syncSdkSkills failed', error);
+        }
+        // Re-check after await — teardown may have fired while syncSdkSkills
+        // was in flight, and we must NOT emit events post-disposal.
+        if (this.skillsWatcherDisposed) return;
+        this.emitSkillsWatcherSlashCommandsUpdated();
+      })();
+    }
+  }
+
+  private emitSkillsWatcherSlashCommandsUpdated(): void {
+    ipcBridge.acpConversation.responseStream.emit({
+      type: 'slash_commands_updated',
+      conversation_id: this.conversation_id,
+      msg_id: '',
+      data: { source: 'skills-watcher' },
+    });
+  }
+
   private stopSkillsWatcher(): void {
+    this.skillsWatcherDisposed = true;
     if (this.skillsWatchDebounce) {
       clearTimeout(this.skillsWatchDebounce);
       this.skillsWatchDebounce = null;
     }
-    if (this.skillsWatcher) {
-      this.skillsWatcher.close();
-      this.skillsWatcher = null;
+    for (const watcher of this.skillsWatchers) {
+      try {
+        watcher.close();
+      } catch {
+        // ignore — watcher may already be torn down
+      }
     }
+    this.skillsWatchers = [];
   }
 
   private async buildStaleSkillsReminder(): Promise<string> {
-    const skillManager = AcpSkillManager.getInstance(this.options.enabledSkills);
-    await skillManager.discoverSkills(this.options.enabledSkills);
+    // Thread the backend hint into BOTH the cache-key and the discovery
+    // call. m1-f1b — the backend is part of the `getInstance` cache slot
+    // so droid conversations don't accidentally reuse a non-droid
+    // `initialized=true` flag, which would silently skip
+    // `~/.factory/skills` scanning. Non-droid backends keep their
+    // historical enabledSkills gate for backward compatibility.
+    const skillManager = AcpSkillManager.getInstance(this.options.enabledSkills, { backend: this.options.backend });
+    await skillManager.discoverSkills(this.options.enabledSkills, { backend: this.options.backend });
     const skillsIndex = skillManager.getSkillsIndex();
     if (skillsIndex.length === 0) return '';
     const indexText = buildSkillsIndexText(skillsIndex);

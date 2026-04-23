@@ -102,7 +102,9 @@ function killSession(filePath: string): void {
  * Forward installer status transitions to the bridge's IPC emitter. Maps the
  * installer state into the PPT bridge's `IOfficeCliStatusPayload` shape.
  */
-function forwardInstallStatus(emit: (payload: IOfficeCliStatusPayload) => void): (status: OfficeCliInstallStatus) => void {
+function forwardInstallStatus(
+  emit: (payload: IOfficeCliStatusPayload) => void
+): (status: OfficeCliInstallStatus) => void {
   return (status) => {
     if (status.state === 'installing') {
       emit({ state: 'installing' });
@@ -294,9 +296,7 @@ export function initPptPreviewBridge(): void {
   // Background update check (non-blocking, at most once per day).
   // Delegated to the shared installer service; the installer internally
   // applies a 24-hour marker file + per-process idempotency guard.
-  scheduleOfficecliUpdateCheck(
-    forwardInstallStatus((payload) => ipcBridge.pptPreview.status.emit(payload))
-  );
+  scheduleOfficecliUpdateCheck(forwardInstallStatus((payload) => ipcBridge.pptPreview.status.emit(payload)));
 
   ipcBridge.pptPreview.start.provider(async ({ filePath }) => {
     // Attach .catch() synchronously on the promise to ensure the rejection

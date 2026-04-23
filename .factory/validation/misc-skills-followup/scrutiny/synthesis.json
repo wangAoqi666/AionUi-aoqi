@@ -1,0 +1,87 @@
+{
+  "milestone": "misc-skills-followup",
+  "validatedAt": "2026-04-23T07:30:00.000Z",
+  "round": 1,
+  "validators": {
+    "test": {
+      "status": "pass",
+      "command": "bun run test",
+      "summary": "381 test files pass, 3683 tests total, 0 failures. All existing and new tests green."
+    },
+    "typecheck": {
+      "status": "pass",
+      "command": "bunx tsc --noEmit",
+      "summary": "Clean — zero type errors."
+    },
+    "lint": {
+      "status": "pass",
+      "command": "bun run lint",
+      "summary": "Only pre-existing warnings (no-await-in-loop in HubIndexManager.ts and HubInstaller.ts — not introduced by this milestone). No new lint errors."
+    }
+  },
+  "featuresReviewed": [
+    {
+      "featureId": "misc-m1-f4b-skills-followup",
+      "reviewFile": ".factory/validation/misc-skills-followup/scrutiny/reviews/misc-m1-f4b-skills-followup.json",
+      "status": "pass",
+      "blockingIssues": 0,
+      "nonBlockingIssues": 2,
+      "suggestions": 1,
+      "summary": "Three sub-tasks correctly implemented: (A) SDK listSkills() cache feasibility doc — thorough and accurate, (B) new Vitest test for debounce coalescing — correctly asserts 1 log call after 5 rapid events with minor redundant assertion, (C) CDP scenario template — comprehensive with one hardcoded path. No blocking issues."
+    },
+    {
+      "featureId": "misc-desktop-mission-validation",
+      "reviewFile": ".factory/validation/misc-skills-followup/scrutiny/reviews/misc-desktop-mission-validation.json",
+      "status": "pass",
+      "blockingIssues": 0,
+      "nonBlockingIssues": 1,
+      "suggestions": 0,
+      "summary": "Pure verification feature — all 3 deferred M2 assertions (VAL-MISSION-013, VAL-CROSS-002, VAL-CROSS-009) confirmed passed with CDP evidence. No code changes needed or made. Worker conclusion correct."
+    }
+  ],
+  "overallStatus": "pass",
+  "blockingCount": 0,
+  "nonBlockingCount": 3,
+  "suggestionCount": 1,
+  "aggregatedFindings": [
+    {
+      "severity": "non_blocking",
+      "feature": "misc-m1-f4b-skills-followup",
+      "file": "tests/unit/acpSkillsWatcher.test.ts",
+      "description": "Redundant assertion: toBeLessThanOrEqual(1) is subsumed by toHaveLength(1) on the next line."
+    },
+    {
+      "severity": "non_blocking",
+      "feature": "misc-m1-f4b-skills-followup",
+      "file": ".factory/library/cdp-scenario-template.md",
+      "description": "Hardcoded developer-specific absolute path in CDP template fallback. Should use portable path resolution."
+    },
+    {
+      "severity": "non_blocking",
+      "feature": "misc-desktop-mission-validation",
+      "file": "validation-state.json",
+      "description": "VAL-MISSION-013 passed via orchestrator override (UI cancel mechanism verified by DOM tests, but live cancel-during-active-Orchestrator-decomposition never exercised end-to-end)."
+    },
+    {
+      "severity": "suggestion",
+      "feature": "misc-m1-f4b-skills-followup",
+      "file": "tests/unit/acpSkillsWatcher.test.ts",
+      "description": "Multi-cluster test scenario would strengthen debounce coverage by verifying timer reset between independent event bursts."
+    }
+  ],
+  "processObservations": [
+    {
+      "area": "conventions",
+      "observation": "Commit 22f97892e uses 'fix(skills-watcher)' prefix but only adds a test — 'test(skills-watcher)' would be more accurate per conventional commits."
+    },
+    {
+      "area": "skills",
+      "observation": "misc-desktop-mission-validation used droid-backend-worker skill for a validation-only task. A dedicated verification-only skill or explicit 'no-code-change' path would be cleaner."
+    },
+    {
+      "area": "infrastructure",
+      "observation": "Repeated CDP 9230 unreachability across sessions suggests pre-flight CDP health check should be an orchestrator gate before dispatching CDP-dependent features."
+    }
+  ],
+  "verdict": "PASS — All validators green, all features reviewed with no blocking issues. 3 non-blocking findings and 1 suggestion logged. Milestone misc-skills-followup is ready."
+}

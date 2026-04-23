@@ -9,6 +9,8 @@ import { transformMessage } from '@/common/chat/chatLib';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { TokenUsageData } from '@/common/config/storage';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
+import { useConversationTabs } from '@/renderer/pages/conversation/hooks/ConversationTabsContext';
+import { emitter } from '@/renderer/utils/emitter';
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -26,8 +28,12 @@ type UseAcpMessageReturn = {
   hasThinkingMessage: boolean;
 };
 
-export const useAcpMessage = (conversation_id: string): UseAcpMessageReturn => {
+export const useAcpMessage = (
+  conversation_id: string,
+  onMissionEvent?: (message: IResponseMessage) => void
+): UseAcpMessageReturn => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
+  const { updateTabName } = useConversationTabs();
   const [running, setRunning] = useState(false);
   const [hasHydratedRunningState, setHasHydratedRunningState] = useState(false);
   const [thought, setThought] = useState<ThoughtData>({
@@ -114,6 +120,27 @@ export const useAcpMessage = (conversation_id: string): UseAcpMessageReturn => {
 
   const handleResponseMessage = useCallback(
     (message: IResponseMessage) => {
+      // ── App-global events: emit BEFORE conversation_id filter ──────
+      // mcp_auth is app-global — the notification must fire exactly once
+      // regardless of which conversation tab is active.
+      if (message.type === 'mcp_auth') {
+        const authData = message.data as {
+          serverName?: string;
+          authUrl?: string;
+          message?: string;
+          state?: string;
+        };
+        if (authData?.serverName) {
+          emitter.emit('mcp.auth.required', {
+            serverName: authData.serverName,
+            authUrl: authData.authUrl,
+            message: authData.message ?? '',
+            state: authData.state,
+          });
+        }
+        return;
+      }
+
       if (conversation_id !== message.conversation_id) {
         return;
       }
@@ -293,6 +320,70 @@ export const useAcpMessage = (conversation_id: string): UseAcpMessageReturn => {
             requestTraceRef.current = null;
           }
           break;
+        // ── Mission events (6 cases) ──────────────────────────────────
+        // Matched BEFORE default so running/aiProcessing is never flipped
+        // by mission lifecycle events. Each handler is a no-op against the
+        // chat-level running flag; the actual state is managed by
+        // useMissionState via onMissionEvent callback.
+        case 'mission_state':
+        case 'mission_features':
+        case 'mission_progress':
+        case 'mission_heartbeat':
+        case 'mission_worker_started':
+        case 'mission_worker_completed':
+          // Delegate to the external mission state handler if provided.
+          // Do NOT touch running / aiProcessing — these events are
+          // mission-level, not chat-turn-level.
+          onMissionEvent?.(message);
+          break;
+        // ── Stream metadata events ────────────────────────────────────
+        // session_title arrives when the backend auto-generates a title.
+        // Persist to DB, sync tab name, and refresh sidebar — but do NOT
+        // touch running / aiProcessing / turnFinishedRef / addOrUpdateMessage.
+        case 'session_title':
+          if (message.conversation_id === conversation_id) {
+            const { title } = message.data as { title: string };
+            void ipcBridge.conversation.update.invoke({
+              id: conversation_id,
+              updates: { name: title },
+            });
+            updateTabName(conversation_id, title);
+            emitter.emit('chat.history.refresh');
+          }
+          break;
+        // ── settings_updated ─────────────────────────────────────────
+        // Matched BEFORE default so running/aiProcessing is never flipped.
+        // Emits emitter event for selectors to refetch using the
+        // authoritative `currentModelId` (BYOK-safe).
+        case 'settings_updated':
+          if (message.conversation_id === conversation_id) {
+            const settingsData = message.data as {
+              currentModelId?: string;
+            };
+            if (settingsData?.currentModelId) {
+              emitter.emit('acp.settings.updated', {
+                conversationId: conversation_id,
+                currentModelId: settingsData.currentModelId,
+              });
+            }
+          }
+          break;
+        // ── mcp_status ──────────────────────────────────────────────
+        // Matched BEFORE default so running/aiProcessing is never flipped.
+        // Emits emitter event for useDroidMcpLiveStatus to merge live
+        // server status into the shared useMcpServers state by name.
+        case 'mcp_status':
+          if (message.conversation_id === conversation_id) {
+            const mcpData = message.data as {
+              servers?: Array<{ name: string; status: string; toolCount?: number; error?: string }>;
+            };
+            if (mcpData?.servers) {
+              emitter.emit('mcp.status.updated', {
+                servers: mcpData.servers,
+              });
+            }
+          }
+          break;
         default:
           // Auto-recover running state only if turn hasn't finished
           if (!runningRef.current && !turnFinishedRef.current) {
@@ -303,7 +394,17 @@ export const useAcpMessage = (conversation_id: string): UseAcpMessageReturn => {
           break;
       }
     },
-    [conversation_id, addOrUpdateMessage, throttledSetThought, setThought, setRunning, setAiProcessing, setAcpStatus]
+    [
+      conversation_id,
+      addOrUpdateMessage,
+      updateTabName,
+      throttledSetThought,
+      setThought,
+      setRunning,
+      setAiProcessing,
+      setAcpStatus,
+      onMissionEvent,
+    ]
   );
 
   useEffect(() => {

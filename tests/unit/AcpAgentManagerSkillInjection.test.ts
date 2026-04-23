@@ -49,6 +49,9 @@ vi.mock('@process/services/database', () => ({
 
 vi.mock('@process/utils/initStorage', () => ({
   ProcessConfig: { get: vi.fn(async () => null), set: vi.fn(async () => {}) },
+  getSkillsDir: vi.fn(() => '/mock/.factory/skills'),
+  getBuiltinSkillsCopyDir: vi.fn(() => '/mock/.factory/skills-builtin'),
+  getAutoSkillsDir: vi.fn(() => '/mock/.factory/auto-skills'),
 }));
 
 vi.mock('@process/utils/message', () => ({
@@ -207,6 +210,7 @@ describe('AcpAgentManager — first-message skill injection', () => {
     expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
       presetContext: 'You are helpful.',
       enabledSkills: ['pptx'],
+      backend: 'claude',
     });
   });
 
@@ -223,6 +227,7 @@ describe('AcpAgentManager — first-message skill injection', () => {
     expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
       presetContext: 'Some rules',
       enabledSkills: ['pdf'],
+      backend: 'opencode',
     });
   });
 
@@ -237,10 +242,13 @@ describe('AcpAgentManager — first-message skill injection', () => {
     await sendFirstMessage(manager);
 
     // Droid SDK sessions don't auto-inject skill metadata into system prompt,
-    // so we always inject skills index via prompt for the droid backend
+    // so we always inject skills index via prompt for the droid backend.
+    // The backend hint is threaded through so AcpSkillManager scans
+    // ~/.factory/skills/ unconditionally (VAL-SKILLS-004).
     expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
       presetContext: 'You are helpful.',
       enabledSkills: ['pptx'],
+      backend: 'droid',
     });
   });
 
@@ -257,6 +265,7 @@ describe('AcpAgentManager — first-message skill injection', () => {
     expect(mockPrepareFirstMessage).toHaveBeenCalledWith('Hello', {
       presetContext: 'You are helpful.',
       enabledSkills: ['pptx'],
+      backend: 'droid',
     });
   });
 

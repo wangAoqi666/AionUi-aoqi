@@ -16,6 +16,14 @@ export type ReplyQuote = {
   position: 'left' | 'right' | 'center' | 'pop';
 };
 
+/** Subset of MappedMcpServerStatus used by the mcp.status.updated emitter event. */
+export type McpStatusServer = {
+  name: string;
+  status: string;
+  toolCount?: number;
+  error?: string;
+};
+
 interface EventTypes {
   'gemini.selected.file': [Array<string | FileOrFolderItem>];
   'gemini.selected.file.append': [Array<string | FileOrFolderItem>];
@@ -58,7 +66,21 @@ interface EventTypes {
   'sendbox.reply.clear': void; // clear reply quote
   'staroffice.install.request': [{ conversationId: string; text: string; detectedUrl?: string | null }];
   'staroffice.install.finished': [{ conversationId: string }];
+  // SDK settings_updated → selectors refetch with authoritative currentModelId
+  'acp.settings.updated': [{ conversationId: string; currentModelId: string }];
+  // SDK mcp_status → live MCP server status merge
+  'mcp.status.updated': [{ servers: McpStatusServer[] }];
+  // SDK mcp_auth → global auth-required notification
+  'mcp.auth.required': [McpAuthPayload];
 }
+
+/** Payload emitted by `mcp.auth.required` — mirrors the stream event `data` shape. */
+export type McpAuthPayload = {
+  serverName: string;
+  authUrl?: string;
+  message: string;
+  state?: string;
+};
 
 export const emitter = new EventEmitter<EventTypes>();
 

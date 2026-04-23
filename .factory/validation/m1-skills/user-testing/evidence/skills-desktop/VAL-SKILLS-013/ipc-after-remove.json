@@ -1,0 +1,20 @@
+{
+  "tRemove": 1776856571872,
+  "deltaMs": 618,
+  "events": [
+    {
+      "ts": 1776856572489,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "error": null,
+      "conversation_id": "f9ed3950"
+    },
+    {
+      "ts": 1776856572490,
+      "source": "skills-watcher",
+      "sdkSkillsCount": null,
+      "error": null,
+      "conversation_id": "f9ed3950"
+    }
+  ]
+}

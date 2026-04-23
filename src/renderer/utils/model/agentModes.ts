@@ -85,6 +85,7 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
     { value: 'acceptEdits', label: 'Accept Edits' },
     { value: 'auto', label: 'Auto' },
     { value: 'yolo', label: 'YOLO' },
+    { value: 'mission', label: 'Mission', description: 'Decomposes task into sub-missions' },
   ],
   codex: [
     { value: 'default', label: 'Plan' },

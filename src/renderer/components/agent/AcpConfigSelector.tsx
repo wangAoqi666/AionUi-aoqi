@@ -13,6 +13,7 @@ import { Down } from '@icon-park/react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarqueePillLabel from './MarqueePillLabel';
+import { emitter } from '@/renderer/utils/emitter';
 
 /**
  * Backends that currently support ACP configOptions (e.g., thought_level).
@@ -95,6 +96,19 @@ const AcpConfigSelector: React.FC<{
       }
     };
     return ipcBridge.acpConversation.responseStream.on(handler);
+  }, [conversationId, isSupported, refreshConfigOptions]);
+
+  // Refetch config options when settings_updated event arrives via emitter
+  useEffect(() => {
+    if (!isSupported || !conversationId) return;
+    const onSettingsUpdated = (payload: { conversationId: string; currentModelId: string }) => {
+      if (payload.conversationId !== conversationId) return;
+      void refreshConfigOptions();
+    };
+    emitter.on('acp.settings.updated', onSettingsUpdated);
+    return () => {
+      emitter.off('acp.settings.updated', onSettingsUpdated);
+    };
   }, [conversationId, isSupported, refreshConfigOptions]);
 
   // Sync when initialConfigOptions prop changes (e.g. agent switch on Guid page)

@@ -1,0 +1,58 @@
+{
+  "flowId": "desktop-app-testing-surface",
+  "surface": "desktop-app-testing",
+  "milestone": "m2-mission-ux",
+  "assertions": [
+    {
+      "assertionId": "VAL-MISSION-013",
+      "status": "deferred",
+      "summary": "E2E mission decomposition requires sending a mission prompt in Mission mode and observing MissionPanel state transitions (planning→running→completed). Static verification confirms all code paths are in place: MissionPanel.tsx has 5 data-testid elements (mission-panel, mission-panel-state, mission-panel-features, mission-panel-progress-log, mission-panel-heartbeat), useAcpMessage.ts has all 6 mission event cases wired, and Mission mode ('任务') is visible as the 6th item in the live AgentModeSelector dropdown. Full e2e deferred because initiating a real mission would be destructive to the user's active workspace.",
+      "deferReason": "Initiating a mission decomposition (switching to Mission mode + sending a prompt) would create a real Factory Droid mission, altering the user's active conversation and workspace state. Per user-testing isolation rules, destructive actions on shared sessions are prohibited. All code paths verified via DOM tests (18/18 passed) and live UI inspection.",
+      "evidence": [
+        "CDP screenshot: mode-selector-mission-visible.png — AgentModeSelector dropdown open with '任务' (Mission) as 6th menu item",
+        "CDP screenshot: mode-selector-mission-scrolled.png — scrolled view confirming Mission mode visibility",
+        "CDP eval: document.querySelectorAll('.arco-dropdown-menu-item') returns 6 items: ['默认','SPEC','自动接受编辑','✓自动','全自动','任务']",
+        "Static: src/renderer/pages/conversation/platforms/acp/MissionPanel/MissionPanel.tsx — data-testid='mission-panel' with children (state, features, progress-log, heartbeat)",
+        "Static: src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts — 6 mission event cases (mission_state, mission_features, mission_progress, mission_heartbeat, mission_worker_started, mission_worker_completed)",
+        "DOM tests: MissionPanel.dom.test.tsx — 18/18 passed (state transitions, features, progress, heartbeat)",
+        "DOM tests: useAcpMessage.dom.test.tsx — 19/19 passed (mission event dispatch, conversation_id filtering)",
+        "No console errors detected in live app"
+      ]
+    },
+    {
+      "assertionId": "VAL-CROSS-002",
+      "status": "deferred",
+      "summary": "Cross-cutting validation of Mission mode selection + MissionPanel rendering in the live Electron app. Static and CDP verification confirms Mission mode is accessible: '任务' appears in the AgentModeSelector dropdown, the current mode is '自动' (Auto), and switching is functional (dropdown opens/closes cleanly). MissionPanel will render only after a mission is initiated. Full e2e deferred to avoid destructive workspace changes.",
+      "deferReason": "Selecting Mission mode in the live app would switch the current conversation's mode and potentially trigger mission-related flows. The current conversation has an active BYOK session. Switching modes destructively alters session state. Static + DOM test evidence provides strong coverage.",
+      "evidence": [
+        "CDP screenshot: app-initial-state.png — active Droid session with claude-opus-4-6 [BYOK], mode '权限 · 自动'",
+        "CDP screenshot: app-neutral-state-byok.png — neutral state after dropdown closed, BYOK model confirmed active",
+        "CDP eval: AgentModeSelector dropdown contains 6 items including '任务' (Mission) at position 6",
+        "CDP snapshot: mode selector button shows '权限 · 自动' (Permissions · Auto) — mode switching UI is functional",
+        "Static: src/renderer/components/agent/AgentModeSelector.tsx — handles mode switching with YOLO confirmation flow",
+        "Static: src/renderer/utils/model/agentModes.ts line 88 — { value: 'mission', label: 'Mission', description: 'Decomposes task into sub-missions' }",
+        "DOM tests: agentModeSelector.dom.test.tsx — 13/13 passed (Mission renders on 3 surfaces, setMode IPC verified)",
+        "No console errors detected in live app"
+      ]
+    },
+    {
+      "assertionId": "VAL-CROSS-009",
+      "status": "deferred",
+      "summary": "Cross-cutting validation of Mission mode + BYOK model coexistence. CDP inspection confirms BYOK model 'claude-opus-4-6 [BYOK]' is actively selected in the header model selector, and Mission mode is available in the same AgentModeSelector dropdown. The two selectors are independent UI elements (model pill vs mode pill). Full e2e interaction deferred to avoid destructive workspace changes.",
+      "deferReason": "Testing BYOK + Mission mode interaction requires switching to Mission mode while BYOK is active, then sending a mission prompt. This would create a real mission using the user's BYOK API key, incurring costs and altering workspace state. Static evidence confirms both features coexist in the UI.",
+      "evidence": [
+        "CDP screenshot: app-initial-state.png — header shows 'claude-opus-4-6 [BYOK]' model selector",
+        "CDP eval: document.querySelector('.agent-mode-compact-pill')?.textContent includes 'BYOK' — confirmed BYOK model active",
+        "CDP eval: AgentModeSelector dropdown shows '任务' (Mission) alongside BYOK model — both features accessible simultaneously",
+        "CDP screenshot: mode-selector-mission-visible.png — Mission mode visible in dropdown while BYOK model is selected in header",
+        "CDP screenshot: app-neutral-state-byok.png — neutral state showing both BYOK model pill and mode selector coexisting",
+        "Static: src/renderer/components/agent/AgentModeSelector.tsx — mode selector is independent of model selector",
+        "Static: src/process/bridge/services/DroidByokService.ts — BYOK service operates at model level, orthogonal to agent mode",
+        "No console errors detected when both BYOK model and Mission mode are present in UI"
+      ]
+    }
+  ],
+  "ranAt": "2026-04-23T09:45:00Z",
+  "overallStatus": "deferred",
+  "notes": "All 3 assertions require initiating a real mission decomposition flow in the live Electron app (switch to Mission mode → send prompt → observe MissionPanel state transitions). This would be destructive to the user's active workspace and incur BYOK API costs. Static source verification + DOM tests (50/50 passed) + live CDP UI inspection provide strong coverage of all code paths. E2E validation should be performed in a dedicated test conversation when the user explicitly authorizes it."
+}

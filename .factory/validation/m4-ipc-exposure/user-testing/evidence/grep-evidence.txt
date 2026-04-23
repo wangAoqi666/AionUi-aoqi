@@ -1,0 +1,86 @@
+=== GREP EVIDENCE ===
+
+--- setEnabledToolIds.invoke in renderer ---
+src/renderer/components/agent/AllowedToolsSelector.tsx:61:        const result = await ipcBridge.acpConversation.setEnabledToolIds.invoke({
+
+--- 7 IPC channels in ipcBridge.ts ---
+690:  // Three-state semantics (see `DroidSdkAgent.setEnabledToolIds` docblock):
+696:  setEnabledToolIds: bridge.buildProvider<
+706:  addMcpServer: bridge.buildProvider<
+710:  removeMcpServer: bridge.buildProvider<
+714:  toggleMcpServer: bridge.buildProvider<
+718:  listMcpServers: bridge.buildProvider<
+722:  listMcpTools: bridge.buildProvider<IBridgeResponse<{ tools: unknown[]; error?: string }>, { conversationId: string }>(
+725:  authenticateMcpServer: bridge.buildProvider<
+
+--- 7 providers in acpConversationBridge.ts ---
+49:  ipcBridge.acpConversation.checkEnv.provider(() => {
+60:  ipcBridge.acpConversation.detectCliPath.provider(({ backend }) => {
+76:  ipcBridge.acpConversation.getAvailableAgents.provider(() => {
+105:  ipcBridge.acpConversation.refreshCustomAgents.provider(async () => {
+118:  ipcBridge.acpConversation.testCustomAgent.provider(async (params) => {
+125:  ipcBridge.acpConversation.checkAgentHealth.provider(async ({ backend }) => {
+205:  ipcBridge.acpConversation.getMode.provider(({ conversationId }) => {
+222:  ipcBridge.acpConversation.getModelInfo.provider(({ conversationId }) => {
+233:  ipcBridge.acpConversation.getDroidModelCatalog.provider(async ({ refresh }) => {
+251:  ipcBridge.acpConversation.getDroidStatus.provider(async () => {
+274:  ipcBridge.acpConversation.checkDroidCliUpdate.provider(async () => {
+297:  ipcBridge.acpConversation.detectDroidNodeRuntime.provider(async () => {
+305:  ipcBridge.acpConversation.installDroidCli.provider(async ({ mode }) => {
+323:  ipcBridge.acpConversation.getDroidByokConfig.provider(async () => {
+339:  ipcBridge.acpConversation.fetchDroidByokModels.provider(async (payload) => {
+355:  ipcBridge.acpConversation.testDroidByokConfig.provider(async (payload) => {
+371:  ipcBridge.acpConversation.saveDroidByokConfig.provider(async (payload) => {
+396:  ipcBridge.acpConversation.importDroidByokConfigs.provider(async (payload) => {
+423:  ipcBridge.acpConversation.removeDroidByokConfig.provider(async ({ id }) => {
+446:  ipcBridge.acpConversation.listDroidByokSites.provider(async () => {
+462:  ipcBridge.acpConversation.upsertDroidByokSite.provider(async (payload) => {
+475:  ipcBridge.acpConversation.removeDroidByokSite.provider(async ({ id }) => {
+488:  ipcBridge.acpConversation.rotateDroidByokSiteApiKey.provider(async ({ id, newApiKey }) => {
+501:  ipcBridge.acpConversation.probeModelInfo.provider(async ({ backend }) => {
+546:  ipcBridge.acpConversation.setModel.provider(async ({ conversationId, modelId }) => {
+567:  ipcBridge.acpConversation.setMode.provider(async ({ conversationId, mode }) => {
+594:  ipcBridge.acpConversation.setSkipPermissionsUnsafe.provider(async ({ conversationId, confirmed }) => {
+621:  ipcBridge.acpConversation.setEnabledToolIds.provider(async ({ conversationId, toolIds }) => {
+646:  ipcBridge.acpConversation.submitBugReport.provider(
+676:  ipcBridge.acpConversation.addMcpServer.provider(async ({ conversationId, params }) => {
+693:  ipcBridge.acpConversation.removeMcpServer.provider(async ({ conversationId, name }) => {
+710:  ipcBridge.acpConversation.toggleMcpServer.provider(async ({ conversationId, name, enabled }) => {
+727:  ipcBridge.acpConversation.listMcpServers.provider(async ({ conversationId }) => {
+741:  ipcBridge.acpConversation.listMcpTools.provider(async ({ conversationId }) => {
+755:  ipcBridge.acpConversation.authenticateMcpServer.provider(async ({ conversationId, params }) => {
+775:  ipcBridge.acpConversation.getConfigOptions.provider(({ conversationId }) => {
+788:  ipcBridge.acpConversation.setConfigOption.provider(async ({ conversationId, configId, value }) => {
+
+--- MCP IPC bridge calls in renderer ---
+src/renderer/hooks/mcp/useMcpServerCRUD.ts:25:      const result = await ipcBridge.acpConversation.addMcpServer.invoke({
+src/renderer/hooks/mcp/useMcpServerCRUD.ts:37:      const result = await ipcBridge.acpConversation.removeMcpServer.invoke({
+src/renderer/hooks/mcp/useMcpServerCRUD.ts:45:      const result = await ipcBridge.acpConversation.toggleMcpServer.invoke({
+src/renderer/hooks/mcp/useMcpServers.ts:71:      const result = await ipcBridge.acpConversation.listMcpServers.invoke({ conversationId });
+src/renderer/hooks/mcp/useMcpServers.ts:105:        const toolsResult = await ipcBridge.acpConversation.listMcpTools.invoke({ conversationId });
+src/renderer/hooks/mcp/useMcpOAuth.ts:173:        const result = await ipcBridge.acpConversation.authenticateMcpServer.invoke({
+
+--- No direct config.set for MCP in renderer ---
+NONE FOUND (expected: no direct config mutations)
+
+--- mcp_status event handling ---
+src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts:371:        // ── mcp_status ──────────────────────────────────────────────
+src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts:375:        case 'mcp_status':
+src/renderer/utils/emitter.ts:71:  // SDK mcp_status → live MCP server status merge
+
+--- authenticateMcpServer in renderer ---
+src/renderer/hooks/mcp/useMcpOAuth.ts:173:        const result = await ipcBridge.acpConversation.authenticateMcpServer.invoke({
+
+--- MCP methods in DroidSdkAgent ---
+2414:  async addMcpServer(params: AddMcpServerParams): Promise<{ success: boolean; error?: string }> {
+2434:  async removeMcpServer(name: string): Promise<{ success: boolean; error?: string }> {
+2458:  async toggleMcpServer(name: string, enabled: boolean): Promise<{ success: boolean; error?: string }> {
+2483:  async listMcpServers(): Promise<{ servers: McpServerSummary[]; error?: string }> {
+2500:  async listMcpTools(): Promise<{ tools: McpToolSummary[]; error?: string }> {
+2521:  async authenticateMcpServer(
+
+--- useDroidMcpLiveStatus merges by server.name ---
+9: * the shared `useMcpServers` state by `server.name` (NOT index).
+31:          nameMap.set(server.name, server);
+86:    id: server.name,
+87:    name: server.name,

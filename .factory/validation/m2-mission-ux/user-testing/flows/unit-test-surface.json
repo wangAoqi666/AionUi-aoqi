@@ -1,0 +1,52 @@
+{
+  "flowId": "unit-test-surface",
+  "surface": "unit-test",
+  "milestone": "m2-mission-ux",
+  "assertions": [
+    {
+      "assertionId": "VAL-MISSION-001",
+      "status": "passed",
+      "summary": "AGENT_MODES.droid has exactly 6 modes with mission as last entry; getAgentModes('droid') returns 6 entries with non-empty label and description on mission entry",
+      "evidence": [
+        "tests/unit/agentModes.test.ts: 'has exactly 6 modes with mission as the last entry' — PASSED",
+        "tests/unit/agentModes.test.ts: 'exposes mission entry with non-empty label and description' — PASSED",
+        "vitest run: 12/12 tests passed (0 failures)"
+      ]
+    },
+    {
+      "assertionId": "VAL-MISSION-002",
+      "status": "passed",
+      "summary": "Lock-test enforces mission presence: droid values include 'mission' as last entry AND a dedicated mission test verifies non-empty label/description",
+      "evidence": [
+        "tests/unit/agentModes.test.ts: 'has exactly 6 modes with mission as the last entry' — PASSED (asserts length=6 and last value='mission')",
+        "tests/unit/agentModes.test.ts: 'exposes mission entry with non-empty label and description' — PASSED (dedicated mission assertion)",
+        "vitest run: 12/12 tests passed (0 failures)"
+      ]
+    },
+    {
+      "assertionId": "VAL-MISSION-005",
+      "status": "passed",
+      "summary": "Backend mission mode routes to DecompSessionType.Orchestrator; missionId forwarded via updateSettings; non-mission modes don't leak decomp fields; errors are swallowed",
+      "evidence": [
+        "tests/unit/droidMissionMode.test.ts: 'starts a session in mission mode and pushes Orchestrator + missionId via updateSettings' — PASSED",
+        "tests/unit/droidMissionMode.test.ts: 'starts a session in mission mode without decompMissionId and only pushes decompSessionType' — PASSED",
+        "tests/unit/droidMissionMode.test.ts: 'non-mission modes do NOT push decomp fields to the session' — PASSED",
+        "tests/unit/droidMissionMode.test.ts: 'setMode(\"mission\") on a live non-mission session pushes decomp fields' — PASSED",
+        "tests/unit/droidMissionMode.test.ts: 'swallows errors from applyDecompSettingsToSession so startup never breaks' — PASSED",
+        "vitest run: 8/8 tests passed (0 failures)"
+      ]
+    },
+    {
+      "assertionId": "VAL-MISSION-006",
+      "status": "passed",
+      "summary": "Mission entry in agentModes.ts has hardcoded label='Mission' and description='Decomposes task into sub-missions'; test verifies non-empty label+description. Labels are intentionally not i18n'd (comment: 'Labels match CLI display text exactly — no i18n.')",
+      "evidence": [
+        "src/renderer/utils/model/agentModes.ts line 88: { value: 'mission', label: 'Mission', description: 'Decomposes task into sub-missions' }",
+        "Source comment: 'Labels match CLI display text exactly — no i18n.'",
+        "tests/unit/agentModes.test.ts: 'exposes mission entry with non-empty label and description' — PASSED"
+      ]
+    }
+  ],
+  "ranAt": "2026-04-23T00:11:50Z",
+  "overallStatus": "passed"
+}

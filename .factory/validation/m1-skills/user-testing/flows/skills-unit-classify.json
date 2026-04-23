@@ -1,0 +1,99 @@
+{
+  "groupId": "skills-unit-classify",
+  "surface": "unit-test",
+  "status": "pass",
+  "assertions": [
+    {
+      "id": "VAL-SKILLS-008",
+      "status": "pass",
+      "summary": "The targeted droidListSkills classification case passed and kept agent-factory path substrings classified as normal skills instead of subagents.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log"
+      ],
+      "commands": [
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" -t \"VAL-SKILLS-008|VAL-SKILLS-009|VAL-SKILLS-010\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `does not classify skills located under agent-factory project paths as subagents (VAL-SKILLS-008)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-009",
+      "status": "pass",
+      "summary": "The targeted droidListSkills classification case passed and recognized explicit subagent/custom-droid signals as subagents.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log"
+      ],
+      "commands": [
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" -t \"VAL-SKILLS-008|VAL-SKILLS-009|VAL-SKILLS-010\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `classifies SDK skills with subagent/custom-droid segment or structured kind as subagent (VAL-SKILLS-009)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-010",
+      "status": "pass",
+      "summary": "The targeted droidListSkills regression case passed and confirmed word-boundary or segment matching instead of naive substring classification.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log"
+      ],
+      "commands": [
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" -t \"VAL-SKILLS-008|VAL-SKILLS-009|VAL-SKILLS-010\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-008-010.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `uses segment/word-boundary match rather than naive substring (VAL-SKILLS-010)` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-011",
+      "status": "pass",
+      "summary": "The exact VAL-SKILLS-011 droidListSkills unit case passed, and the companion AcpAgentManagerSkillInjection droid-path tests also passed to confirm droid conversations still route through prompt injection.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkills.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-011.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/AcpAgentManagerSkillInjection.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/AcpAgentManagerSkillInjection-droid.log"
+      ],
+      "commands": [
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkills.test.ts\" -t \"VAL-SKILLS-011\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkills-011.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `prompt injection includes SDK-reported skills after syncSdkSkills (VAL-SKILLS-011)` passed."
+        },
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/AcpAgentManagerSkillInjection.test.ts\" -t \"droid backend uses prompt injection\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/AcpAgentManagerSkillInjection-droid.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows both `droid backend uses prompt injection even with temp workspace` and `droid backend uses prompt injection with customWorkspace` passed."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SKILLS-014",
+      "status": "pass",
+      "summary": "The targeted fallback harness passed both the primary rejection-path assertion and the idempotence retry case, confirming listSkills failure still logs once, emits slash_commands_updated once, and preserves filesystem-backed prompt injection.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/tests/unit/droidListSkillsFallback.test.ts",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkillsFallback-014.log"
+      ],
+      "commands": [
+        {
+          "command": "mkdir -p \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify\" && cd \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi\" && bun run test \"tests/unit/droidListSkillsFallback.test.ts\" -t \"VAL-SKILLS-014\" --reporter=verbose > \"/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/skills-unit-classify/droidListSkillsFallback-014.log\" 2>&1",
+          "exitCode": 0,
+          "observation": "The log shows `rejects listSkills without crashing, logs structured failure, and filesystem scan still surfaces ≥2 skills (VAL-SKILLS-014)` and the retry/idempotence case both passed."
+        }
+      ]
+    }
+  ],
+  "toolsUsed": ["bun run test"],
+  "frictions": [
+    "VAL-SKILLS-011 evidence mapping is out of sync: validation-contract.md names tests/unit/AcpAgentManagerSkillInjection.test.ts, but the exact `prompt injection includes SDK-reported skills after syncSdkSkills (VAL-SKILLS-011)` case currently lives in tests/unit/droidListSkills.test.ts; AcpAgentManagerSkillInjection.test.ts only confirms the droid prompt-injection path still executes."
+  ],
+  "blockers": []
+}

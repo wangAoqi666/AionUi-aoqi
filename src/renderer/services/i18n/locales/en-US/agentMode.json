@@ -20,5 +20,28 @@
   "yoloConfirmBody": "Enabling Real YOLO sends skipPermissionsUnsafe to Droid CLI. Droid will no longer prompt for permission and will run any command — including destructive operations like deleting files, pushing code, or irreversible shell commands — without confirmation.",
   "yoloConfirmWarning": "This setting only affects the current session and is cleared automatically when you switch away from YOLO. Only enable it in a trusted, sandboxed environment.",
   "yoloConfirmConfirmButton": "I understand the risk, enable Real YOLO",
-  "yoloConfirmCancelButton": "Cancel"
+  "yoloConfirmCancelButton": "Cancel",
+  "allowedTools": "Allowed Tools",
+  "allowedToolsDefault": "Use SDK Defaults",
+  "allowedToolsNone": "Disable All Tools",
+  "allowedToolsCustom": "Custom",
+  "allowedToolsUnsupported": "Tool whitelist is only supported for the Droid backend",
+  "mission": "Mission",
+  "missionDescription": "Decomposes task into sub-missions",
+  "missionPanel": {
+    "idle": "Idle",
+    "noFeatures": "No features yet",
+    "heartbeat": "Last heartbeat",
+    "state": {
+      "planning": "Planning",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "worker": {
+      "success": "Success",
+      "failure": "Failed"
+    }
+  }
 }

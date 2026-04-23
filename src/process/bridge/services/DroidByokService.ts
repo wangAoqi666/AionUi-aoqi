@@ -6,6 +6,7 @@
 
 import type {
   DroidByokModelProvider,
+  IDroidByokCapabilityConflict,
   IDroidByokImportConfigsInput,
   IDroidByokImportProgress,
   IDroidByokImportResult,
@@ -15,10 +16,11 @@ import type {
   IDroidByokRemoteModel,
   IDroidByokSite,
   IDroidByokSiteUpsertInput,
+  IDroidByokVerificationResult,
 } from '@/common/adapter/ipcBridge';
 import type { ReasoningLevel } from '@/common/config/factoryModels';
 import { ProcessConfig, getFactoryRootDir } from '@process/utils/initStorage';
-import { mainWarn } from '@process/utils/mainLogger';
+import { mainLog, mainWarn } from '@process/utils/mainLogger';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -268,7 +270,7 @@ export function inferByokModelCapabilities(
     }
     if (/^o1/i.test(normalized)) {
       return {
-        supportsImageInput: /o1-preview|o1-pro/i.test(normalized) ? false : false,
+        supportsImageInput: false,
         reasoningLevels: REASONING_LEVELS_OPENAI_REASONING,
         defaultReasoning: 'medium',
       };
@@ -319,8 +321,7 @@ export function inferByokModelCapabilities(
     const qwenMaxPlus = /qwen-(max|plus|turbo)-latest/i.test(normalized);
     return {
       supportsImageInput: qwenVl,
-      reasoningLevels:
-        qwen3Thinking || qwenMaxPlus ? REASONING_LEVELS_QWEN3_REASONING : REASONING_LEVELS_DEFAULT,
+      reasoningLevels: qwen3Thinking || qwenMaxPlus ? REASONING_LEVELS_QWEN3_REASONING : REASONING_LEVELS_DEFAULT,
       defaultReasoning: qwen3Thinking || qwenMaxPlus ? 'off' : 'none',
     };
   }
@@ -402,11 +403,13 @@ export function resolveByokModelCapabilities(
 }
 
 const extractCapabilityOverrides = (
-  source: {
-    supportsImageInput?: unknown;
-    reasoningLevels?: unknown;
-    defaultReasoning?: unknown;
-  } | undefined
+  source:
+    | {
+        supportsImageInput?: unknown;
+        reasoningLevels?: unknown;
+        defaultReasoning?: unknown;
+      }
+    | undefined
 ): Partial<ByokModelCapabilities> | undefined => {
   if (!source) {
     return undefined;
@@ -1805,6 +1808,74 @@ export async function rotateDroidByokSiteApiKey(id: string, newApiKey: string): 
     throw new Error('BYOK site not found after rotate');
   }
   return persisted;
+}
+
+/**
+ * Verify BYOK model capabilities against the CLI's `availableModels` catalog.
+ *
+ * This function is called after each BYOK CRUD operation (save / import / remove / site-crud)
+ * via the `catalogRefresher`. It compares local BYOK model capabilities against the
+ * CLI-probed catalog that was just refreshed.
+ *
+ * Returns a structured result — never throws. Callers should emit non-blocking
+ * IPC events and/or UI toasts based on the result.
+ *
+ * @param localConfigs - The BYOK model configs with local capability inference.
+ * @param cliModels - The CLI's available models (from refreshed catalog).
+ *                    Pass `null` when CLI is unreachable.
+ */
+export function verifyByokCapabilitiesAgainstCli(
+  localConfigs: ReadonlyArray<{
+    id: string;
+    model: string;
+    supportsImageInput?: boolean;
+  }>,
+  cliModels: ReadonlyArray<{
+    id: string;
+    noImageSupport?: boolean;
+  }> | null
+): IDroidByokVerificationResult {
+  if (cliModels === null) {
+    mainLog('[DroidByokService]', 'droid.byok.verifier.cli_unreachable');
+    return { ok: [], missing: [], conflict: [], unreachable: true };
+  }
+
+  const cliModelMap = new Map(cliModels.map((m) => [m.id, m]));
+
+  const ok: string[] = [];
+  const missing: string[] = [];
+  const conflict: IDroidByokCapabilityConflict[] = [];
+
+  for (const local of localConfigs) {
+    const cliModel = cliModelMap.get(local.id);
+
+    if (!cliModel) {
+      missing.push(local.id);
+      mainWarn('[DroidByokService]', 'capabilities_unverified', {
+        modelId: local.id,
+        reason: 'cli-missing',
+      });
+      continue;
+    }
+
+    // Compare image support: CLI noImageSupport=true means no image support
+    // Local supportsImageInput=true means image support
+    const cliSupportsImage = cliModel.noImageSupport !== true;
+    const localSupportsImage = local.supportsImageInput === true;
+
+    if (localSupportsImage && !cliSupportsImage) {
+      conflict.push({
+        modelId: local.id,
+        field: 'supportsImageInput',
+        local: localSupportsImage,
+        cli: cliSupportsImage,
+      });
+    } else {
+      ok.push(local.id);
+    }
+  }
+
+  return { ok, missing, conflict, unreachable: false };
 }
 
 /**

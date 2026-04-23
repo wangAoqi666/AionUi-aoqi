@@ -129,6 +129,20 @@ export interface IDroidByokRemoteCatalog {
   models: IDroidByokRemoteModel[];
 }
 
+export type IDroidByokCapabilityConflict = {
+  modelId: string;
+  field: string;
+  local: unknown;
+  cli: unknown;
+};
+
+export type IDroidByokVerificationResult = {
+  ok: string[];
+  missing: string[];
+  conflict: IDroidByokCapabilityConflict[];
+  unreachable: boolean;
+};
+
 export interface IDroidByokImportResult {
   imported: IDroidByokModelConfig[];
   failed: Array<{
@@ -697,6 +711,35 @@ export const acpConversation = {
     IBridgeResponse<{ toolIds: string[] | null }>,
     { conversationId: string; toolIds: string[] | null }
   >('acp.set-enabled-tool-ids'),
+  // ── MCP live-session management (Droid SDK only) ────────────────────
+  // All 6 methods forward to DroidSdkAgent via AcpAgentManager wrappers.
+  // Non-droid backends return structured failure; list methods return
+  // empty arrays + error string.
+  //
+  // MCP 实时会话管理（仅 Droid SDK 后端）。非 Droid 后端返回结构化失败。
+  addMcpServer: bridge.buildProvider<
+    IBridgeResponse<{ success: boolean; error?: string }>,
+    { conversationId: string; params: Record<string, unknown> }
+  >('acp.add-mcp-server'),
+  removeMcpServer: bridge.buildProvider<
+    IBridgeResponse<{ success: boolean; error?: string }>,
+    { conversationId: string; name: string }
+  >('acp.remove-mcp-server'),
+  toggleMcpServer: bridge.buildProvider<
+    IBridgeResponse<{ success: boolean; error?: string }>,
+    { conversationId: string; name: string; enabled: boolean }
+  >('acp.toggle-mcp-server'),
+  listMcpServers: bridge.buildProvider<
+    IBridgeResponse<{ servers: unknown[]; error?: string }>,
+    { conversationId: string }
+  >('acp.list-mcp-servers'),
+  listMcpTools: bridge.buildProvider<IBridgeResponse<{ tools: unknown[]; error?: string }>, { conversationId: string }>(
+    'acp.list-mcp-tools'
+  ),
+  authenticateMcpServer: bridge.buildProvider<
+    IBridgeResponse<{ success: boolean; error?: string }>,
+    { conversationId: string; params: Record<string, unknown> }
+  >('acp.authenticate-mcp-server'),
   // Forward a user-triggered "report this to Factory" submission to the Droid SDK.
   // The main process packs title/description + environment metadata into
   // `userComment`; `clientLogs` is deliberately NOT attached to avoid leaking
@@ -752,6 +795,7 @@ export const acpConversation = {
     'acp.import-droid-byok-configs'
   ),
   droidByokImportProgress: bridge.buildEmitter<IDroidByokImportProgress>('acp.droid-byok-import-progress'),
+  droidByokCapabilityDrift: bridge.buildEmitter<IDroidByokVerificationResult>('acp.droid-byok-capability-drift'),
   removeDroidByokConfig: bridge.buildProvider<IBridgeResponse, { id: string }>('acp.remove-droid-byok-config'),
   // --- BYOK site aggregation (M3.A) ---
   // Group flat BYOK entries by normalized (provider, baseUrl). The frontend

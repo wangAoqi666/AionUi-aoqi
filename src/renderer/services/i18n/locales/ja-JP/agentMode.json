@@ -20,5 +20,28 @@
   "yoloConfirmBody": "真の YOLO を有効化すると、AgentFactory は Droid CLI に skipPermissionsUnsafe を送信します。Droid は権限確認を一切行わず、ファイル削除・コードプッシュ・不可逆なコマンド実行を含むすべての操作を自動実行します。",
   "yoloConfirmWarning": "この設定は現在のセッションにのみ適用され、YOLO 以外のモードに切り替えると自動的に解除されます。管理された環境でのみご利用ください。",
   "yoloConfirmConfirmButton": "リスクを理解のうえ、真の YOLO を有効化",
-  "yoloConfirmCancelButton": "キャンセル"
+  "yoloConfirmCancelButton": "キャンセル",
+  "allowedTools": "許可されたツール",
+  "allowedToolsDefault": "SDKデフォルトを使用",
+  "allowedToolsNone": "すべてのツールを無効化",
+  "allowedToolsCustom": "カスタム",
+  "allowedToolsUnsupported": "ツールホワイトリストはDroidバックエンドのみ対応",
+  "mission": "ミッション",
+  "missionDescription": "タスクをサブミッションに分解",
+  "missionPanel": {
+    "idle": "待機中",
+    "noFeatures": "機能はまだありません",
+    "heartbeat": "最終ハートビート",
+    "state": {
+      "planning": "計画中",
+      "running": "実行中",
+      "completed": "完了",
+      "failed": "失敗",
+      "cancelled": "キャンセル済"
+    },
+    "worker": {
+      "success": "成功",
+      "failure": "失敗"
+    }
+  }
 }

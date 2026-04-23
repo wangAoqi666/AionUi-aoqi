@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "data": {
+    "origin": "http://localhost:5173/#/conversation/2c37d3d9",
+    "result": { "capturedAt": 1776848783775, "events": [] }
+  },
+  "error": null
+}

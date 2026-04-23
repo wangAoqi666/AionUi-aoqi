@@ -1,0 +1,53 @@
+{
+  "flowName": "ipc-coverage-grep",
+  "milestone": "m4-ipc-exposure",
+  "runDate": "2026-04-23",
+  "assertions": {
+    "VAL-IPC-014": {
+      "status": "passed",
+      "summary": "No direct config.set for MCP in renderer code (grep returns zero hits). All MCP operations go through IPC bridge (addMcpServer, removeMcpServer, etc.). DOM tests in mcpPanel.dom.test.tsx verify UI uses IPC not config.",
+      "evidence": [
+        "tests/unit/renderer/mcpPanel.dom.test.tsx — 7 tests passed",
+        "grep: rg 'config.set.*mcp' src/renderer/ — ZERO hits (no direct config mutations)"
+      ]
+    },
+    "VAL-IPC-015": {
+      "status": "passed",
+      "summary": "DOM tests confirm all 6 MCP IPC failure modes are surfaced to user via Message.error or equivalent notification. mcpPanel.dom.test.tsx covers error display for each IPC method.",
+      "evidence": ["tests/unit/renderer/mcpPanel.dom.test.tsx — 7 tests passed (includes error rendering tests)"]
+    },
+    "VAL-IPC-016": {
+      "status": "passed",
+      "summary": "Meta-test ipcExposureCoverage.test.ts scans all renderer source and confirms every IPC symbol (setEnabledToolIds + 6 MCP methods) is invoked ≥1 time. Test passes.",
+      "evidence": ["tests/unit/ipcExposureCoverage.test.ts — 16 tests passed (includes renderer invocation scan)"]
+    },
+    "VAL-IPC-017": {
+      "status": "passed",
+      "summary": "acpConversationBridgeMcp.test.ts verifies provider layer catches SDK errors and wraps them into structured {success:false, msg} responses.",
+      "evidence": ["tests/unit/acpConversationBridgeMcp.test.ts — 7 tests passed"]
+    },
+    "VAL-IPC-018": {
+      "status": "passed",
+      "summary": "Meta-test ipcExposureCoverage.test.ts confirms structural parity between MCP IPC quartets and the setSkipPermissionsUnsafe template (same provider/invoke/bridge pattern).",
+      "evidence": [
+        "tests/unit/ipcExposureCoverage.test.ts — includes template parity assertion",
+        "tests/unit/acpConversationBridgeMcp.test.ts — confirms contract-style parity"
+      ]
+    },
+    "VAL-IPC-019": {
+      "status": "passed",
+      "summary": "Mutex serialization test in acpAgentManagerMcpMethods.test.ts confirms concurrent add+remove are serialized. Promise.all fires both; callOrder proves sequential execution.",
+      "evidence": ["tests/unit/acpAgentManagerMcpMethods.test.ts — mutex concurrent test passed"]
+    },
+    "VAL-IPC-020": {
+      "status": "passed",
+      "summary": "useMcpOAuth.dom.test.tsx confirms: when mcp_auth event arrives with {serverName, state:'success'}, store updates to {isAuthenticated:true, needsLogin:false}. Badge flips from Authenticate to Connected.",
+      "evidence": [
+        "tests/unit/renderer/useMcpOAuth.dom.test.tsx — 7 tests passed (includes auth state transition test)"
+      ]
+    }
+  },
+  "toolsUsed": ["vitest", "rg"],
+  "frictions": [],
+  "blockers": []
+}

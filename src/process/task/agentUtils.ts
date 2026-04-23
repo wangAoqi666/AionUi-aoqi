@@ -16,6 +16,17 @@ export interface FirstMessageConfig {
   presetContext?: string;
   /** 启用的 skills 列表 / Enabled skills list */
   enabledSkills?: string[];
+  /**
+   * 当前会话后端标识（如 `droid` / `claude`）。
+   * Droid 后端即使 `enabledSkills` 为空也会无条件扫描 `~/.factory/skills/`（VAL-SKILLS-004），
+   * 非 droid 后端保留 enabledSkills 门控（VAL-SKILLS-005）。
+   *
+   * Current session backend identifier (e.g. `droid`, `claude`). Under the
+   * droid backend the full `~/.factory/skills/` tree is scanned regardless of
+   * `enabledSkills` so the Droid SDK can self-describe available skills.
+   * Other backends keep the `enabledSkills`-gated behavior for compatibility.
+   */
+  backend?: string;
 }
 
 /**
@@ -95,10 +106,15 @@ export async function prepareFirstMessageWithSkillsIndex(content: string, config
 
   // 2. 加载 skills 索引（包括内置 skills + 可选 skills）
   // Load skills INDEX (including builtin skills + optional skills)
-  // 使用单例模式避免重复文件系统扫描 / Use singleton to avoid repeated filesystem scans
-  const skillManager = AcpSkillManager.getInstance(config.enabledSkills);
+  // 使用单例模式避免重复文件系统扫描 / Use singleton to avoid repeated filesystem scans.
+  // m1-f1b — backend is part of the cache key so droid conversations
+  // always land on the droid-keyed instance (preventing the non-droid
+  // `initialized=true` flag from short-circuiting the
+  // `~/.factory/skills` scan).
+  const skillManager = AcpSkillManager.getInstance(config.enabledSkills, { backend: config.backend });
   // discoverSkills 会自动先加载内置 skills / discoverSkills auto-loads builtin skills first
-  await skillManager.discoverSkills(config.enabledSkills);
+  // Droid 后端下传入 backend 提示以便无条件扫描 `~/.factory/skills/`（VAL-SKILLS-004）。
+  await skillManager.discoverSkills(config.enabledSkills, { backend: config.backend });
 
   // 只有当有任何 skills 时才注入 / Only inject if there are any skills
   if (skillManager.hasAnySkills()) {
@@ -164,9 +180,13 @@ export async function buildSystemInstructionsWithSkillsIndex(config: FirstMessag
   }
 
   // 加载 skills 索引（包括内置 skills + 可选 skills）
-  // Load skills INDEX (including builtin skills + optional skills)
-  const skillManager = AcpSkillManager.getInstance(config.enabledSkills);
-  await skillManager.discoverSkills(config.enabledSkills);
+  // Load skills INDEX (including builtin skills + optional skills).
+  // m1-f1b — thread backend into both the cache key AND discoverSkills so
+  // droid / non-droid flows stay partitioned.
+  const skillManager = AcpSkillManager.getInstance(config.enabledSkills, { backend: config.backend });
+  // Gemini 不走 droid 分支，但保持参数传递的一致性。Droid 后端会无条件扫描 `~/.factory/skills/`。
+  // Gemini path doesn't trigger droid-specific scan but we still thread the hint for consistency.
+  await skillManager.discoverSkills(config.enabledSkills, { backend: config.backend });
 
   if (skillManager.hasAnySkills()) {
     const skillsIndex = skillManager.getSkillsIndex();

@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "data": {
+    "origin": "http://localhost:5173/#/conversation/2c37d3d9",
+    "result": {
+      "capturedAt": 1776848820908,
+      "eventCount": 2,
+      "events": [
+        { "conversation_id": "2c37d3d9", "sdkSkillsCount": 101, "source": "droid-sdk", "ts": 1776848798161 },
+        { "conversation_id": "2c37d3d9", "source": "skills-watcher", "ts": 1776848798182 }
+      ],
+      "probeDir": "/Users/wayz/.factory/skills/__val_tmp_skill_1776848797__"
+    }
+  },
+  "error": null
+}

@@ -1,0 +1,59 @@
+$ vitest run tests/unit/acpSkillManagerDroidScan.test.ts "--reporter=verbose"
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi[39m
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mscans user skills dir unconditionally under droid backend even when enabledSkills is empty (VAL-SKILLS-004)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mscans user skills dir unconditionally under droid backend even when enabledSkills is empty (VAL-SKILLS-004)
+[22m[39m[AcpSkillManager] Discovered 1 optional skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mscans user skills dir unconditionally under droid backend when enabledSkills is an empty array (VAL-SKILLS-004)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mscans user skills dir unconditionally under droid backend when enabledSkills is an empty array (VAL-SKILLS-004)
+[22m[39m[AcpSkillManager] Discovered 1 optional skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mpreserves enabledSkills gating for non-droid backends (VAL-SKILLS-005)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mpreserves enabledSkills gating when no backend hint is provided (backward compatibility)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mrespects explicit enabledSkills list under non-droid backend
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mrespects explicit enabledSkills list under non-droid backend
+[22m[39m[AcpSkillManager] Discovered 1 optional skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mmalformed SKILL.md frontmatter emits droid.skills.parse_failed and is skipped while valid siblings stay indexed (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mmalformed SKILL.md frontmatter emits droid.skills.parse_failed and is skipped while valid siblings stay indexed (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 1 optional skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mmalformed frontmatter with unclosed single quote is also skipped (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mmalformed frontmatter with unclosed single quote is also skipped (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 1 optional skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mgetSkillsIndex remains queryable without throw after a parse failure (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 0 builtin skills
+
+[90mstdout[2m | tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22m[2mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22m[2mgetSkillsIndex remains queryable without throw after a parse failure (VAL-SKILLS-015)
+[22m[39m[AcpSkillManager] Discovered 0 optional skills
+
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mscans user skills dir unconditionally under droid backend even when enabledSkills is empty (VAL-SKILLS-004)[32m 5[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mscans user skills dir unconditionally under droid backend when enabledSkills is an empty array (VAL-SKILLS-004)[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mpreserves enabledSkills gating for non-droid backends (VAL-SKILLS-005)[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mpreserves enabledSkills gating when no backend hint is provided (backward compatibility)[32m 1[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mrespects explicit enabledSkills list under non-droid backend[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mmalformed SKILL.md frontmatter emits droid.skills.parse_failed and is skipped while valid siblings stay indexed (VAL-SKILLS-015)[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mmalformed frontmatter with unclosed single quote is also skipped (VAL-SKILLS-015)[32m 2[2mms[22m[39m
+ [32m✓[39m [30m[43m node [49m[39m tests/unit/acpSkillManagerDroidScan.test.ts[2m > [22mAcpSkillManager.discoverSkills — droid backend unconditional scan[2m > [22mgetSkillsIndex remains queryable without throw after a parse failure (VAL-SKILLS-015)[32m 2[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m8 passed[39m[22m[90m (8)[39m
+[2m   Start at [22m 18:49:06
+[2m   Duration [22m 180ms[2m (transform 55ms, setup 33ms, import 36ms, tests 20ms, environment 0ms)[22m

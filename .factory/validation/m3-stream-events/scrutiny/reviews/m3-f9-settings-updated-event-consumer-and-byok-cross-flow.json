@@ -1,0 +1,34 @@
+{
+  "featureId": "m3-f9-settings-updated-event-consumer-and-byok-cross-flow",
+  "reviewedAt": "2026-04-23T01:35:00+08:00",
+  "commitId": "f402ee99a86cb96fb382028a30b2d52f09216dca",
+  "transcriptSkeletonReviewed": false,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation is clean, correct, and follows established patterns. The settings_updated case is placed BEFORE default (line 358, default at line 387), properly filters by conversation_id, emits the typed acp.settings.updated emitter event with authoritative currentModelId, and never touches running/aiProcessing state. Both AcpConfigSelector and AcpModelSelector subscribe with proper conversationId filtering and cleanup. The emitter event type is properly defined in emitter.ts (line 70). The implementation mirrors the mcp_status pattern exactly, ensuring consistency. Tests cover both VAL-STREAM-004 and VAL-STREAM-005 with 4 test cases.",
+    "issues": [
+      {
+        "file": "tests/unit/renderer/useAcpMessage.dom.test.tsx",
+        "line": 380,
+        "severity": "non_blocking",
+        "description": "Missing test for settings_updated with absent currentModelId. The implementation guards with `if (settingsData?.currentModelId)` but no test verifies that the emitter is NOT called when currentModelId is missing from data. A negative test (e.g., `{data: {changed: {modelId: 'gpt-5'}}}` without currentModelId) would strengthen VAL-STREAM-004 coverage."
+      },
+      {
+        "file": "src/renderer/components/agent/AcpModelSelector.tsx",
+        "line": 234,
+        "severity": "non_blocking",
+        "description": "Effect dependency array `[conversationId]` omits the `ipcBridge` and `setModelInfo` references used inside the callback. While both are stable (ipcBridge is a module-level singleton, setModelInfo is from useState), adding an exhaustive-deps eslint-disable comment would make the intent explicit and prevent future linting surprises if rules change."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The stream-event emitter pattern (case BEFORE default → filter conversation_id → guard data → emit typed emitter event → break) is now used by session_title, settings_updated, mcp_status, and mcp_auth. This is a well-established pattern that could be documented as a convention in AGENTS.md or architecture.md to guide future stream-event consumers. Currently architecture.md lists the cases but doesn't explain the pattern contract (must be before default, must not touch running/aiProcessing).",
+      "evidence": "useAcpMessage.ts lines 338-386: four consecutive cases all follow identical structure. The 'before default' invariant is only documented via code comments, not in shared project rules."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The m3-f9 implementation correctly adds a settings_updated consumer that filters by conversation_id, emits acp.settings.updated with the authoritative currentModelId (BYOK-safe), and never toggles running/aiProcessing. Both AcpConfigSelector and AcpModelSelector properly subscribe with conversationId filtering and cleanup. The emitter event type is correctly defined. Tests cover VAL-STREAM-004 (emits with currentModelId) and VAL-STREAM-005 (does not flip turn state), including cross-conversation filtering. Two non-blocking issues found: (1) missing negative test for absent currentModelId, (2) AcpModelSelector effect deps could benefit from an exhaustive-deps comment. Overall quality is high — consistent with the established stream-event pattern."
+}

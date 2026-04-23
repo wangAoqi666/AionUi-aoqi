@@ -1,0 +1,61 @@
+{
+  "groupId": "val-cross-001-rerun",
+  "surface": "desktop-app-testing",
+  "status": "fail",
+  "assertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "status": "fail",
+      "summary": "Fresh BYOK conversation de67dc8d rendered a natural-Chinese skill summary and the saved console showed listSkills merged 101 skills with no forbidden filesystem tool-call markers, but the renderer boot-path capture remained empty for slash_commands_updated. A reversible postcheck in the same conversation captured slash_commands_updated via the same renderer tap, so the boot-path event was absent rather than malformed or uncapturable.",
+      "evidence": [
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/final-reply.png",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/body-text.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/installed-skills.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/console.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/errors.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/ipc-tap-install.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/ipc-events.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/ipc-postcheck-skills-watcher.json",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/ipc-postcheck-console.log",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/tool-call-search.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/conversation-url.txt",
+        "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/user-testing/evidence/val-cross-001-rerun/VAL-CROSS-001/README.md"
+      ],
+      "commands": [
+        {
+          "command": "agent-browser --session \"418d56ee09f8__u1\" connect 9230 && open http://localhost:5173/#/guid",
+          "exitCode": 0,
+          "observation": "Connected to the existing Electron app, opened the guid surface, and confirmed the BYOK Claude Opus model label was selected."
+        },
+        {
+          "command": "agent-browser eval install acpConversation.responseStream tap on /guid; submit \"你有什么技能\" in fresh conversation",
+          "exitCode": 0,
+          "observation": "Created fresh conversation de67dc8d and installed the renderer-side boot-path tap before sending the prompt."
+        },
+        {
+          "command": "agent-browser save screenshot/console/errors/url/eval outputs to evidence folder",
+          "exitCode": 0,
+          "observation": "Saved the final reply screenshot, body-text transcription, installed-skills snapshot, conversation URL, console log, empty boot-path ipc-events.json, and a tool-call marker scan showing no forbidden filesystem tool names in the saved console."
+        },
+        {
+          "command": "python3 create ~/.factory/skills/__val_cross_001_postcheck_*__/SKILL.md; wait; move probe to /tmp/val-cross-001-rerun-trash/; re-read tap buffer",
+          "exitCode": 0,
+          "observation": "The same renderer tap captured droid-sdk and skills-watcher slash_commands_updated events during the reversible postcheck, proving the tap works and that the missing boot-path event was absent rather than uncapturable."
+        }
+      ],
+      "details": {
+        "conversationId": "de67dc8d",
+        "modelLabel": "agentsapi-claude-opus-4-6-thinking [BYOK]",
+        "slashCommandsUpdatedBootPath": "absent on renderer stream path",
+        "slashCommandsUpdatedMalformed": false,
+        "slashCommandsUpdatedCapturableFromRenderer": true,
+        "postcheckProbeMovedTo": "/tmp/val-cross-001-rerun-trash/__val_cross_001_postcheck_1776860416__"
+      }
+    }
+  ],
+  "toolsUsed": ["desktop-app-testing", "agent-browser"],
+  "frictions": [
+    "The visible rich-text reply body did not come back through direct DOM text extraction on this run, so body-text.txt was transcribed from the saved final-reply.png screenshot."
+  ],
+  "blockers": []
+}

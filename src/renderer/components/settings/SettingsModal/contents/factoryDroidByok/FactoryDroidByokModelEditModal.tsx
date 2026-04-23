@@ -22,16 +22,7 @@ import { useTranslation } from 'react-i18next';
  * 所有可选的 reasoning level，按强度从弱到强排序，用户通过 CheckboxGroup 勾选后，
  * defaultReasoning 的 RadioGroup 只会显示已勾选的子集。
  */
-const ALL_REASONING_LEVELS: ReasoningLevel[] = [
-  'off',
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'max',
-  'xhigh',
-];
+const ALL_REASONING_LEVELS: ReasoningLevel[] = ['off', 'none', 'minimal', 'low', 'medium', 'high', 'max', 'xhigh'];
 
 /**
  * Dedicated modal for editing ONLY the capability fields of a BYOK model
@@ -64,9 +55,7 @@ const FactoryDroidByokModelEditModal = ModalHOC<{
         ? [...config.reasoningLevels]
         : ['none'];
     setReasoningLevels(storedLevels);
-    setDefaultReasoning(
-      storedLevels.includes(config.defaultReasoning) ? config.defaultReasoning : storedLevels[0]
-    );
+    setDefaultReasoning(storedLevels.includes(config.defaultReasoning) ? config.defaultReasoning : storedLevels[0]);
   }, [config, modalProps.visible]);
 
   const availableDefaults = useMemo(
@@ -135,9 +124,7 @@ const FactoryDroidByokModelEditModal = ModalHOC<{
     >
       {messageContext}
       <div className='pt-4px pb-12px space-y-16px'>
-        <div className='text-12px text-t-secondary leading-5'>
-          {t('settings.droidByok.capability.editHint')}
-        </div>
+        <div className='text-12px text-t-secondary leading-5'>{t('settings.droidByok.capability.editHint')}</div>
 
         <div className='rounded-10px bg-[var(--fill-0)] px-10px py-8px text-12px text-t-secondary'>
           <div>
@@ -155,9 +142,7 @@ const FactoryDroidByokModelEditModal = ModalHOC<{
             <div className='text-13px font-500 text-t-primary'>
               {t('settings.droidByok.capability.multimodalLabel')}
             </div>
-            <div className='text-12px text-t-secondary mt-2px'>
-              {t('settings.droidByok.capability.multimodalHint')}
-            </div>
+            <div className='text-12px text-t-secondary mt-2px'>{t('settings.droidByok.capability.multimodalHint')}</div>
           </div>
           <Switch
             checked={supportsImageInput}
@@ -170,9 +155,7 @@ const FactoryDroidByokModelEditModal = ModalHOC<{
           <div className='text-13px font-500 text-t-primary'>
             {t('settings.droidByok.capability.reasoningLevelsLabel')}
           </div>
-          <div className='text-12px text-t-secondary'>
-            {t('settings.droidByok.capability.reasoningLevelsHint')}
-          </div>
+          <div className='text-12px text-t-secondary'>{t('settings.droidByok.capability.reasoningLevelsHint')}</div>
           <Checkbox.Group value={reasoningLevels} onChange={handleLevelsChange}>
             <div className='flex flex-wrap gap-x-12px gap-y-6px pt-2px'>
               {ALL_REASONING_LEVELS.map((level) => (
@@ -188,9 +171,7 @@ const FactoryDroidByokModelEditModal = ModalHOC<{
           <div className='text-13px font-500 text-t-primary'>
             {t('settings.droidByok.capability.defaultReasoningLabel')}
           </div>
-          <div className='text-12px text-t-secondary'>
-            {t('settings.droidByok.capability.defaultReasoningHint')}
-          </div>
+          <div className='text-12px text-t-secondary'>{t('settings.droidByok.capability.defaultReasoningHint')}</div>
           <Radio.Group
             value={defaultReasoning}
             onChange={(value: string) => {

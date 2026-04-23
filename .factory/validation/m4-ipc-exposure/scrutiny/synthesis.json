@@ -1,0 +1,131 @@
+{
+  "milestone": "m4-ipc-exposure",
+  "round": 1,
+  "timestamp": "2026-04-23T03:45:00Z",
+  "validators": {
+    "test": {
+      "status": "pass",
+      "detail": "381 test files passed, 3682 tests total, 0 failures, 28 skipped"
+    },
+    "typecheck": {
+      "status": "pass",
+      "detail": "Pre-existing TS2322 in FactoryDroidByokSiteCard.tsx:105 fixed during scrutiny (added ReasoningLevel cast). Zero errors after fix."
+    },
+    "lint": {
+      "status": "pass",
+      "detail": "0 errors, 1448 pre-existing warnings. No new issues."
+    }
+  },
+  "features": [
+    {
+      "featureId": "m4-f12-set-enabled-tool-ids-end-to-end",
+      "commitId": "a3f95e8cd",
+      "verdict": "pass",
+      "findings": [
+        {
+          "severity": "nit",
+          "file": "src/renderer/components/agent/AgentModeSelector.tsx",
+          "description": "Redundant `visible` prop on AllowedToolsSelector — parent already guards with isDroidBackend condition, so the internal `if (!visible) return null` guard is dead code."
+        },
+        {
+          "severity": "nit",
+          "file": "src/renderer/components/agent/AllowedToolsSelector.tsx",
+          "description": "Catch block reuses allowedToolsUnsupported i18n key for transport errors. Consider a separate key for IPC failures vs backend-unsupported."
+        },
+        {
+          "severity": "minor",
+          "file": "src/renderer/components/agent/AllowedToolsSelector.tsx",
+          "description": "resolveToolIds pure function wrapped in useCallback with [] deps — extract as module-level function to avoid hook overhead."
+        }
+      ],
+      "summary": "Clean 3-state tool whitelist UI with correct null/[]/[ids] semantics. i18n complete. 18 tests covering DOM, backend guard, and integration. No blocking issues."
+    },
+    {
+      "featureId": "m4-f13-mcp-six-method-ipc-quartets-backend",
+      "commitId": "596b7a129",
+      "verdict": "pass",
+      "findings": [
+        {
+          "severity": "minor",
+          "file": "src/common/adapter/ipcBridge.ts",
+          "description": "addMcpServer/authenticateMcpServer use Record<string, unknown> for params, losing type safety at IPC boundary. SDK will reject invalid params but no runtime validation at bridge level."
+        },
+        {
+          "severity": "nit",
+          "file": "src/process/task/AcpAgentManager.ts",
+          "description": "Agent reference captured before entering mutex lock could be stale during session rebuild. Theoretical only — session rebuilds don't occur during MCP operations."
+        },
+        {
+          "severity": "nit",
+          "file": "src/process/task/AcpAgentManager.ts",
+          "description": "Lock map uses Promise<unknown> instead of Promise<void> for semantic clarity."
+        }
+      ],
+      "summary": "Solid IPC quartet implementation for all 6 MCP methods. Backend guards never throw, mutex is correct with no deadlock risk, 47 tests cover all 4 axes. No blocking issues."
+    },
+    {
+      "featureId": "m4-f14-mcp-panel-live-sync-and-oauth",
+      "commitId": "a9c69bce9",
+      "verdict": "concern",
+      "findings": [
+        {
+          "severity": "major",
+          "file": "src/renderer/hooks/mcp/useMcpOAuth.ts",
+          "line": 40,
+          "description": "Greedy mcp_auth success handler flips ALL needsLogin entries when any server completes OAuth. The handler iterates all oauthStatus entries and marks every one with needsLogin===true as authenticated, ignoring payload.serverName. Bug only manifests with multiple simultaneous OAuth-requiring MCP servers.",
+          "suggestedFix": "Store server name alongside status so handler can match payload.serverName to the correct entry."
+        },
+        {
+          "severity": "minor",
+          "file": "src/renderer/hooks/mcp/useMcpServers.ts",
+          "description": "refreshFromLiveSession error path uses raw backend error string via Message.warning instead of the defined i18n key mcpIpcListFailed."
+        },
+        {
+          "severity": "minor",
+          "file": "src/renderer/hooks/mcp/useMcpOAuth.ts",
+          "description": "Backend bridge drops authUrl from SDK response (known issue from handoff). Users never see OAuth page opened automatically."
+        }
+      ],
+      "summary": "IPC wiring for add/remove/toggle is correct with proper error handling. 14 DOM tests comprehensive. Main concern: greedy mcp_auth handler incorrectly authenticates all pending servers when any one completes. Secondary: raw error strings bypass i18n."
+    },
+    {
+      "featureId": "m4-f15-ipc-invariants-grep-sweep",
+      "commitId": "b920a1667",
+      "verdict": "pass",
+      "findings": [
+        {
+          "severity": "nit",
+          "file": "tests/unit/ipcExposureCoverage.test.ts",
+          "description": "JSDoc claims regex matches it.only/it.skip — incorrect, the regex `\\bit\\s*\\(` won't match those forms."
+        },
+        {
+          "severity": "minor",
+          "file": "tests/unit/ipcExposureCoverage.test.ts",
+          "description": "IPC_SYMBOLS is hardcoded — no mechanism to detect drift if new IPC methods are added."
+        }
+      ],
+      "summary": "Solid meta-test. All 3 invariants (VAL-IPC-016/017/018) correctly asserted. 7/7 IPC symbols confirmed in renderer, 87 test cases above threshold, zero cross-process boundary violations. Only cosmetic issues."
+    }
+  ],
+  "overallVerdict": "pass_with_concerns",
+  "blockers": [],
+  "concerns": [
+    {
+      "severity": "major",
+      "featureId": "m4-f14-mcp-panel-live-sync-and-oauth",
+      "description": "Greedy mcp_auth handler in useMcpOAuth.ts marks all OAuth-pending servers as authenticated when any single server completes OAuth. Low risk for single-server flows (common case) but incorrect for multi-server scenarios.",
+      "suggestedFix": "Match payload.serverName to specific server entry instead of broadcasting to all needsLogin entries."
+    }
+  ],
+  "typecheckFix": {
+    "file": "src/renderer/components/settings/SettingsModal/contents/factoryDroidByok/FactoryDroidByokSiteCard.tsx",
+    "description": "Added `as ReasoningLevel[]` cast to the `['none']` literal in fallback map and imported ReasoningLevel type. Fixes pre-existing TS2322 error that all 4 feature workers noted but didn't fix."
+  },
+  "aggregateStats": {
+    "totalNewTests": 92,
+    "totalFilesChanged": 38,
+    "totalLinesAdded": 3042,
+    "totalLinesRemoved": 24
+  },
+  "recommendation": "Milestone m4-ipc-exposure passes scrutiny with one major concern (greedy OAuth handler). The concern is non-blocking for single-server flows but should be tracked for fix in a future milestone. All validators green, code quality is high, test coverage is thorough."
+}

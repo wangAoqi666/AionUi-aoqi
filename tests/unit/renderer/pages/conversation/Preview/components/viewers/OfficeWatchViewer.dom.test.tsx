@@ -259,9 +259,7 @@ describe('OfficeWatchViewer — failure card', () => {
       fireEvent.click(screen.getByText('preview.officecli.actions.copyCommand'));
     });
 
-    expect(clipboardWriteTextMock).toHaveBeenCalledWith(
-      expect.stringContaining('install.sh | bash')
-    );
+    expect(clipboardWriteTextMock).toHaveBeenCalledWith(expect.stringContaining('install.sh | bash'));
     expect(messageSuccessMock).toHaveBeenCalledWith('preview.officecli.actions.copySuccess');
   });
 

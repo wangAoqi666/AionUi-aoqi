@@ -14,6 +14,7 @@ import {
   subscribeFactoryModelCatalog,
 } from '@/common/config/factoryModels';
 import type { AcpModelInfo } from '@/common/types/acpTypes';
+import { emitter } from '@/renderer/utils/emitter';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -211,6 +212,27 @@ const AcpModelSelector: React.FC<{
     };
     return ipcBridge.acpConversation.responseStream.on(handler);
   }, [conversationId, initialModelId]);
+
+  // Refetch model info when settings_updated event arrives via emitter
+  useEffect(() => {
+    const onSettingsUpdated = (payload: { conversationId: string; currentModelId: string }) => {
+      if (payload.conversationId !== conversationId) return;
+      ipcBridge.acpConversation.getModelInfo
+        .invoke({ conversationId })
+        .then((result) => {
+          if (result.success && result.data?.modelInfo) {
+            setModelInfo(result.data.modelInfo);
+          }
+        })
+        .catch((error) => {
+          console.error('[AcpModelSelector] Failed to refetch model info after settings_updated:', error);
+        });
+    };
+    emitter.on('acp.settings.updated', onSettingsUpdated);
+    return () => {
+      emitter.off('acp.settings.updated', onSettingsUpdated);
+    };
+  }, [conversationId]);
 
   const handleSelectModel = useCallback(
     (modelId: string) => {

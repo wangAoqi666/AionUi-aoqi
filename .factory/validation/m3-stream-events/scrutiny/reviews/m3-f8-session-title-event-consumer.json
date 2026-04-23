@@ -1,0 +1,39 @@
+{
+  "featureId": "m3-f8-session-title-event-consumer",
+  "reviewedAt": "2026-04-23T02:15:00+08:00",
+  "commitId": "35d1014c7876b64533f1cf758fa514772a263f1f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The session_title consumer is correctly placed before the default branch in the switch statement. It follows the established defensive pattern of checking conversation_id (redundant due to the early return at line 143, but consistent with settings_updated/mcp_status cases). The handler persists the title via IPC, syncs the tab name, and refreshes the sidebar — all without touching running/aiProcessing/turnFinishedRef. updateTabName is properly included in the useCallback deps array. The type assertion `message.data as { title: string }` follows the same pattern used by all other stream metadata event handlers in this file (mcp_auth, settings_updated, mcp_status). Tests are well-structured with proper mock isolation and cover all three validation assertions.",
+    "issues": [
+      {
+        "file": "src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+        "line": 344,
+        "severity": "non_blocking",
+        "description": "The session_title handler does not call refreshConversationCache(conversation_id) after updating the title, whereas the manual rename path in useTitleRename.ts (line 78) does. If any component reads the conversation object from the SWR cache (via useSWR('conversation/{id}')), it will show a stale title until the next natural cache refresh. The sidebar refresh via emitter.emit('chat.history.refresh') re-fetches the conversation list separately, so the sidebar is fine. This is a potential staleness issue for components that consume the individual conversation SWR key."
+      },
+      {
+        "file": "src/renderer/pages/conversation/platforms/acp/useAcpMessage.ts",
+        "line": 343,
+        "severity": "non_blocking",
+        "description": "The conversation_id guard `if (message.conversation_id === conversation_id)` is redundant — an identical check exists at line 143 as an early return that applies to all cases in the switch. This is consistent with settings_updated (line 358) and mcp_status cases, so it's a deliberate defensive pattern. Not a bug, just unnecessary code."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Stream metadata event handlers (session_title, settings_updated, mcp_status) all include a redundant conversation_id check inside their case body, even though the early return at line 143 already filters out mismatched conversations. This is a deliberate defensive pattern but is undocumented — future contributors may either (a) omit the check thinking it's unnecessary, or (b) waste time investigating why it exists.",
+      "evidence": "useAcpMessage.ts lines 143 (early return), 343 (session_title), 358 (settings_updated), 374 (mcp_status) — all have identical conversation_id checks"
+    },
+    {
+      "area": "conventions",
+      "observation": "The manual rename path (useTitleRename.ts) calls refreshConversationCache() after updating a conversation title, but the backend-triggered session_title handler does not. This inconsistency could cause stale SWR cache data for components reading individual conversation objects.",
+      "evidence": "useTitleRename.ts:78 calls refreshConversationCache(conversationId) after rename; useAcpMessage.ts session_title case (line 339-350) skips it"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS. The session_title event consumer is correctly implemented with proper placement before default, conversation_id filtering, title persistence via IPC, tab name sync, and sidebar refresh. Tests cover all three validation assertions (VAL-STREAM-001 through 003) with proper mock isolation. Two non-blocking observations: (1) missing refreshConversationCache() call that could cause stale SWR data, and (2) redundant but consistent defensive conversation_id check. Neither blocks the feature."
+}

@@ -1,0 +1,26 @@
+{
+  "featureId": "m1-f1c-skill-manager-sdk-skills-backend-partition",
+  "reviewedAt": "2026-04-22T10:36:26Z",
+  "commitId": "2469e7ab7",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix fully addresses the prior m1-f1b blocker: SDK skills are now partitioned by backend in AcpSkillManager, the DroidSdkAgent write/clear sites target the droid slot, and regression coverage exercises both direct isolation and the real non-droid prompt-injection helper. I did not find any new high-confidence correctness bugs in the current on-disk implementation.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "services",
+      "observation": "The shared-state docs still describe `.factory/services.yaml` as carrying a stale Vitest `--poolOptions.threads.maxThreads=4` command, but the manifest now already uses plain `bun run test`.",
+      "evidence": ".factory/services.yaml:4 defines `test: bun run test`, while .factory/library/environment.md:41 and .factory/library/user-testing.md:40 still warn that the current services.yaml test command is stale."
+    },
+    {
+      "area": "skills",
+      "observation": "The droid-backend-worker skill records the `enabledSkills` cache-key trap, but it does not yet capture the new m1-f1c testing rule that SDK-skill read-backs must query AcpSkillManager with `{ backend: 'droid' }` after `syncSdkSkills()`.",
+      "evidence": ".factory/skills/droid-backend-worker/SKILL.md:53-55 covers enabledSkills/cache-order lessons only. The current implementation now partitions SDK skills by backend in src/process/task/AcpSkillManager.ts:206-251 and src/process/agent/droid/DroidSdkAgent.ts:1818-1819, and the fix worker had to update existing droidListSkills read-back sites to use the droid slot."
+    }
+  ],
+  "addressesFailureFrom": "/Users/wayz/Desktop/我的云盘/git_repo/AionUi-aoqi/.factory/validation/m1-skills/scrutiny/reviews/m1-f1b-skill-manager-cache-integrity.json",
+  "summary": "Pass. The current repo state resolves the original backend-agnostic sdkSkills leak: AcpSkillManager now scopes SDK skills by backend, DroidSdkAgent writes and clears the droid bucket explicitly, and the new regression tests cover both direct backend isolation and the real `prepareFirstMessageWithSkillsIndex` path. The optional direct `buildStaleSkillsReminder` test remains deferred, but the covered helper path exercises the same backend-keyed contract, so the regression coverage is sufficient for this fix."
+}

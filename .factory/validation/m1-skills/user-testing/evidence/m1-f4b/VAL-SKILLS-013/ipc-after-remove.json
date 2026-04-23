@@ -1,0 +1,190 @@
+{
+  "cycle": {
+    "probeName": "val-skills-013-probe-1776849705",
+    "probeDir": "/Users/wayz/.factory/skills/val-skills-013-probe-1776849705",
+    "destDir": "/tmp/m1-f4b-trash/val-skills-013-probe-1776849705-removed-1776849705",
+    "tAdd": 1776849705737,
+    "tRemove": 1776849708254,
+    "deltaAddMs": 939,
+    "deltaRemoveMs": 669
+  },
+  "eventCount": 24,
+  "events": [
+    {
+      "ts": 1776849706673,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849706674,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849706676,
+      "source": "skills-watcher",
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849706677,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849706728,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849706728,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849706730,
+      "source": "skills-watcher",
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849706730,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849706748,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849706749,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849706749,
+      "source": "skills-watcher",
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849706749,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849708922,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849708923,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849708923,
+      "source": "skills-watcher",
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849708924,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "87472e08"
+    },
+    {
+      "ts": 1776849708937,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849708939,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849708940,
+      "source": "skills-watcher",
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849708940,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2a5f676d"
+    },
+    {
+      "ts": 1776849708964,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849708964,
+      "source": "droid-sdk",
+      "sdkSkillsCount": 101,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849708965,
+      "source": "skills-watcher",
+      "conversation_id": "2c37d3d9"
+    },
+    {
+      "ts": 1776849708965,
+      "source": "skills-watcher",
+      "sdkSkillsCount": 0,
+      "includesProbe": false,
+      "probeSkillName": null,
+      "probeSkillDescription": null,
+      "conversation_id": "2c37d3d9"
+    }
+  ],
+  "probeInTrash": true,
+  "probeInSkills": false
+}
