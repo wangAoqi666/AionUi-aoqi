@@ -52,6 +52,19 @@
 
 ---
 
+## 🆕 What's New in v0.1.7
+
+- **Skills Pipeline** — SDK skill sync with hot-reload watcher, backend-partitioned cache, and word-boundary classification
+- **Mission Mode** — New agent mode with real-time MissionPanel tracking milestones and feature progress
+- **Stream Events** — Live consumption of `session_title`, `settings_updated`, `mcp_status`, and `mcp_auth` events
+- **MCP Live Sync** — 6 MCP IPC methods (list/add/remove/update/enable/disable) with panel live sync + OAuth flow
+- **Tool Whitelist** — `setEnabledToolIds` end-to-end support with three-state semantics (default / none / whitelist)
+- **Quality** — BYOK capability verifier, Windows PS7+ multi-language detector, CJK path handling, dead ternary cleanup
+
+> See [CHANGELOG.md](./CHANGELOG.md) for the full release notes.
+
+---
+
 ## Cowork — AI Agents That Work Alongside You
 
 **AionUi is more than a chat client.** It's a Cowork platform where AI agents work alongside you on your computer — reading files, writing code, browsing the web, and automating tasks. You see everything the agent does, and you're always in control.
