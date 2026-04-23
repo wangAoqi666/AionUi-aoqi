@@ -7,7 +7,7 @@
 import type { IDroidByokModelConfig, IDroidByokSite } from '@/common/adapter/ipcBridge';
 import { ipcBridge } from '@/common';
 import { Empty, Message, Spin } from '@arco-design/web-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import FactoryDroidByokSiteCard from './FactoryDroidByokSiteCard';
 import FactoryDroidByokRotateKeyModal from './FactoryDroidByokRotateKeyModal';
@@ -50,6 +50,8 @@ const FactoryDroidByokSiteList: React.FC<FactoryDroidByokSiteListProps> = ({
   const [busySiteId, setBusySiteId] = useState<string | null>(null);
   const [removingSiteId, setRemovingSiteId] = useState<string | null>(null);
   const [message, messageContext] = Message.useMessage();
+  const messageRef = useRef(message);
+  messageRef.current = message;
 
   const [rotateKeyCtrl, rotateKeyContext] = FactoryDroidByokRotateKeyModal.useModal({
     site: null,
@@ -74,11 +76,11 @@ const FactoryDroidByokSiteList: React.FC<FactoryDroidByokSiteListProps> = ({
       }
       setSites(result.data?.sites || []);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+      messageRef.current.error(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
-  }, [message, t]);
+  }, [t]);
 
   useEffect(() => {
     void loadSites();
