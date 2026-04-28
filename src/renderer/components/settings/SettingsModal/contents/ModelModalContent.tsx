@@ -858,7 +858,8 @@ const ModelModalContent: React.FC = () => {
             onRequestAddModel={(site) =>
               factoryDroidByokModalCtrl.open({
                 data: null,
-                prefill: { baseUrl: site.baseUrl, provider: site.provider },
+                prefill: { baseUrl: site.baseUrl, provider: site.providers[0] },
+                bindToSiteId: site.id,
               })
             }
             onEditModel={(config) => factoryDroidByokModalCtrl.open({ data: config })}

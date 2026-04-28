@@ -39,14 +39,18 @@ vi.mock('@process/utils/shellEnv', () => ({
   getEnhancedEnv: () => ({}),
 }));
 
-vi.mock('@process/agent/droid/cliRuntime', () => ({
-  resolveWorkingDroidCli: vi.fn((execPath?: string | null) => ({
-    execPath: execPath || 'droid',
-    cliPath: execPath || 'droid',
-    source: 'system',
-    version: '1.0.0',
-  })),
-}));
+vi.mock('@process/agent/droid/cliRuntime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@process/agent/droid/cliRuntime')>();
+  return {
+    ...actual,
+    resolveWorkingDroidCli: vi.fn((execPath?: string | null) => ({
+      execPath: execPath || 'droid',
+      cliPath: execPath || 'droid',
+      source: 'system',
+      version: '1.0.0',
+    })),
+  };
+});
 
 describe('DroidSdkAgent', () => {
   beforeEach(() => {
@@ -92,11 +96,13 @@ describe('DroidSdkAgent', () => {
     expect(streamedPrompt.indexOf('<system-reminder>')).toBeLessThan(streamedPrompt.indexOf('@/tmp/example.txt'));
   });
 
-  it('routes new-message attachments through SDK-native MessageOptions (no @file in prompt)', async () => {
-    // P1-2 contract: when `data.files` is non-empty AND the content does NOT
-    // begin with a legacy `@file` token, the agent MUST upload the files via
-    // `MessageOptions.images` / `MessageOptions.files` and keep the prompt free
-    // of `@path` refs. Uses a real tmp file so the resolver actually succeeds.
+  it('prepends @path refs (legacy) for local file attachments to avoid CLI-side base64 stall', async () => {
+    // Regression guard: the native `MessageOptions.images/files` channel
+    // caused `droid.add_user_message` to stall for minutes on large base64
+    // payloads because the JSON-RPC handler blocks while parsing the blob.
+    // Since the Droid CLI runs locally and can mmap files directly from
+    // disk, we now ALWAYS route local attachments via the legacy `@path`
+    // text prepend and keep `MessageOptions` free of `images/files`.
     const tmp = await mkdtemp(join(tmpdir(), 'droid-agent-attach-'));
     try {
       const file = join(tmp, 'note.txt');
@@ -131,11 +137,10 @@ describe('DroidSdkAgent', () => {
       });
 
       expect(streamedPrompt).toContain('When using the AskUser tool');
-      expect(streamedPrompt).not.toContain(`@${file}`);
-      expect(streamOptions).toBeDefined();
-      // A `.txt` file is not in the image mediaType enum → goes to `files[]`.
-      expect((streamOptions as { files?: unknown[] }).files).toHaveLength(1);
-      expect((streamOptions as { images?: unknown[] }).images).toBeUndefined();
+      // Legacy `@path` prepend MUST appear so Droid CLI can mmap the file.
+      expect(streamedPrompt).toContain(`@${file}`);
+      // Native options MUST NOT be set — base64 payloads cause CLI stalls.
+      expect(streamOptions).toBeUndefined();
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -705,6 +710,124 @@ describe('DroidSdkAgent', () => {
         })
       );
       expect(options).not.toHaveProperty('skipPermissionsUnsafe');
+    });
+  });
+
+  describe('pipe-compatibility gate (Windows cmd.exe shell wrapper regression)', () => {
+    it('refuses to create a session when the resolver returns a non-pipe-compatible cmd.exe wrapper', async () => {
+      // Tester's v0.108.0 log: cmd.exe /c droid.cmd answers --version but the
+      // SDK's `droid.initialize_session` hangs 60s through cmd.exe's stdio
+      // layer (CRLF translation, stdin EOF, ConPTY). The agent must fail fast
+      // with an actionable error message rather than silently time out.
+      const { resolveWorkingDroidCli } = await import('@process/agent/droid/cliRuntime');
+      (resolveWorkingDroidCli as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        execPath: 'cmd.exe',
+        execArgs: ['/d', '/s', '/c', 'C:/Users/qwq/AppData/Roaming/npm/droid.cmd'],
+        cliPath: null,
+        source: 'system',
+        version: '0.108.0',
+        pipeCompatible: false,
+      });
+
+      const streamEvents: unknown[] = [];
+      const agent = new DroidSdkAgent({
+        id: 'conv-cmd-exe',
+        workingDir: '/tmp',
+        onStreamEvent: (msg: unknown) => streamEvents.push(msg),
+      });
+
+      await expect(agent.start()).rejects.toThrow(/cmd\.exe|JSON-RPC|@factory\/cli/);
+      expect(createSessionMock).not.toHaveBeenCalled();
+    });
+
+    it('tail-merges SDK stream-jsonrpc args onto the node + JS launch prefix when starting a session', async () => {
+      // Root cause of the v0.108.0 Windows timeout regression: the resolver
+      // returns `{ execPath: 'node', execArgs: ['<path to droid.js>'] }` so
+      // the SDK can spawn the CLI without going through cmd.exe. But the
+      // SDK's ProcessTransport fully OVERRIDES its internal DEFAULT_EXEC_ARGS
+      // (`['exec', '--input-format', 'stream-jsonrpc', '--output-format',
+      // 'stream-jsonrpc']`) whenever the caller passes any truthy execArgs.
+      // If we only hand over the `['<path>']` prefix, droid spawns in
+      // interactive TUI mode and the SDK hangs 60 s waiting for
+      // `droid.initialize_session` to respond.
+      //
+      // The fix tail-merges the 5 SDK args via `composeSdkExecArgs` so the
+      // spawned process actually speaks the JSON-RPC stream protocol.
+      const { resolveWorkingDroidCli } = await import('@process/agent/droid/cliRuntime');
+      (resolveWorkingDroidCli as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        execPath: 'node',
+        execArgs: ['C:/Users/qwq/AppData/Roaming/npm/node_modules/droid/bin/droid'],
+        cliPath: null,
+        source: 'system',
+        version: '0.108.0',
+        pipeCompatible: true,
+      });
+
+      const session = {
+        sessionId: 'session-node-shim',
+        updateSettings: vi.fn(),
+        close: vi.fn(),
+        interrupt: vi.fn(),
+        stream: vi.fn(async function* () {
+          yield* [];
+        }),
+      };
+      createSessionMock.mockResolvedValue(session);
+
+      const agent = new DroidSdkAgent({
+        id: 'conv-node-shim',
+        workingDir: '/tmp',
+        onStreamEvent: vi.fn(),
+      });
+
+      await agent.start();
+
+      expect(createSessionMock).toHaveBeenCalledTimes(1);
+      const options = createSessionMock.mock.calls[0]?.[0];
+      expect(options).toMatchObject({
+        execPath: 'node',
+        execArgs: [
+          'C:/Users/qwq/AppData/Roaming/npm/node_modules/droid/bin/droid',
+          'exec',
+          '--input-format',
+          'stream-jsonrpc',
+          '--output-format',
+          'stream-jsonrpc',
+        ],
+      });
+    });
+
+    it('emits an actionable conversation error when the Windows CLI is missing from PATH', async () => {
+      const { resolveWorkingDroidCli } = await import('@process/agent/droid/cliRuntime');
+      (resolveWorkingDroidCli as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+        execPath: 'droid',
+        cliPath: null,
+        source: 'system',
+        version: null,
+        error: 'spawnSync droid ENOENT',
+        diagnostic: {
+          code: 'cli-not-found',
+          stage: 'preflight',
+          detail: 'spawnSync droid ENOENT',
+        },
+      });
+      createSessionMock.mockRejectedValue(new Error('spawnSync droid ENOENT'));
+
+      const streamEvents: Array<Record<string, unknown>> = [];
+      const agent = new DroidSdkAgent({
+        id: 'conv-missing-cli',
+        workingDir: '/tmp',
+        onStreamEvent: (message) => streamEvents.push(message as Record<string, unknown>),
+      });
+
+      await expect(agent.start()).rejects.toThrow('spawnSync droid ENOENT');
+
+      expect(streamEvents).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          data: expect.stringContaining('Droid CLI is not installed or is not available on PATH'),
+        })
+      );
     });
   });
 });

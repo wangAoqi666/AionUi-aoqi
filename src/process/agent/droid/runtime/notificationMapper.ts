@@ -36,6 +36,7 @@
 // 仅类型导入；运行期 NotificationCallback 是 `(notification: Record<string, unknown>) => void`。
 // Only types are imported — no runtime dependency on the SDK here.
 import type { UpdateSessionSettingsRequestParams } from '@factory/droid-sdk';
+import { normalizeBackendErrorMessage } from './backendErrorMessage';
 
 /**
  * SDK `SessionNotificationType` 的枚举字符串值，与 `index.d.ts` L41-L62 一一对应。
@@ -55,6 +56,10 @@ export const DroidNotificationTypeLiteral = {
   MissionHeartbeat: 'mission_heartbeat',
   MissionWorkerStarted: 'mission_worker_started',
   MissionWorkerCompleted: 'mission_worker_completed',
+  // BYOK fix (2026-04-23): backend-pushed error notifications must surface in
+  // the UI instead of being silently dropped as `ignored`. Matches the SDK's
+  // lowercased `error` type literal.
+  Error: 'error',
 } as const;
 
 /**
@@ -210,6 +215,18 @@ export type NotificationMappedResult =
       /** Free-form summary if the CLI ships one in the passthrough payload. */
       result?: string;
       missionId?: string;
+    }
+  | {
+      /**
+       * BYOK fix (2026-04-23): surface backend-pushed `error` notifications
+       * through the UI pipeline instead of dropping them in `ignored`. Message
+       * is already normalised (payment-required rewrite applied) so callers
+       * can forward it verbatim to `onStreamEvent({ type: 'error', data })`.
+       */
+      kind: 'error';
+      message: string;
+      /** Optional SDK-supplied error code (HTTP status, provider error code, …). */
+      code?: string;
     }
   | {
       kind: 'ignored';
@@ -525,6 +542,32 @@ function mapMissionWorkerStarted(payload: Record<string, unknown>): Notification
   return result;
 }
 
+/**
+ * Map the SDK's server-pushed `error` notification into a renderer-friendly
+ * shape. Accepts a handful of payload field names (`message`, `error`,
+ * `detail`, nested `error.message`) because different CLI builds have
+ * historically used different keys for the human-readable text.
+ */
+function mapErrorNotification(payload: Record<string, unknown>): NotificationMappedResult {
+  const nestedError =
+    payload.error && typeof payload.error === 'object' ? (payload.error as Record<string, unknown>) : undefined;
+  const rawMessage =
+    asString(payload.message) ??
+    asString(payload.error) ??
+    asString(payload.detail) ??
+    asString(nestedError?.message) ??
+    asString(nestedError?.detail) ??
+    '';
+  const code =
+    asString(payload.code) ?? asString(payload.status) ?? asString(nestedError?.code) ?? asString(nestedError?.status);
+  const result: Extract<NotificationMappedResult, { kind: 'error' }> = {
+    kind: 'error',
+    message: normalizeBackendErrorMessage(rawMessage),
+  };
+  if (code !== undefined) result.code = code;
+  return result;
+}
+
 function mapMissionWorkerCompleted(payload: Record<string, unknown>): NotificationMappedResult {
   const result: Extract<NotificationMappedResult, { kind: 'mission_worker_completed' }> = {
     kind: 'mission_worker_completed',
@@ -582,6 +625,8 @@ export function mapDroidNotification(notification: unknown): NotificationMappedR
       return mapMissionWorkerStarted(payload);
     case DroidNotificationTypeLiteral.MissionWorkerCompleted:
       return mapMissionWorkerCompleted(payload);
+    case DroidNotificationTypeLiteral.Error:
+      return mapErrorNotification(payload);
     default:
       return { kind: 'ignored', type };
   }

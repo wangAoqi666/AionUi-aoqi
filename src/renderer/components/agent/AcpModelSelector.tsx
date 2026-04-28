@@ -234,6 +234,39 @@ const AcpModelSelector: React.FC<{
     };
   }, [conversationId]);
 
+  // Catalog-sync: when the Factory catalog changes (e.g., a BYOK model was
+  // added or deleted from the settings modal), rebuild `modelInfo.availableModels`
+  // from the fresh catalog so the dropdown list reflects the change immediately.
+  // If the currently selected model was deleted, fall back to the Factory default.
+  //
+  // 目录同步：factoryCatalog 变动时（增删 BYOK 模型），用最新目录重建 modelInfo 的
+  // availableModels 列表，使对话页模型选择器立刻反映变化。
+  useEffect(() => {
+    if (backend !== 'droid') return;
+    if (!modelInfoRef.current) return;
+
+    const freshInfo = getFactoryDroidModelInfo(modelInfoRef.current.currentModelId);
+    const currentId = modelInfoRef.current.currentModelId;
+    const stillExists = freshInfo.availableModels.some((m) => m.id === currentId);
+
+    setModelInfo((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        availableModels: freshInfo.availableModels,
+        canSwitch: true,
+        ...(stillExists
+          ? {}
+          : {
+              currentModelId: freshInfo.currentModelId,
+              currentModelLabel:
+                freshInfo.availableModels.find((m) => m.id === freshInfo.currentModelId)?.label ||
+                freshInfo.currentModelId,
+            }),
+      };
+    });
+  }, [backend, factoryCatalog]);
+
   const handleSelectModel = useCallback(
     (modelId: string) => {
       hasUserChangedModel.current = true;

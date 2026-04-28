@@ -126,20 +126,25 @@ export async function runStartupProbe<T>(spec: StartupProbeSpec<T>): Promise<voi
 }
 
 /**
- * Schedule a batch of probes to run in parallel after the caller signals
- * the window is ready. Calling this more than once is a no-op so callers
- * can safely wire it into both `did-finish-load` and a fallback timer.
+ * Schedule a batch of probes to run **serially** after the caller signals
+ * the window is ready. Serial execution avoids resource contention on
+ * slower machines (e.g. Windows) where parallel CLI probes would starve
+ * each other. Calling this more than once is a no-op so callers can safely
+ * wire it into both `did-finish-load` and a fallback timer.
  *
- * 调度一批探测；多次调用会被幂等忽略，便于在 did-finish-load 与兜底定时器上重复绑定。
+ * 串行调度一批探测，避免慢机器上并行探测互相抢资源；
+ * 多次调用会被幂等忽略，便于在 did-finish-load 与兜底定时器上重复绑定。
  */
 export function scheduleStartupProbes(probes: StartupProbeSpec[]): void {
   if (startupProbesScheduled) {
     return;
   }
   startupProbesScheduled = true;
-  for (const probe of probes) {
-    void runStartupProbe(probe);
-  }
+  void (async () => {
+    for (const probe of probes) {
+      await runStartupProbe(probe);
+    }
+  })();
 }
 
 /**

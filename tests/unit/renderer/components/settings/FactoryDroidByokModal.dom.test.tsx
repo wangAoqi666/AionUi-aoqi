@@ -15,6 +15,9 @@ const mockImportInvoke = vi.fn();
 const mockMessageSuccess = vi.fn();
 const mockMessageWarning = vi.fn();
 const mockMessageError = vi.fn();
+const capabilityDriftHandlerRef = vi.hoisted(() => ({
+  current: null as ((payload: any) => void) | null,
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -47,6 +50,12 @@ vi.mock('@/common', () => ({
       },
       droidByokImportProgress: {
         on: vi.fn(() => vi.fn()),
+      },
+      droidByokCapabilityDrift: {
+        on: vi.fn((handler: (payload: any) => void) => {
+          capabilityDriftHandlerRef.current = handler;
+          return vi.fn();
+        }),
       },
     },
   },
@@ -153,18 +162,19 @@ import FactoryDroidByokModal from '@/renderer/components/settings/FactoryDroidBy
 describe('FactoryDroidByokModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capabilityDriftHandlerRef.current = null;
   });
 
-  it('renders the google provider option in edit mode', () => {
+  it('renders the generic provider option for Gemini endpoints in edit mode', () => {
     render(
       <FactoryDroidByokModal
         data={{
-          id: 'cfg-google',
-          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          id: 'cfg-gemini',
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
           apiKey: 'gem-key',
           model: 'gemini-2.5-pro',
           displayName: 'Gemini 2.5 Pro [BYOK]',
-          provider: 'google',
+          provider: 'generic-chat-completion-api',
           maxOutputTokens: 8192,
         }}
         modalProps={{ visible: true }}
@@ -172,7 +182,7 @@ describe('FactoryDroidByokModal', () => {
       />
     );
 
-    expect(screen.getByText('settings.droidByok.providerGoogle')).toBeInTheDocument();
+    expect(screen.getByText('settings.droidByok.providerGeneric')).toBeInTheDocument();
   });
 
   it('fetches remote models and imports selected models in add mode', async () => {
@@ -386,5 +396,148 @@ describe('FactoryDroidByokModal', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(mockMessageSuccess).toHaveBeenCalledWith('settings.droidByok.saveSuccess');
+  });
+
+  it('shows a targeted Windows CLI repair warning after save when verifier reports missing-platform-binary', async () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+    mockTestInvoke.mockResolvedValue({
+      success: true,
+      data: {
+        config: {
+          id: 'cfg-1',
+          baseUrl: 'https://api.example.com',
+          apiKey: 'sk-test',
+          model: 'claude-sonnet-4-6',
+          displayName: 'Claude Sonnet 4.6 [BYOK]',
+          provider: 'anthropic',
+          maxOutputTokens: 8192,
+        },
+      },
+    });
+    mockSaveInvoke.mockImplementation(async () => {
+      capabilityDriftHandlerRef.current?.({
+        ok: [],
+        missing: [],
+        conflict: [],
+        unreachable: true,
+        cliDiagnosticCode: 'missing-platform-binary',
+      });
+      return {
+        success: true,
+        data: {
+          config: {
+            id: 'cfg-1',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-test',
+            model: 'claude-sonnet-4-6',
+            displayName: 'Claude Sonnet 4.6 [BYOK]',
+            provider: 'anthropic',
+            maxOutputTokens: 8192,
+          },
+        },
+      };
+    });
+
+    render(
+      <FactoryDroidByokModal
+        data={{
+          id: 'cfg-1',
+          baseUrl: 'https://api.example.com',
+          apiKey: 'sk-test',
+          model: 'claude-sonnet-4-6',
+          displayName: 'Claude Sonnet 4.6 [BYOK]',
+          provider: 'anthropic',
+          maxOutputTokens: 8192,
+        }}
+        onSubmit={onSubmit}
+        modalProps={{ visible: true }}
+        modalCtrl={{ close: onClose }}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('settings.droidByok.testConnection'));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('confirm'));
+    });
+
+    expect(mockMessageWarning).toHaveBeenCalledWith('settings.droidByok.warning.missingPlatformBinary');
+    expect(mockMessageSuccess).toHaveBeenCalledWith('settings.droidByok.saveSuccess');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a post-import warning when saved models are not exposed yet', async () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+    mockFetchInvoke.mockResolvedValue({
+      success: true,
+      data: {
+        catalog: {
+          baseUrl: 'https://gateway.example.com',
+          cachedAt: 1,
+          models: [
+            {
+              model: 'gpt-5.4',
+              displayName: 'GPT-5.4 [BYOK]',
+              supportedEndpointTypes: ['openai', 'openai-response'],
+              inferredProvider: 'openai',
+            },
+          ],
+        },
+      },
+    });
+    mockImportInvoke.mockImplementation(async () => {
+      capabilityDriftHandlerRef.current?.({
+        ok: [],
+        missing: ['custom:GPT-5.4 [BYOK]'],
+        conflict: [],
+        unreachable: false,
+      });
+      return {
+        success: true,
+        data: {
+          imported: [
+            {
+              id: 'cfg-1',
+              baseUrl: 'https://gateway.example.com',
+              apiKey: 'sk-test',
+              model: 'gpt-5.4',
+              displayName: 'GPT-5.4 [BYOK]',
+              provider: 'openai',
+              maxOutputTokens: 8192,
+            },
+          ],
+          failed: [],
+        },
+      };
+    });
+
+    const { container } = render(
+      <FactoryDroidByokModal onSubmit={onSubmit} modalProps={{ visible: true }} modalCtrl={{ close: onClose }} />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('settings.droidByok.baseUrlPlaceholder'), {
+      target: { value: 'https://gateway.example.com' },
+    });
+    fireEvent.change(container.querySelector('input[type="password"]')!, {
+      target: { value: 'sk-test' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('settings.droidByok.fetchModels'));
+    });
+
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('confirm'));
+    });
+
+    expect(mockMessageWarning).toHaveBeenCalledWith('settings.droidByok.warning.missingModels:1');
+    expect(mockMessageSuccess).toHaveBeenCalledWith('settings.droidByok.importSuccess:1');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

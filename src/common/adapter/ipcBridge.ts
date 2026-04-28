@@ -13,6 +13,7 @@ import type {
   AcpBackend,
   AcpBackendAll,
   AcpModelInfo,
+  DroidCliDiagnosticCode,
   DroidCliInstallProgress,
   DroidCliInstallResult,
   DroidCliUpdateInfo,
@@ -34,7 +35,7 @@ import type {
 import type { ProtocolDetectionRequest, ProtocolDetectionResponse } from '../utils/protocolDetector';
 import type { SpeechToTextRequest, SpeechToTextResult } from '../types/speech';
 
-export type DroidByokModelProvider = 'anthropic' | 'openai' | 'generic-chat-completion-api' | 'google';
+export type DroidByokModelProvider = 'anthropic' | 'openai' | 'generic-chat-completion-api';
 
 export interface IDroidByokModelConfigInput {
   baseUrl: string;
@@ -141,6 +142,7 @@ export type IDroidByokVerificationResult = {
   missing: string[];
   conflict: IDroidByokCapabilityConflict[];
   unreachable: boolean;
+  cliDiagnosticCode?: DroidCliDiagnosticCode;
 };
 
 export interface IDroidByokImportResult {
@@ -172,20 +174,32 @@ export interface IDroidByokModelConfig extends Omit<IDroidByokModelConfigInput, 
 
 /**
  * BYOK site view — aggregates one or more `customModels` entries that share
- * the same normalized `(provider, baseUrl)` tuple. Stable ids are derived as
- * `sha1(provider + '|' + normalizedBaseUrl)` so multiple process restarts keep
- * the same site identity.
+ * the same normalized `baseUrl`. Stable ids are derived as
+ * `sha1(normalizedBaseUrl)` so multiple process restarts keep the same site
+ * identity even when providers differ across models.
+ *
+ * Since 2026-04-24 the site is provider-agnostic: two models on the same
+ * baseUrl but different providers (e.g., Claude + Qwen behind one gateway)
+ * share a single site card. `providers` exposes every provider that has at
+ * least one model in this site so UI can render multi-provider tags.
  *
  * Note: `hasApiKey` is a coarse boolean; the raw API key never leaves the main
  * process. UI surfaces a "rotate key" flow instead of exposing plaintext.
  *
- * BYOK 站点视图：按归一化后的 `(provider, baseUrl)` 聚合 customModels 条目。
+ * BYOK 站点视图：按归一化后的 baseUrl 聚合 customModels 条目（不再按 provider 区分）。
  * id 跨进程重启稳定；明文 apiKey 不暴露到 renderer。
  */
 export interface IDroidByokSite {
   id: string;
   baseUrl: string;
-  provider: DroidByokModelProvider;
+  /**
+   * Every provider that has at least one model in this site (deduplicated,
+   * preserves insertion order). Mixed-provider sites expose multiple entries
+   * here — e.g. `['anthropic', 'generic-chat-completion-api']`.
+   *
+   * 站点下去重后的所有 provider 列表；混合站点会包含多个 provider。
+   */
+  providers: DroidByokModelProvider[];
   label?: string;
   hasApiKey: boolean;
   modelIds: string[];
@@ -204,18 +218,24 @@ export interface IDroidByokSite {
 /**
  * Upsert payload for a BYOK site.
  *
- * - `id` absent → create a new site (service REQUIRES `existingModelIds` to
- *   reference at least one already-persisted model entry; a brand-new site
- *   with zero models is rejected — add models through
- *   `importDroidByokConfigs` / `saveDroidByokConfig` first).
- * - `id` present → update existing site's `baseUrl` / `provider` / `label`
- *   (and, if provided, `apiKey`). Omitting `apiKey` preserves the existing
- *   API key so UI can update metadata without re-typing secrets.
+ * - `id` absent → rejected. A brand-new site with zero models is not
+ *   supported; add models through `importDroidByokConfigs` /
+ *   `saveDroidByokConfig` first.
+ * - `id` present → update existing site's `baseUrl` / `label` / optional
+ *   `apiKey`. When `provider` is supplied, it is applied uniformly to every
+ *   model in the site (bulk protocol switch); when omitted, mixed-protocol
+ *   sites preserve each model's own provider. Omitting `apiKey` preserves
+ *   the existing API key so UI can update metadata without re-typing secrets.
  */
 export interface IDroidByokSiteUpsertInput {
   id?: string;
   baseUrl: string;
-  provider: DroidByokModelProvider;
+  /**
+   * Optional uniform provider override for every model in the site. When
+   * omitted, each underlying model keeps its own provider so mixed-protocol
+   * sites (e.g. Claude + Qwen behind one gateway) stay intact.
+   */
+  provider?: DroidByokModelProvider;
   label?: string;
   apiKey?: string;
   /**
@@ -816,6 +836,19 @@ export const acpConversation = {
     IBridgeResponse<{ site: IDroidByokSite }>,
     { id: string; newApiKey: string }
   >('acp.rotate-droid-byok-site-api-key'),
+  // Site-scoped "add model" path — reuses the stored API key inside the main
+  // process so the renderer never has to handle the plaintext key when
+  // adding more models to an already-configured site (2026-04-24 overhaul).
+  //
+  // 站点内加模型入口：主进程内部复用已存 apiKey，renderer 不再需要重新输入密钥。
+  fetchDroidByokModelsForSite: bridge.buildProvider<
+    IBridgeResponse<{ catalog: IDroidByokRemoteCatalog }>,
+    { siteId: string; refresh?: boolean }
+  >('acp.fetch-droid-byok-models-for-site'),
+  importDroidByokConfigsIntoSite: bridge.buildProvider<
+    IBridgeResponse<IDroidByokImportResult>,
+    { siteId: string; models: IDroidByokImportModelInput[]; skipProbe?: boolean }
+  >('acp.import-droid-byok-configs-into-site'),
   // Probe model info for an ACP backend without creating a visible conversation
   // 预探测 ACP 后端的模型信息，不创建可见会话
   probeModelInfo: bridge.buildProvider<IBridgeResponse<{ modelInfo: AcpModelInfo | null }>, { backend: AcpBackend }>(

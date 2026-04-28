@@ -99,6 +99,10 @@ export class DroidPermissionPolicy {
   evaluate(input: DroidPermissionEvaluationInput): DroidPermissionEvaluationResult {
     const normalizedName = getNormalizedName(input.toolName, input.confirmationType);
 
+    if (this.settings.permissionMode === 'allow-all') {
+      return { outcome: ToolConfirmationOutcome.ProceedOnce };
+    }
+
     if (SAFE_TOOL_NAMES.has(normalizedName) || input.confirmationType === 'ask_user') {
       return { outcome: ToolConfirmationOutcome.ProceedOnce };
     }

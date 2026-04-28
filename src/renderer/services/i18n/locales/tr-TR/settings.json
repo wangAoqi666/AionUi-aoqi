@@ -197,12 +197,12 @@
     "providerAnthropic": "Anthropic",
     "providerOpenai": "OpenAI",
     "providerGeneric": "Generic Chat Completion API",
-    "providerGoogle": "Google Gemini",
     "fetchModels": "Modelleri Getir",
     "refreshModels": "Yenile",
     "fetchModelsHint": "Önce Base URL ve API Key girin, ardından içe aktarmadan önce uzak model listesini çekin.",
     "fetchModelsRequired": "Önce Base URL ve API Key girin.",
     "fetchModelsFailed": "Uzak modeller getirilemedi",
+    "fetchReturnedEmpty": "Uzak uç nokta hiç model döndürmedi. Base URL ile API anahtarını doğrulayın veya tekrar deneyin.",
     "refreshSuccess": "Uzak model listesi yenilendi.",
     "modelsFound": "{{count}} model",
     "noRemoteModels": "Henüz uzak model yüklenmedi.",
@@ -249,7 +249,17 @@
       "hasApiKey": "Bu site için bir API anahtarı yapılandırılmış.",
       "keySet": "Anahtar kayıtlı",
       "loadFailed": "BYOK siteleri yüklenemedi",
-      "emptyHint": "Henüz BYOK sitesi yok. İlk siteyi oluşturmak için üstteki \"Özel Model Ekle\" düğmesine tıklayın."
+      "emptyHint": "Henüz BYOK sitesi yok. İlk siteyi oluşturmak için üstteki \"Özel Model Ekle\" düğmesine tıklayın.",
+      "useExistingKey": "Bu sitede kayıtlı API anahtarı tekrar kullanılacak. Yeniden girmenize gerek yok."
+    },
+    "warning": {
+      "missingPlatformBinary": "BYOK ayarları kaydedildi, ancak Windows Droid CLI kurulumu eksik. @factory/cli paketini yeniden kurun veya güncelleyin, ardından model kataloğunu yenileyin.",
+      "cliNotFound": "BYOK ayarları kaydedildi, ancak bu Windows hesabının PATH'inde Droid CLI bulunamıyor. @factory/cli paketini kurun ya da onarın, ardından model kataloğunu yenileyin.",
+      "probeTimeout": "BYOK ayarları kaydedildi, ancak Windows Droid CLI hâlâ ısınıyor. Biraz bekleyip model kataloğunu yenileyin veya konuşmayı yeniden deneyin.",
+      "cmdShim": "BYOK ayarları kaydedildi, ancak Droid CLI şu anda yalnızca Windows cmd shim üzerinden erişilebilir durumda. JSON-RPC için JS giriş noktasını kullanabilmek adına @factory/cli paketini yeniden kurun.",
+      "cliUnavailable": "BYOK ayarları kaydedildi, ancak Factory Droid CLI şu anda doğrulanamıyor. Yerel CLI'yi onardıktan sonra model kataloğunu yenileyin.",
+      "missingModels": "{{count}} BYOK modeli kaydedildi, ancak Factory Droid bunları henüz göstermiyor. CLI başlatması tamamlandıktan sonra model kataloğunu yenileyin.",
+      "capabilityConflict": "{{count}} BYOK modeli kaydedildi, ancak yetenek bayrakları Factory Droid kataloğuyla eşleşmiyor. Ayarlarda gözden geçirin."
     },
     "capability": {
       "editTitle": "Model yeteneklerini düzenle",
@@ -530,6 +540,7 @@
   "channels.droidRuntime.listPlaceholder": "One item per line",
   "channels.droidRuntime.queueLabel": "Queue",
   "channels.droidRuntime.rejectLabel": "Reject",
+  "channels.droidRuntime.allowAllLabel": "Allow all",
   "channels.droidRuntime.safeAutoLabel": "Safe auto",
   "channels.droidRuntime.denyAllLabel": "Deny all",
   "channels.droidRuntime.customLabel": "Custom allowlists",

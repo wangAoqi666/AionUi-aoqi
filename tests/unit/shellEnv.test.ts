@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import os from 'os';
 import path from 'path';
 
 vi.mock('electron', () => ({
@@ -160,9 +161,122 @@ describe('getEnhancedEnv', () => {
     const result = getEnhancedEnv();
     expect(typeof result.PATH).toBe('string');
     // Spot-check: no undefined string values were injected
-    for (const [k, v] of Object.entries(result)) {
+    for (const [_k, v] of Object.entries(result)) {
       expect(typeof v).toBe('string');
     }
+  });
+
+  it('falls back to the user login shell when SHELL is unset', async () => {
+    if (process.platform === 'win32') return;
+
+    const execFileSyncMock = vi.fn().mockReturnValue('PATH=/resolved/from/login/shell\nHOME=/Users/test\n');
+
+    vi.doMock('child_process', () => ({
+      execFileSync: execFileSyncMock,
+      execFile: vi.fn(),
+      spawn: vi.fn(),
+    }));
+
+    vi.doMock('os', async () => {
+      const actual = await vi.importActual<typeof import('os')>('os');
+      return {
+        ...actual,
+        userInfo: vi.fn(() => ({
+          uid: 501,
+          gid: 20,
+          username: 'test',
+          homedir: '/Users/test',
+          shell: '/bin/zsh',
+        })),
+      };
+    });
+
+    vi.doMock('fs', async () => {
+      const actual = await vi.importActual<typeof import('fs')>('fs');
+      return {
+        ...actual,
+        existsSync: vi.fn((filePath: string) => filePath === '/bin/zsh' || actual.existsSync(filePath)),
+      };
+    });
+
+    const originalShell = process.env.SHELL;
+    delete process.env.SHELL;
+
+    const { getEnhancedEnv } = await import('@process/utils/shellEnv');
+    const result = getEnhancedEnv();
+
+    expect(execFileSyncMock).toHaveBeenCalledWith('/bin/zsh', ['-l', '-c', 'env'], expect.any(Object));
+    expect(result.PATH).toContain('/resolved/from/login/shell');
+
+    process.env.SHELL = originalShell;
+  });
+});
+
+describe('getEnhancedEnv POSIX extra paths (cross-platform mock)', () => {
+  const originalPlatform = process.platform;
+  const originalPath = process.env.PATH;
+  const originalShell = process.env.SHELL;
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    process.env.SHELL = originalShell;
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+
+  it('appends common macOS/global Node tool directories even when shell PATH loading fails', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+
+    const homeDir = os.homedir();
+    const homebrewBin = '/opt/homebrew/bin';
+    const npmGlobalBin = path.join(homeDir, '.npm-global', 'bin');
+    const voltaBin = path.join(homeDir, '.volta', 'bin');
+    const nvmBase = path.join(homeDir, '.nvm', 'versions', 'node');
+    const nvmBin = path.join(nvmBase, 'v22.9.0', 'bin');
+    const nvmNode = path.join(nvmBin, 'node');
+
+    vi.doMock('child_process', () => ({
+      execFileSync: vi.fn().mockImplementation(() => {
+        throw new Error('skip shell');
+      }),
+      execFile: vi.fn(),
+      spawn: vi.fn(),
+    }));
+
+    vi.doMock('fs', async () => {
+      const actual = await vi.importActual<typeof import('fs')>('fs');
+      return {
+        ...actual,
+        existsSync: vi.fn(
+          (filePath: string) =>
+            filePath === '/bin/zsh' ||
+            filePath === homebrewBin ||
+            filePath === npmGlobalBin ||
+            filePath === voltaBin ||
+            filePath === nvmBin
+        ),
+        readdirSync: vi.fn((dirPath: string) => (dirPath === nvmBase ? ['v22.9.0'] : [])),
+        accessSync: vi.fn((filePath: string) => {
+          if (filePath !== nvmNode) {
+            throw new Error(`ENOENT: ${filePath}`);
+          }
+        }),
+      };
+    });
+
+    process.env.PATH = '/usr/bin';
+    process.env.SHELL = '/bin/zsh';
+
+    const { getEnhancedEnv } = await import('@process/utils/shellEnv');
+    const result = getEnhancedEnv();
+
+    expect(result.PATH).toContain(homebrewBin);
+    expect(result.PATH).toContain(npmGlobalBin);
+    expect(result.PATH).toContain(voltaBin);
+    expect(result.PATH).toContain(nvmBin);
   });
 });
 
@@ -475,12 +589,14 @@ describe('resolveNpxPath', () => {
 // -------------------------------------------------------------------
 describe('loadFullShellEnvironment', () => {
   const originalPlatform = process.platform;
+  const originalShell = process.env.SHELL;
 
   beforeEach(() => {
     vi.resetModules();
   });
 
   afterEach(() => {
+    process.env.SHELL = originalShell;
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
@@ -502,6 +618,7 @@ describe('loadFullShellEnvironment', () => {
 
   it('spawns shell with -i and -l flags in detached mode', async () => {
     if (process.platform === 'win32') return;
+    process.env.SHELL = '/bin/zsh';
 
     const mockStdout = {
       on: vi.fn((event: string, cb: (chunk: Buffer) => void) => {
@@ -534,6 +651,14 @@ describe('loadFullShellEnvironment', () => {
       spawn: spawnMock,
     }));
 
+    vi.doMock('fs', async () => {
+      const actual = await vi.importActual<typeof import('fs')>('fs');
+      return {
+        ...actual,
+        existsSync: vi.fn((filePath: string) => filePath === '/bin/zsh' || actual.existsSync(filePath)),
+      };
+    });
+
     const { loadFullShellEnvironment } = await import('@process/utils/shellEnv');
     const result = await loadFullShellEnvironment();
 
@@ -555,6 +680,7 @@ describe('loadFullShellEnvironment', () => {
 
   it('returns cached result on second call', async () => {
     if (process.platform === 'win32') return;
+    process.env.SHELL = '/bin/zsh';
 
     const mockStdout = {
       on: vi.fn((event: string, cb: (chunk: Buffer) => void) => {
@@ -581,6 +707,14 @@ describe('loadFullShellEnvironment', () => {
       execFile: vi.fn(),
       spawn: spawnMock,
     }));
+
+    vi.doMock('fs', async () => {
+      const actual = await vi.importActual<typeof import('fs')>('fs');
+      return {
+        ...actual,
+        existsSync: vi.fn((filePath: string) => filePath === '/bin/zsh' || actual.existsSync(filePath)),
+      };
+    });
 
     const { loadFullShellEnvironment } = await import('@process/utils/shellEnv');
     const first = await loadFullShellEnvironment();

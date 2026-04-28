@@ -10,13 +10,14 @@ import type {
   IDroidByokModelConfig,
   IDroidByokModelConfigInput,
   IDroidByokRemoteModel,
+  IDroidByokVerificationResult,
 } from '@/common/adapter/ipcBridge';
 import { ipcBridge } from '@/common';
 import AionSelect from '@/renderer/components/base/AionSelect';
 import AionModal from '@/renderer/components/base/AionModal';
 import ModalHOC from '@/renderer/utils/ui/ModalHOC';
 import { Button, Checkbox, Input, Message, Progress, Spin, Tag } from '@arco-design/web-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 type DraftModelSelection = {
@@ -25,7 +26,7 @@ type DraftModelSelection = {
   provider: DroidByokModelProvider;
 };
 
-const PROVIDER_OPTIONS: DroidByokModelProvider[] = ['anthropic', 'openai', 'generic-chat-completion-api', 'google'];
+const PROVIDER_OPTIONS: DroidByokModelProvider[] = ['anthropic', 'openai', 'generic-chat-completion-api'];
 
 const buildNormalizedPayload = (payload: IDroidByokModelConfigInput): IDroidByokModelConfigInput => ({
   baseUrl: payload.baseUrl.trim(),
@@ -52,8 +53,6 @@ const providerKey = (provider: DroidByokModelProvider): string => {
       return 'settings.droidByok.providerAnthropic';
     case 'openai':
       return 'settings.droidByok.providerOpenai';
-    case 'google':
-      return 'settings.droidByok.providerGoogle';
     default:
       return 'settings.droidByok.providerGeneric';
   }
@@ -90,8 +89,18 @@ export type FactoryDroidByokModalPrefill = {
 const FactoryDroidByokModal = ModalHOC<{
   data?: IDroidByokModelConfig | null;
   prefill?: FactoryDroidByokModalPrefill;
+  /**
+   * When provided, the modal switches into "add-model-to-existing-site"
+   * mode: baseUrl is locked to the site's baseUrl and the API key field is
+   * hidden entirely. Fetch/import requests then go through the site-scoped
+   * IPC channels which reuse the stored key inside the main process.
+   *
+   * 传入 bindToSiteId 时，Modal 切换到“站点内加模型”模式：baseUrl 只读，apiKey 输入
+   * 框隐藏，fetch / import 走主进程站点化通道复用已存密钥。
+   */
+  bindToSiteId?: string;
   onSubmit?: () => Promise<void> | void;
-}>(({ modalProps, data, prefill, onSubmit, modalCtrl }) => {
+}>(({ modalProps, data, prefill, bindToSiteId, onSubmit, modalCtrl }) => {
   const { t } = useTranslation();
   const [message, messageContext] = Message.useMessage();
   const [baseUrl, setBaseUrl] = useState('');
@@ -107,8 +116,17 @@ const FactoryDroidByokModal = ModalHOC<{
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [selectionMap, setSelectionMap] = useState<Record<string, DraftModelSelection>>({});
   const [importProgress, setImportProgress] = useState<IDroidByokImportProgress | null>(null);
+  const pendingVerificationRef = useRef<IDroidByokVerificationResult | null>(null);
+  // Monotonic counter used to ignore stale fetch-models responses — prevents
+  // an earlier empty catalog from overwriting a later non-empty one when the
+  // user rapid-clicks the Fetch button.
+  const fetchSeqRef = useRef(0);
 
   const isEditing = Boolean(data);
+  // Site-bound mode: add more models to an existing site via main-process
+  // channels that reuse the stored API key (no plaintext key in renderer).
+  // 站点绑定模式：通过主进程站点化通道复用已存 apiKey，不再要求用户重新输入。
+  const isSiteBound = Boolean(bindToSiteId && !isEditing);
   const payload = useMemo<IDroidByokModelConfigInput>(
     () => ({
       baseUrl,
@@ -122,7 +140,10 @@ const FactoryDroidByokModal = ModalHOC<{
   );
   const normalizedPayload = useMemo(() => buildNormalizedPayload(payload), [payload]);
   const payloadSignature = useMemo(() => buildConnectionSignature(payload), [payload]);
-  const hasCredentials = Boolean(baseUrl.trim() && apiKey.trim());
+  // In site-bound mode the API key lives server-side, so the "has credentials"
+  // gate only requires a baseUrl (which itself is locked to the site). In
+  // standalone mode we still require apiKey.
+  const hasCredentials = isSiteBound ? Boolean(baseUrl.trim()) : Boolean(baseUrl.trim() && apiKey.trim());
   const hasRequiredFields = Boolean(normalizedPayload.baseUrl && normalizedPayload.apiKey && normalizedPayload.model);
   const hasValidatedCurrentValues = validatedSignature === payloadSignature;
   const canImport = !isEditing && hasCredentials && selectedModels.length > 0;
@@ -142,6 +163,7 @@ const FactoryDroidByokModal = ModalHOC<{
     setSelectedModels([]);
     setSelectionMap({});
     setImportProgress(null);
+    pendingVerificationRef.current = null;
   }, [data, modalProps.visible, prefill?.baseUrl, prefill?.provider]);
 
   useEffect(() => {
@@ -157,19 +179,83 @@ const FactoryDroidByokModal = ModalHOC<{
     };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = ipcBridge.acpConversation.droidByokCapabilityDrift.on((payload) => {
+      pendingVerificationRef.current = payload;
+    });
+    return () => {
+      try {
+        unsubscribe?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const flushVerificationWarnings = () => {
+    const verification = pendingVerificationRef.current;
+    pendingVerificationRef.current = null;
+    if (!verification) {
+      return;
+    }
+
+    if (verification.unreachable) {
+      const diagnosticKey =
+        verification.cliDiagnosticCode === 'missing-platform-binary'
+          ? 'settings.droidByok.warning.missingPlatformBinary'
+          : verification.cliDiagnosticCode === 'cli-not-found'
+            ? 'settings.droidByok.warning.cliNotFound'
+            : verification.cliDiagnosticCode === 'probe-timeout'
+              ? 'settings.droidByok.warning.probeTimeout'
+              : verification.cliDiagnosticCode === 'cmd-shim-pipe-incompatible'
+                ? 'settings.droidByok.warning.cmdShim'
+                : 'settings.droidByok.warning.cliUnavailable';
+      message.warning(t(diagnosticKey));
+      return;
+    }
+
+    if (verification.missing.length > 0) {
+      message.warning(
+        t('settings.droidByok.warning.missingModels', {
+          count: verification.missing.length,
+        })
+      );
+    }
+    if (verification.conflict.length > 0) {
+      message.warning(
+        t('settings.droidByok.warning.capabilityConflict', {
+          count: verification.conflict.length,
+        })
+      );
+    }
+  };
+
   const handleFetchModels = async (refresh = false) => {
     if (!hasCredentials) {
       message.warning(t('settings.droidByok.fetchModelsRequired'));
       return;
     }
 
+    const mySeq = fetchSeqRef.current + 1;
+    fetchSeqRef.current = mySeq;
     setCatalogLoading(true);
     try {
-      const result = await ipcBridge.acpConversation.fetchDroidByokModels.invoke({
-        baseUrl: baseUrl.trim(),
-        apiKey: apiKey.trim(),
-        refresh,
-      });
+      // Site-bound mode uses the main-process channel that reuses stored apiKey.
+      // 站点绑定模式：走主进程站点化通道，apiKey 不会从 renderer 回传。
+      const result = isSiteBound
+        ? await ipcBridge.acpConversation.fetchDroidByokModelsForSite.invoke({
+            siteId: bindToSiteId!,
+            refresh,
+          })
+        : await ipcBridge.acpConversation.fetchDroidByokModels.invoke({
+            baseUrl: baseUrl.trim(),
+            apiKey: apiKey.trim(),
+            refresh,
+          });
+      // Drop stale responses — a later fetch has already superseded us.
+      if (fetchSeqRef.current !== mySeq) {
+        return;
+      }
       if (!result.success || !result.data?.catalog) {
         throw new Error(result.msg || t('settings.droidByok.fetchModelsFailed'));
       }
@@ -177,13 +263,20 @@ const FactoryDroidByokModal = ModalHOC<{
       const remoteModels = result.data.catalog.models || [];
       setCatalog(remoteModels);
       setSelectionMap((prev) => ({ ...toSelectionMap(remoteModels), ...prev }));
-      if (refresh) {
+      if (remoteModels.length === 0) {
+        message.warning(t('settings.droidByok.fetchReturnedEmpty'));
+      } else if (refresh) {
         message.success(t('settings.droidByok.refreshSuccess'));
       }
     } catch (error) {
+      if (fetchSeqRef.current !== mySeq) {
+        return;
+      }
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
-      setCatalogLoading(false);
+      if (fetchSeqRef.current === mySeq) {
+        setCatalogLoading(false);
+      }
     }
   };
 
@@ -230,12 +323,14 @@ const FactoryDroidByokModal = ModalHOC<{
 
     setSubmitting(true);
     try {
+      pendingVerificationRef.current = null;
       const result = await ipcBridge.acpConversation.saveDroidByokConfig.invoke(normalizedPayload);
       if (!result.success || !result.data?.config) {
         throw new Error(result.msg || t('settings.droidByok.saveFailed'));
       }
       await onSubmit?.();
       message.success(t('settings.droidByok.saveSuccess'));
+      flushVerificationWarnings();
       modalCtrl.close();
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -254,17 +349,27 @@ const FactoryDroidByokModal = ModalHOC<{
     setImportProgress({ current: 0, total: selectedModels.length, model: '', status: 'probing' });
     setSubmitting(true);
     try {
-      const result = await ipcBridge.acpConversation.importDroidByokConfigs.invoke({
-        baseUrl: baseUrl.trim(),
-        apiKey: apiKey.trim(),
-        skipProbe: true,
-        models: selectedModels.map((modelId) => ({
-          model: modelId,
-          displayName: selectionMap[modelId]?.displayName || `${modelId} [BYOK]`,
-          provider: selectionMap[modelId]?.provider,
-          supportedEndpointTypes: catalogMap.get(modelId)?.supportedEndpointTypes,
-        })),
-      });
+      pendingVerificationRef.current = null;
+      const modelsPayload = selectedModels.map((modelId) => ({
+        model: modelId,
+        displayName: selectionMap[modelId]?.displayName || `${modelId} [BYOK]`,
+        provider: selectionMap[modelId]?.provider,
+        supportedEndpointTypes: catalogMap.get(modelId)?.supportedEndpointTypes,
+      }));
+      // Site-bound mode uses the main-process channel that reuses stored apiKey.
+      // 站点绑定模式：走主进程站点化通道，apiKey 不会从 renderer 回传。
+      const result = isSiteBound
+        ? await ipcBridge.acpConversation.importDroidByokConfigsIntoSite.invoke({
+            siteId: bindToSiteId!,
+            skipProbe: true,
+            models: modelsPayload,
+          })
+        : await ipcBridge.acpConversation.importDroidByokConfigs.invoke({
+            baseUrl: baseUrl.trim(),
+            apiKey: apiKey.trim(),
+            skipProbe: true,
+            models: modelsPayload,
+          });
       if (!result.success || !result.data) {
         throw new Error(result.msg || t('settings.droidByok.importFailed'));
       }
@@ -275,6 +380,7 @@ const FactoryDroidByokModal = ModalHOC<{
       } else {
         message.success(t('settings.droidByok.importSuccess', { count: result.data.imported.length }));
       }
+      flushVerificationWarnings();
       modalCtrl.close();
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -313,14 +419,27 @@ const FactoryDroidByokModal = ModalHOC<{
       <div className='pt-4px pb-12px space-y-14px'>
         <div className='space-y-8px'>
           <div className='text-13px font-500 text-t-secondary'>{t('settings.baseUrl')}</div>
-          <Input value={baseUrl} placeholder={t('settings.droidByok.baseUrlPlaceholder')} onChange={setBaseUrl} />
+          <Input
+            value={baseUrl}
+            placeholder={t('settings.droidByok.baseUrlPlaceholder')}
+            onChange={setBaseUrl}
+            disabled={isSiteBound}
+          />
           <div className='text-11px text-t-secondary leading-4'>{t('settings.droidByok.baseUrlTip')}</div>
         </div>
 
-        <div className='space-y-8px'>
-          <div className='text-13px font-500 text-t-secondary'>{t('settings.apiKey')}</div>
-          <Input.Password value={apiKey} visibilityToggle onChange={setApiKey} />
-        </div>
+        {/* In site-bound mode the apiKey is reused from storage by the main process. */}
+        {/* 站点绑定模式下 apiKey 由主进程复用，无需再次输入，也不再展示该输入框。 */}
+        {isSiteBound ? (
+          <div className='rounded-12px bg-[var(--fill-0)] px-12px py-10px text-12px text-t-secondary leading-5'>
+            {t('settings.droidByok.site.useExistingKey')}
+          </div>
+        ) : (
+          <div className='space-y-8px'>
+            <div className='text-13px font-500 text-t-secondary'>{t('settings.apiKey')}</div>
+            <Input.Password value={apiKey} visibilityToggle onChange={setApiKey} />
+          </div>
+        )}
 
         {isEditing ? (
           <>

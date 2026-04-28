@@ -238,11 +238,17 @@ describe('DroidByokService', () => {
     ]);
   });
 
-  it('returns models as soon as any remote endpoint succeeds even if another request stays pending', async () => {
+  it('returns the first non-empty catalog even when another endpoint resolves empty', async () => {
+    // Previously the implementation first-resolve-wins race with 3 endpoints
+    // meant an empty `[]` response from the fastest endpoint could mask the
+    // real catalog. The loadRemoteCatalog helper now waits for all endpoints
+    // via Promise.allSettled and prefers fulfilled responses with non-empty
+    // models, so we simulate that scenario explicitly.
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/v1/models')) {
-        return new Promise<Response>(() => {});
+        // fastest, but returns empty
+        return Promise.resolve(mockJsonResponse({ data: [] }));
       }
       if (url.endsWith('/v1beta/models')) {
         return Promise.resolve(
@@ -607,48 +613,36 @@ describe('DroidByokService', () => {
     });
   });
 
-  it('normalizes and saves google-compatible BYOK configs', async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/v1/models/') && url.includes(':generateContent')) {
-        return mockJsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] });
-      }
-      return mockJsonResponse({ error: { message: 'Not Found' } }, false);
-    });
+  it('rejects legacy google provider, and saves Gemini endpoints via generic-chat-completion-api', async () => {
+    // Step 1: legacy 'google' provider must be rejected by normalizeInputPayload
+    await expect(
+      saveDroidByokConfig({
+        baseUrl: 'https://generativelanguage.googleapis.com',
+        apiKey: 'gem-key',
+        model: 'gemini-2.5-pro',
+        provider: 'google' as unknown as 'anthropic',
+      })
+    ).rejects.toThrow(/Unsupported provider/i);
+
+    // Step 2: Factory-official generic-chat-completion-api path, baseUrl gets
+    // rewritten to Gemini's OpenAI-compat endpoint automatically
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    } as Response);
 
     const config = await saveDroidByokConfig({
       baseUrl: 'https://generativelanguage.googleapis.com',
       apiKey: 'gem-key',
       model: 'gemini-2.5-pro',
-      provider: 'google',
+      provider: 'generic-chat-completion-api',
     });
 
-    expect(config).toEqual({
-      id: expect.any(String),
-      model: 'gemini-2.5-pro',
-      displayName: 'gemini-2.5-pro [BYOK]',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1',
-      apiKey: 'gem-key',
-      provider: 'google',
-      maxOutputTokens: 8192,
-      supportsImageInput: true,
-      reasoningLevels: ['off', 'low', 'medium', 'high'],
-      defaultReasoning: 'off',
-    });
-    expect(settingsFile).toEqual({
-      customModels: [
-        {
-          model: 'gemini-2.5-pro',
-          displayName: 'gemini-2.5-pro [BYOK]',
-          baseUrl: 'https://generativelanguage.googleapis.com/v1',
-          apiKey: 'gem-key',
-          provider: 'google',
-          maxOutputTokens: 8192,
-          supportsImageInput: true,
-          reasoningLevels: ['off', 'low', 'medium', 'high'],
-          defaultReasoning: 'off',
-        },
-      ],
+    expect(config.provider).toBe('generic-chat-completion-api');
+    expect(config.baseUrl).toMatch(/\/v1beta\/openai$/);
+    expect(settingsFile?.customModels?.[0]).toMatchObject({
+      provider: 'generic-chat-completion-api',
+      baseUrl: expect.stringMatching(/\/v1beta\/openai$/),
     });
   });
 

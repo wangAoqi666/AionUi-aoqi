@@ -68,7 +68,15 @@ import { mainLog, mainWarn } from '@process/utils/mainLogger';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
 import { scheduleFactoryCatalogRefresh } from './catalogRefresher';
 import appPackageJson from '../../../../package.json';
-import { resolveWorkingDroidCli } from './cliRuntime';
+import {
+  createCmdShimPipeIncompatibleDiagnostic,
+  createDroidCliDiagnostic,
+  pickMostRelevantDroidCliDiagnostic,
+  resolveWorkingDroidCli,
+  resolvePreferredDroidCliDiagnostic,
+  toDroidCliDiagnosticUserMessage,
+} from './cliRuntime';
+import { composeSdkExecArgs } from './cliResolver';
 import { loadDroidRuntimeConfigForSource, getDroidRuntimeScopeKey, isDroidChannelPlatform } from './runtime/config';
 import { DroidPermissionPolicy } from './runtime/DroidPermissionPolicy';
 import { DroidTextAskBridge, type DroidAskUserAnswerPayload } from './runtime/DroidTextAskBridge';
@@ -82,12 +90,7 @@ import {
   toAddMcpServerParams,
   type DesiredMcpServer,
 } from './runtime/mcpSync';
-import {
-  contentHasLegacyFileReference,
-  resolveAttachmentsForDroid,
-  type ResolvedAttachments,
-  type SkippedAttachment,
-} from './runtime/messageAttachments';
+import { type ResolvedAttachments, type SkippedAttachment } from './runtime/messageAttachments';
 import { getDroidByokConfigs } from '@process/bridge/services/DroidByokService';
 import type { IDroidByokModelConfig } from '@/common/adapter/ipcBridge';
 
@@ -590,9 +593,13 @@ export class DroidSdkAgent {
   }
 
   private async startSession(): Promise<void> {
+    let preflightDiagnostic: ReturnType<typeof createDroidCliDiagnostic> | undefined;
     try {
-      const env = getEnhancedEnv();
       const cliRuntime = resolveWorkingDroidCli(this.config.cliPath);
+      preflightDiagnostic = cliRuntime.diagnostic;
+      const env = getEnhancedEnv(undefined, {
+        includeBundledDroidInPath: cliRuntime.source !== 'system',
+      });
       // If the synchronous `droid --version` probe failed (e.g. Windows
       // cold-start > 15s due to Defender + cmd.exe shim + telemetry), do NOT
       // block session startup. The Factory droid SDK will asynchronously spawn
@@ -602,6 +609,23 @@ export class DroidSdkAgent {
         mainWarn(
           '[DroidSdkAgent]',
           `droid --version preflight did not return (source=${cliRuntime.source}, err=${cliRuntime.error || 'timeout'}); proceeding with execPath=${cliRuntime.execPath}`
+        );
+      }
+
+      // Pipe-compat gate: cmd.exe /c <shim> answers `--version` but mangles
+      // the SDK's JSON-RPC stdin/stdout pipe (CRLF translation, stdin EOF
+      // handling, ConPTY interference). Rather than wait 60 s for a silent
+      // `initialize_session` timeout, fail fast with a user-actionable error
+      // that tells the user exactly how to recover (reinstall @factory/cli).
+      if (cliRuntime.pipeCompatible === false) {
+        const shimDescription = [cliRuntime.execPath, ...(cliRuntime.execArgs || [])].filter(Boolean).join(' ');
+        preflightDiagnostic =
+          preflightDiagnostic || createCmdShimPipeIncompatibleDiagnostic(`cmd shim ${shimDescription}`);
+        throw new Error(
+          toDroidCliDiagnosticUserMessage(
+            preflightDiagnostic,
+            `Droid CLI is only reachable via a Windows cmd.exe shell wrapper (${shimDescription}); the Factory Droid SDK's JSON-RPC stream cannot run through this shell layer. Reinstall @factory/cli so the JS entrypoint is resolvable (e.g. "npm i -g @factory/cli").`
+          )
         );
       }
 
@@ -622,9 +646,19 @@ export class DroidSdkAgent {
       //   1. intent is documented in source,
       //   2. a future SDK wrapper that honors the field just works,
       //   3. our explicit post-init `updateSettings` call handles the present.
+      // The SDK's DEFAULT_EXEC_ARGS (`['exec', '--input-format', 'stream-jsonrpc',
+      // '--output-format', 'stream-jsonrpc']`) is applied ONLY when the caller
+      // passes `undefined` to createSession. Any truthy execArgs — including
+      // our `['<js entrypoint>']` prefix used by the Windows `node + .cmd shim`
+      // path — fully overrides the default, starting droid in interactive TUI
+      // mode. That's the real cause of the 60 s `droid.initialize_session`
+      // timeout users see on Windows. `composeSdkExecArgs` tail-merges the SDK
+      // stream-jsonrpc args so the spawned process actually speaks the protocol.
+      const sdkExecArgs = composeSdkExecArgs(cliRuntime.execArgs);
       const sessionOptions: CreateSessionOptions = {
         cwd: this.config.workingDir,
         execPath,
+        execArgs: sdkExecArgs,
         modelId: this.currentModelId,
         reasoningEffort: this.currentReasoningEffort as ReasoningEffort,
         env,
@@ -645,6 +679,10 @@ export class DroidSdkAgent {
         this.session = await resumeSession(this.config.acpSessionId, {
           cwd: this.config.workingDir,
           execPath,
+          // Same rationale as createSession above: the SDK's ProcessTransport
+          // overrides DEFAULT_EXEC_ARGS with whatever we pass, so the launch
+          // prefix MUST be tail-merged with the stream-jsonrpc args.
+          execArgs: sdkExecArgs,
           env,
           permissionHandler: (params) => this.handlePermission(params),
           askUserHandler: (params) => this.handleAskUser(params),
@@ -731,7 +769,20 @@ export class DroidSdkAgent {
     } catch (error) {
       this._isConnected = false;
       let errMsg = error instanceof Error ? error.message : String(error);
-      mainWarn('[DroidSdkAgent]', `Failed to start: ${errMsg}`);
+      const cliDiagnostic = resolvePreferredDroidCliDiagnostic(
+        createDroidCliDiagnostic(error, 'session'),
+        preflightDiagnostic
+      );
+      errMsg = toDroidCliDiagnosticUserMessage(cliDiagnostic, errMsg);
+      if (cliDiagnostic) {
+        mainWarn('[DroidSdkAgent]', 'Failed to start with CLI diagnostic', {
+          diagnosticCode: cliDiagnostic.code,
+          detail: cliDiagnostic.detail,
+          errMsg,
+        });
+      } else {
+        mainWarn('[DroidSdkAgent]', `Failed to start: ${errMsg}`);
+      }
       if (errMsg.includes('402') || errMsg.includes('Payment Required')) {
         errMsg = 'Factory 算力额度不足，请前往 https://app.factory.ai/settings/usage 充值后继续使用。';
       }
@@ -873,23 +924,15 @@ export class DroidSdkAgent {
       let nativeAttachments: ResolvedAttachments | null = null;
 
       const hasFiles = Array.isArray(data.files) && data.files.length > 0;
-      const legacyPrefix = contentHasLegacyFileReference(data.content);
 
-      if (hasFiles && !legacyPrefix) {
-        try {
-          nativeAttachments = await resolveAttachmentsForDroid(data.files);
-        } catch (error) {
-          // Defensive: resolveAttachmentsForDroid is specified as never-throw,
-          // but if an underlying Node error does leak through we fall back to
-          // the legacy text path rather than abort the whole turn.
-          mainWarn(
-            '[DroidSdkAgent]',
-            'resolveAttachmentsForDroid threw unexpectedly; falling back to legacy @file path',
-            error instanceof Error ? error.message : String(error)
-          );
-          nativeAttachments = null;
-        }
-      }
+      // Always use the legacy `@file` path for local file attachments.
+      // The Droid CLI runs locally and can read files directly from disk,
+      // which is far more reliable than base64-encoding file contents into
+      // the JSON-RPC payload (the latter causes CLI-side timeouts on
+      // `droid.add_user_message` because the RPC handler stalls processing
+      // large base64 blobs).
+      // nativeAttachments intentionally stays null → falls through to the
+      // `else if (hasFiles)` branch below which prepends `@path` refs.
 
       if (nativeAttachments) {
         const { images, files, skipped } = nativeAttachments;
@@ -1034,6 +1077,8 @@ export class DroidSdkAgent {
 
   private createRuntimeErrorResult(error: unknown): AcpResult {
     let errMsg = error instanceof Error ? error.message : String(error);
+    const cliDiagnostic = pickMostRelevantDroidCliDiagnostic([createDroidCliDiagnostic(error, 'session')]);
+    errMsg = toDroidCliDiagnosticUserMessage(cliDiagnostic, errMsg);
     if (errMsg.includes('402') || errMsg.includes('Payment Required')) {
       errMsg = 'Factory 算力额度不足，请前往 https://app.factory.ai/settings/usage 充值后继续使用。';
     }
@@ -1042,6 +1087,7 @@ export class DroidSdkAgent {
       sessionId: this.session?.sessionId ?? null,
       modelId: this.currentModelId,
       errMsg,
+      cliDiagnosticCode: cliDiagnostic?.code,
     });
     this.emitError(errMsg);
     return {
@@ -1709,6 +1755,26 @@ export class DroidSdkAgent {
             result: mapped.result,
             missionId: mapped.missionId,
           },
+        });
+        return;
+      }
+      case 'error': {
+        // BYOK fix (2026-04-23): surface backend-pushed errors through the
+        // existing `type: 'error'` stream event so the renderer can render
+        // them in the conversation. Previously these notifications fell
+        // through to the `ignored` default and were only written to the log,
+        // which made BYOK failures look like a silent freeze.
+        mainWarn('[DroidSdkAgent]', 'notification error received', {
+          conversation_id: this.config.id,
+          sessionId: this.session?.sessionId ?? null,
+          message: mapped.message,
+          code: mapped.code,
+        });
+        this.config.onStreamEvent({
+          type: 'error',
+          conversation_id: this.config.id,
+          msg_id: `error_${uuid()}`,
+          data: mapped.message,
         });
         return;
       }

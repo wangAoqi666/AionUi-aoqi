@@ -58,7 +58,7 @@ const MissionPanel: React.FC<MissionPanelProps> = memo(({ missionData }) => {
 
   const recentLogs = useMemo(() => {
     // Show last 20 entries in reverse chronological order for display
-    return progressLog.slice(-20).reverse();
+    return progressLog.slice(-20).toReversed();
   }, [progressLog]);
 
   return (

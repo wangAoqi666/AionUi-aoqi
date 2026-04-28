@@ -73,6 +73,30 @@ const SHELL_INHERITED_ENV_VARS = [
 /** Cache for shell environment (loaded once per session) */
 let cachedShellEnv: Record<string, string> | null = null;
 
+type UserInfoWithOptionalShell = ReturnType<typeof os.userInfo> & { shell?: string };
+
+function resolvePreferredShellPath(): string | null {
+  if (process.platform === 'win32') {
+    return null;
+  }
+
+  let userInfoShell: string | undefined;
+  try {
+    const userInfo = os.userInfo() as UserInfoWithOptionalShell;
+    userInfoShell = typeof userInfo.shell === 'string' ? userInfo.shell : undefined;
+  } catch {
+    userInfoShell = undefined;
+  }
+
+  for (const candidate of [process.env.SHELL, userInfoShell, '/bin/zsh', '/bin/bash']) {
+    if (typeof candidate === 'string' && path.isAbsolute(candidate) && existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Load environment variables from user's login shell.
  * Captures variables set in .bashrc, .zshrc, .bash_profile, etc.
@@ -95,9 +119,9 @@ function loadShellEnvironment(): Record<string, string> {
   }
 
   try {
-    const shell = process.env.SHELL || '/bin/bash';
-    if (!path.isAbsolute(shell)) {
-      console.warn('[ShellEnv] SHELL is not an absolute path, skipping shell env loading:', shell);
+    const shell = resolvePreferredShellPath();
+    if (!shell) {
+      console.warn('[ShellEnv] Could not resolve a usable login shell, skipping shell env loading');
       return cachedShellEnv;
     }
     // Use -l (login) to load login shell configs (.bash_profile, .zprofile, etc.)
@@ -158,9 +182,9 @@ export async function loadShellEnvironmentAsync(): Promise<Record<string, string
   const startTime = Date.now();
 
   try {
-    const shell = process.env.SHELL || '/bin/bash';
-    if (!path.isAbsolute(shell)) {
-      console.warn('[ShellEnv] SHELL is not an absolute path, skipping async shell env loading:', shell);
+    const shell = resolvePreferredShellPath();
+    if (!shell) {
+      console.warn('[ShellEnv] Could not resolve a usable login shell, skipping async shell env loading');
       cachedShellEnv = {};
       return cachedShellEnv;
     }
@@ -313,8 +337,18 @@ function getPosixExtraToolPaths(): string[] {
 
   const homeDir = os.homedir();
   const currentPath = process.env.PATH || '';
+  const managedNodeBins = collectManagedNodeBinDirs(0, 0);
 
   const candidates = [
+    // Homebrew (macOS Intel/Apple Silicon)
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    // npm global prefix used by many macOS/Linux setups
+    path.join(homeDir, '.npm-global', 'bin'),
+    // Volta shims
+    path.join(homeDir, '.volta', 'bin'),
+    // nvm/fnm/volta-installed Node bin dirs often carry global npm binaries
+    ...managedNodeBins,
     // bun global packages
     getBunGlobalBinDir(),
     // cargo (Rust)
@@ -400,6 +434,10 @@ export function getEnhancedEnv(
  * @returns Absolute path to the bin directory containing a suitable `node`, or null.
  */
 export function findSuitableNodeBin(minMajor: number, minMinor: number): string | null {
+  return collectManagedNodeBinDirs(minMajor, minMinor)[0] || null;
+}
+
+function collectManagedNodeBinDirs(minMajor: number, minMinor: number): string[] {
   const homeDir = os.homedir();
   const isWin = process.platform === 'win32';
   const isMac = process.platform === 'darwin';
@@ -466,11 +504,11 @@ export function findSuitableNodeBin(minMajor: number, minMinor: number): string 
     }
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
 
   // Pick the latest suitable version
   candidates.sort((a, b) => b.major - a.major || b.minor - a.minor || b.patch - a.patch);
-  return candidates[0].binDir;
+  return Array.from(new Set(candidates.map((candidate) => candidate.binDir)));
 }
 
 /**
@@ -604,8 +642,8 @@ export function loadFullShellEnvironment(): Promise<Record<string, string>> {
 async function loadFullShellEnvironmentImpl(): Promise<Record<string, string>> {
   if (process.platform === 'win32') return {};
 
-  const shell = process.env.SHELL || '/bin/bash';
-  if (!path.isAbsolute(shell)) return {};
+  const shell = resolvePreferredShellPath();
+  if (!shell) return {};
 
   try {
     const output = await new Promise<string>((resolve, reject) => {

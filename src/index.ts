@@ -404,7 +404,7 @@ const buildStartupProbeSpecs = (markLabel: (label: string) => void): StartupProb
   },
   {
     name: 'factory-droid-catalog',
-    timeoutMs: 10000,
+    timeoutMs: 60000,
     run: async () => {
       await refreshFactoryDroidCatalog();
       markLabel('refreshFactoryDroidCatalog');

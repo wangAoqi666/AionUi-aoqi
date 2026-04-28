@@ -32,6 +32,14 @@ const verifyByokCapabilitiesAgainstCliMock = vi.hoisted(() =>
   vi.fn(() => ({ ok: [], missing: [], conflict: [], unreachable: false }))
 );
 const emitCapabilityDriftMock = vi.hoisted(() => vi.fn());
+const getLastDroidModelCatalogProbeReportMock = vi.hoisted(() =>
+  vi.fn(() => ({
+    success: true,
+    cliSource: 'system' as const,
+    cliVersion: '0.108.0',
+    usedSoftPreflight: false,
+  }))
+);
 
 vi.mock('@process/utils/initStorage', () => ({
   refreshFactoryDroidCatalog: refreshFactoryDroidCatalogMock,
@@ -44,6 +52,10 @@ vi.mock('@process/utils/mainLogger', () => ({
 
 vi.mock('@/common/config/factoryModels', () => ({
   getFactoryModels: getFactoryModelsMock,
+}));
+
+vi.mock('@process/agent/droid/modelProbe', () => ({
+  getLastDroidModelCatalogProbeReport: getLastDroidModelCatalogProbeReportMock,
 }));
 
 vi.mock('@/process/bridge/services/DroidByokService', () => ({
@@ -77,10 +89,17 @@ describe('catalogRefresher — debounce + cooldown', () => {
     getDroidByokConfigsMock.mockReset();
     verifyByokCapabilitiesAgainstCliMock.mockReset();
     emitCapabilityDriftMock.mockReset();
+    getLastDroidModelCatalogProbeReportMock.mockReset();
     __resetCatalogRefresherForTests();
     refreshFactoryDroidCatalogMock.mockResolvedValue([]);
     getFactoryModelsMock.mockReturnValue([]);
     getDroidByokConfigsMock.mockResolvedValue([]);
+    getLastDroidModelCatalogProbeReportMock.mockReturnValue({
+      success: true,
+      cliSource: 'system',
+      cliVersion: '0.108.0',
+      usedSoftPreflight: false,
+    });
     verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
       ok: [],
       missing: [],
@@ -195,26 +214,18 @@ describe('catalogRefresher — debounce + cooldown', () => {
     expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the in-flight promise when two flushes race', async () => {
-    let resolveRefresh: ((value: unknown[]) => void) | undefined;
-    refreshFactoryDroidCatalogMock.mockImplementationOnce(
-      () =>
-        new Promise<unknown[]>((resolve) => {
-          resolveRefresh = resolve;
-        })
-    );
+  it('BYOK flush waits for in-flight probe then starts a fresh one', async () => {
+    refreshFactoryDroidCatalogMock.mockResolvedValue([]);
 
     const first = flushFactoryCatalogRefresh('byok-crud-save');
     const second = flushFactoryCatalogRefresh('byok-crud-save');
 
-    // Only one upstream call should be outstanding
-    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
-
-    resolveRefresh?.([]);
     await first;
     await second;
 
-    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(1);
+    // Each BYOK flush starts its own probe — the second waits for the first
+    // to finish, then issues a fresh probe to read the latest settings file.
+    expect(refreshFactoryDroidCatalogMock).toHaveBeenCalledTimes(2);
   });
 
   it('updates lastRefreshAt on successful flush so the subsequent settings-updated is cooled down', async () => {
@@ -267,10 +278,17 @@ describe('catalogRefresher — BYOK verifier wiring', () => {
     getDroidByokConfigsMock.mockReset();
     verifyByokCapabilitiesAgainstCliMock.mockReset();
     emitCapabilityDriftMock.mockReset();
+    getLastDroidModelCatalogProbeReportMock.mockReset();
     __resetCatalogRefresherForTests();
     refreshFactoryDroidCatalogMock.mockResolvedValue([]);
     getFactoryModelsMock.mockReturnValue([]);
     getDroidByokConfigsMock.mockResolvedValue([]);
+    getLastDroidModelCatalogProbeReportMock.mockReturnValue({
+      success: true,
+      cliSource: 'system',
+      cliVersion: '0.108.0',
+      usedSoftPreflight: false,
+    });
     verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
       ok: [],
       missing: [],
@@ -290,6 +308,46 @@ describe('catalogRefresher — BYOK verifier wiring', () => {
     await flushFactoryCatalogRefresh('byok-crud-save');
 
     expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('projects local BYOK refs onto CLI ids using displayName fallback when tuple matching is too strict', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([
+      {
+        id: 'sha1-ref-id',
+        model: 'claude-sonnet-4-6',
+        displayName: 'Claude Sonnet 4.6 [BYOK]',
+        provider: 'anthropic',
+        supportsImageInput: true,
+      },
+    ]);
+    getFactoryModelsMock.mockReturnValue([
+      {
+        id: 'custom:Claude Sonnet 4.6 [BYOK]',
+        name: 'Claude Sonnet 4.6 [BYOK]',
+        isCustom: true,
+        reasoningLevels: ['high'],
+        defaultReasoning: 'high',
+      },
+    ]);
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledWith(
+      [
+        {
+          id: 'custom:Claude Sonnet 4.6 [BYOK]',
+          model: 'claude-sonnet-4-6',
+          supportsImageInput: true,
+        },
+      ],
+      [
+        {
+          id: 'custom:Claude Sonnet 4.6 [BYOK]',
+          noImageSupport: true,
+        },
+      ],
+      undefined
+    );
   });
 
   it('runs verifier exactly once after byok-crud-import flush', async () => {
@@ -367,6 +425,72 @@ describe('catalogRefresher — BYOK verifier wiring', () => {
     expect(emitCapabilityDriftMock).not.toHaveBeenCalled();
   });
 
+  it('emits capability drift IPC event when models are still missing after a successful probe', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([
+      { id: 'missing-model', model: 'missing-model', supportsImageInput: true },
+    ]);
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
+      ok: [],
+      missing: ['missing-model'],
+      conflict: [],
+      unreachable: false,
+    });
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(emitCapabilityDriftMock).toHaveBeenCalledTimes(1);
+    expect(emitCapabilityDriftMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        missing: ['missing-model'],
+      })
+    );
+  });
+
+  it('emits capability drift IPC event with CLI diagnostics when the latest probe failed', async () => {
+    getDroidByokConfigsMock.mockResolvedValue([{ id: 'cfg-a', model: 'claude-sonnet-4-6', supportsImageInput: true }]);
+    getLastDroidModelCatalogProbeReportMock.mockReturnValue({
+      success: false,
+      cliSource: 'system',
+      cliVersion: null,
+      usedSoftPreflight: false,
+      diagnostic: {
+        code: 'missing-platform-binary',
+        stage: 'preflight',
+        detail: 'Could not find the droid binary for win32-x64',
+      },
+      error: 'Could not find the droid binary for win32-x64',
+    });
+    verifyByokCapabilitiesAgainstCliMock.mockReturnValue({
+      ok: [],
+      missing: [],
+      conflict: [],
+      unreachable: true,
+      cliDiagnosticCode: 'missing-platform-binary',
+    });
+
+    await flushFactoryCatalogRefresh('byok-crud-save');
+
+    expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalledWith(
+      [
+        {
+          id: 'cfg-a',
+          model: 'claude-sonnet-4-6',
+          supportsImageInput: true,
+        },
+      ],
+      null,
+      expect.objectContaining({
+        code: 'missing-platform-binary',
+      })
+    );
+    expect(emitCapabilityDriftMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unreachable: true,
+        cliDiagnosticCode: 'missing-platform-binary',
+      })
+    );
+  });
+
   it('skips verifier when no BYOK configs exist', async () => {
     getDroidByokConfigsMock.mockResolvedValue([]);
 
@@ -390,26 +514,18 @@ describe('catalogRefresher — BYOK verifier wiring', () => {
     );
   });
 
-  it('verifier runs once per CRUD even with concurrent flushes', async () => {
-    let resolveRefresh: ((value: unknown[]) => void) | undefined;
-    refreshFactoryDroidCatalogMock.mockImplementation(
-      () =>
-        new Promise<unknown[]>((resolve) => {
-          resolveRefresh = resolve;
-        })
-    );
+  it('verifier runs for each BYOK CRUD flush (no stale probe reuse)', async () => {
+    refreshFactoryDroidCatalogMock.mockResolvedValue([]);
 
     getDroidByokConfigsMock.mockResolvedValue([{ id: 'test-model', model: 'test-model', supportsImageInput: true }]);
 
     const first = flushFactoryCatalogRefresh('byok-crud-save');
     const second = flushFactoryCatalogRefresh('byok-crud-save');
 
-    resolveRefresh?.([]);
     await first;
     await second;
 
-    // Both awaited the same refresh, but each should trigger verifier once
-    // The second flush also starts with reason 'byok-', so it also calls verifier
+    // Each BYOK flush triggers its own probe + verifier run
     expect(verifyByokCapabilitiesAgainstCliMock).toHaveBeenCalled();
   });
 

@@ -93,10 +93,11 @@ const FactoryDroidByokSiteList: React.FC<FactoryDroidByokSiteListProps> = ({
     }
     setBusySiteId(site.id);
     try {
+      // Omit `provider` so upsert preserves per-model providers (mixed-protocol sites stay intact).
+      // 不传 provider，保留每条模型原有的 provider 设置（混合协议站点保持原样）。
       const result = await ipcBridge.acpConversation.upsertDroidByokSite.invoke({
         id: site.id,
         baseUrl: site.baseUrl,
-        provider: site.provider,
         label: trimmed,
       });
       if (!result.success) {

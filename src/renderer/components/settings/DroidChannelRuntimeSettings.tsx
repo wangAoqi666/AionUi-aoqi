@@ -376,6 +376,10 @@ const DroidChannelRuntimeSettings: React.FC<DroidChannelRuntimeSettingsProps> = 
                 value={config.permissionMode ?? effectiveConfig.permissionMode}
                 options={[
                   {
+                    label: t('settings.channels.droidRuntime.allowAllLabel', { defaultValue: 'Allow all' }),
+                    value: 'allow-all',
+                  },
+                  {
                     label: t('settings.channels.droidRuntime.safeAutoLabel', { defaultValue: 'Safe auto' }),
                     value: 'safe-auto',
                   },
@@ -395,64 +399,69 @@ const DroidChannelRuntimeSettings: React.FC<DroidChannelRuntimeSettingsProps> = 
             </div>
           </div>
 
-          <div className='space-y-6px'>
-            <FieldLabel
-              title={t('settings.channels.droidRuntime.allowExecCommands', {
-                defaultValue: 'Allowed Execute commands',
-              })}
-              description={t('settings.channels.droidRuntime.allowExecCommandsDesc', {
-                defaultValue:
-                  'One command prefix per line. These commands can run without waiting for a permission click.',
-              })}
-            />
-            <Input.TextArea
-              value={(config.allowExecCommands ?? effectiveConfig.allowExecCommands).join('\n')}
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              onChange={(value) => updateField('allowExecCommands', parseMultilineList(value))}
-              placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
-                defaultValue: 'One item per line',
-              })}
-            />
-          </div>
+          {(config.permissionMode ?? effectiveConfig.permissionMode) !== 'allow-all' &&
+            (config.permissionMode ?? effectiveConfig.permissionMode) !== 'deny-all' && (
+              <>
+                <div className='space-y-6px'>
+                  <FieldLabel
+                    title={t('settings.channels.droidRuntime.allowExecCommands', {
+                      defaultValue: 'Allowed Execute commands',
+                    })}
+                    description={t('settings.channels.droidRuntime.allowExecCommandsDesc', {
+                      defaultValue:
+                        'One command prefix per line. These commands can run without waiting for a permission click.',
+                    })}
+                  />
+                  <Input.TextArea
+                    value={(config.allowExecCommands ?? effectiveConfig.allowExecCommands).join('\n')}
+                    autoSize={{ minRows: 3, maxRows: 6 }}
+                    onChange={(value) => updateField('allowExecCommands', parseMultilineList(value))}
+                    placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
+                      defaultValue: 'One item per line',
+                    })}
+                  />
+                </div>
 
-          <div className='space-y-6px'>
-            <FieldLabel
-              title={t('settings.channels.droidRuntime.allowEditRoots', {
-                defaultValue: 'Allowed edit roots',
-              })}
-              description={t('settings.channels.droidRuntime.allowEditRootsDesc', {
-                defaultValue:
-                  'One workspace-relative directory per line. File edits outside these paths will be denied.',
-              })}
-            />
-            <Input.TextArea
-              value={(config.allowEditRoots ?? effectiveConfig.allowEditRoots).join('\n')}
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              onChange={(value) => updateField('allowEditRoots', parseMultilineList(value))}
-              placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
-                defaultValue: 'One item per line',
-              })}
-            />
-          </div>
+                <div className='space-y-6px'>
+                  <FieldLabel
+                    title={t('settings.channels.droidRuntime.allowEditRoots', {
+                      defaultValue: 'Allowed edit roots',
+                    })}
+                    description={t('settings.channels.droidRuntime.allowEditRootsDesc', {
+                      defaultValue:
+                        'One workspace-relative directory per line. File edits outside these paths will be denied.',
+                    })}
+                  />
+                  <Input.TextArea
+                    value={(config.allowEditRoots ?? effectiveConfig.allowEditRoots).join('\n')}
+                    autoSize={{ minRows: 3, maxRows: 6 }}
+                    onChange={(value) => updateField('allowEditRoots', parseMultilineList(value))}
+                    placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
+                      defaultValue: 'One item per line',
+                    })}
+                  />
+                </div>
 
-          <div className='space-y-6px'>
-            <FieldLabel
-              title={t('settings.channels.droidRuntime.allowMcpTools', {
-                defaultValue: 'Allowed MCP tools',
-              })}
-              description={t('settings.channels.droidRuntime.allowMcpToolsDesc', {
-                defaultValue: 'One tool name per line. Example: figma___get_design.',
-              })}
-            />
-            <Input.TextArea
-              value={(config.allowMcpTools ?? effectiveConfig.allowMcpTools).join('\n')}
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              onChange={(value) => updateField('allowMcpTools', parseMultilineList(value))}
-              placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
-                defaultValue: 'One item per line',
-              })}
-            />
-          </div>
+                <div className='space-y-6px'>
+                  <FieldLabel
+                    title={t('settings.channels.droidRuntime.allowMcpTools', {
+                      defaultValue: 'Allowed MCP tools',
+                    })}
+                    description={t('settings.channels.droidRuntime.allowMcpToolsDesc', {
+                      defaultValue: 'One tool name per line. Example: figma___get_design.',
+                    })}
+                  />
+                  <Input.TextArea
+                    value={(config.allowMcpTools ?? effectiveConfig.allowMcpTools).join('\n')}
+                    autoSize={{ minRows: 3, maxRows: 6 }}
+                    onChange={(value) => updateField('allowMcpTools', parseMultilineList(value))}
+                    placeholder={t('settings.channels.droidRuntime.listPlaceholder', {
+                      defaultValue: 'One item per line',
+                    })}
+                  />
+                </div>
+              </>
+            )}
         </div>
       )}
     </RuntimeBlock>

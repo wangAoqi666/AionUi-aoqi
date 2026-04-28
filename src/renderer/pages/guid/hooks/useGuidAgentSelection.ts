@@ -26,7 +26,7 @@ import type { AcpSessionConfigOption } from '@/common/types/acpTypes';
 import type { AcpBackend, AcpBackendConfig, AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
 import { getAgentModes } from '@/renderer/utils/model/agentModes';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import {
   savePreferredDroidSpecConfig,
   savePreferredMode,
@@ -330,6 +330,16 @@ export const useGuidAgentSelection = ({
     }
     return [];
   });
+
+  // Re-fetch available agents when acp-detector startup probe completes
+  useEffect(() => {
+    const unsub = ipcBridge.application.startupProbeStatus.on((event) => {
+      if (event.name === 'acp-detector' && event.status === 'done') {
+        void mutate('acp.agents.available');
+      }
+    });
+    return unsub;
+  }, []);
 
   // Fetch remote agents from DB and merge into available agents
   const { data: remoteAgentsData } = useSWR('remote-agents.list', () => ipcBridge.remoteAgent.list.invoke());

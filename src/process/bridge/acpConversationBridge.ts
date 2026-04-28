@@ -22,10 +22,14 @@ import { checkDroidCliUpdate, probeDroidStatus } from '@process/agent/droid/mode
 import { detectNodeRuntime, installOrUpdateDroidCli } from '@process/agent/droid/cliInstaller';
 import {
   fetchDroidByokModels,
+  fetchDroidByokModelsForSite,
   getDroidByokConfigs,
   importDroidByokConfigs,
+  importDroidByokConfigsIntoSite,
   listDroidByokSites,
+  migrateLegacyGoogleProvider,
   migrateLegacyModelsIntoSites,
+  migrateSiteLabelsToBaseUrlOnlyIds,
   removeDroidByokConfig,
   removeDroidByokSite,
   rotateDroidByokSiteApiKey,
@@ -36,14 +40,39 @@ import {
 import * as os from 'os';
 
 export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager): void {
-  // One-time BYOK migration to the site-aware shape. No-ops when
-  // `AIONUI_BYOK_LEGACY=1` is set or the migration marker is already present.
-  // Errors are swallowed inside the helper — startup must never crash on this.
+  // Three one-time BYOK migrations. Order matters:
+  //   1. Rewrite legacy `provider: 'google'` entries → generic + /v1beta/openai
+  //      so the site aggregator sees the canonical tuple.
+  //   2. Rehash site ids from `sha1(provider|baseUrl)` → `sha1(baseUrl)`
+  //      (2026-04-24 site-centric scheme).
+  //   3. Dedupe customModels and prune orphan labels (site aggregation).
+  // Errors are swallowed inside the helpers; startup must never crash on this.
   //
-  // 一次性 BYOK 数据迁移（站点化 schema），AIONUI_BYOK_LEGACY=1 或已跑过则直接跳过。
-  void migrateLegacyModelsIntoSites().catch((error) => {
-    mainWarn('[ACP droid]', 'BYOK migration failed', error instanceof Error ? error.message : String(error));
-  });
+  // 三步幂等迁移：先把历史 google provider 改写为 generic + /v1beta/openai；
+  // 再把站点 id 从 sha1(provider|baseUrl) 升级为 sha1(baseUrl)；最后跑站点化聚合。
+  // AIONUI_BYOK_LEGACY=1 或已跑过则直接跳过。
+  void migrateLegacyGoogleProvider()
+    .catch((error) => {
+      mainWarn(
+        '[ACP droid]',
+        'BYOK google→generic migration failed',
+        error instanceof Error ? error.message : String(error)
+      );
+    })
+    .then(() =>
+      migrateSiteLabelsToBaseUrlOnlyIds().catch((error) => {
+        mainWarn(
+          '[ACP droid]',
+          'BYOK site-id v2 migration failed',
+          error instanceof Error ? error.message : String(error)
+        );
+      })
+    )
+    .finally(() => {
+      void migrateLegacyModelsIntoSites().catch((error) => {
+        mainWarn('[ACP droid]', 'BYOK migration failed', error instanceof Error ? error.message : String(error));
+      });
+    });
 
   // Debug provider to check environment variables
   ipcBridge.acpConversation.checkEnv.provider(() => {
@@ -490,6 +519,44 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
       const site = await rotateDroidByokSiteApiKey(id, newApiKey);
       await flushFactoryCatalogRefresh('byok-site-crud');
       return { success: true, data: { site } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  // Site-scoped fetch/import — reuse stored apiKey inside the main process so
+  // the renderer can add more models to an already-configured site without
+  // re-entering the API key.
+  //
+  // 站点内加模型：主进程内部复用 stored apiKey，避免 renderer 再次输入密钥。
+  ipcBridge.acpConversation.fetchDroidByokModelsForSite.provider(async (payload) => {
+    try {
+      const catalog = await fetchDroidByokModelsForSite(payload);
+      return { success: true, data: { catalog } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcBridge.acpConversation.importDroidByokConfigsIntoSite.provider(async (payload) => {
+    try {
+      const result = await importDroidByokConfigsIntoSite(payload, {
+        onProgress: (progress) => {
+          try {
+            ipcBridge.acpConversation.droidByokImportProgress.emit(progress);
+          } catch {
+            // ignore emit errors
+          }
+        },
+      });
+      await flushFactoryCatalogRefresh('byok-site-crud');
+      return { success: true, data: result };
     } catch (error) {
       return {
         success: false,

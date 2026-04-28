@@ -14,19 +14,31 @@ export const useAssistantBackends = () => {
     ipcBridge.extensions.getAcpAdapters.invoke().catch(() => [] as Record<string, unknown>[])
   );
 
+  const fetchBackends = useCallback(async () => {
+    try {
+      const resp = await ipcBridge.acpConversation.getAvailableAgents.invoke();
+      if (resp.success && resp.data) {
+        setAvailableBackends(new Set(resp.data.map((a) => a.backend)));
+      }
+    } catch {
+      // fallback to default
+    }
+  }, []);
+
   // Load available agent backends from ACP detector
   useEffect(() => {
-    void (async () => {
-      try {
-        const resp = await ipcBridge.acpConversation.getAvailableAgents.invoke();
-        if (resp.success && resp.data) {
-          setAvailableBackends(new Set(resp.data.map((a) => a.backend)));
-        }
-      } catch {
-        // fallback to default
+    void fetchBackends();
+  }, [fetchBackends]);
+
+  // Re-fetch when acp-detector startup probe completes (it runs after renderer mounts)
+  useEffect(() => {
+    const unsub = ipcBridge.application.startupProbeStatus.on((event) => {
+      if (event.name === 'acp-detector' && event.status === 'done') {
+        void fetchBackends();
       }
-    })();
-  }, []);
+    });
+    return unsub;
+  }, [fetchBackends]);
 
   const refreshAgentDetection = useCallback(async () => {
     try {

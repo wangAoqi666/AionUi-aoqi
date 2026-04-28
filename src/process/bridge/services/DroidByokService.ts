@@ -18,7 +18,9 @@ import type {
   IDroidByokSiteUpsertInput,
   IDroidByokVerificationResult,
 } from '@/common/adapter/ipcBridge';
-import type { ReasoningLevel } from '@/common/config/factoryModels';
+import type { FactoryModel, ReasoningLevel } from '@/common/config/factoryModels';
+import type { DroidCliDiagnostic } from '@/common/types/acpTypes';
+import { getFactoryModels, setDroidModelCatalog } from '@/common/config/factoryModels';
 import { ProcessConfig, getFactoryRootDir } from '@process/utils/initStorage';
 import { mainLog, mainWarn } from '@process/utils/mainLogger';
 import { createHash } from 'node:crypto';
@@ -30,7 +32,18 @@ const DROID_BYOK_MAX_OUTPUT_TOKENS = 8192;
 const DROID_BYOK_REMOTE_FETCH_TIMEOUT_MS = 15000;
 const DROID_BYOK_PROBE_TIMEOUT_MS = 8000;
 const DROID_BYOK_IMPORT_CONCURRENCY = 6;
-const DROID_BYOK_PROVIDER_VALUES = ['anthropic', 'openai', 'generic-chat-completion-api', 'google'] as const;
+const DROID_BYOK_PROVIDER_VALUES = ['anthropic', 'openai', 'generic-chat-completion-api'] as const;
+
+const GEMINI_OFFICIAL_HOST_PATTERN = /(^|\.)generativelanguage\.googleapis\.com$/i;
+
+/**
+ * Detect whether a hostname points at Google's official Gemini endpoint. We
+ * only rewrite URLs for this exact host so self-hosted OpenAI-compatible
+ * proxies that happen to include `/v1beta` keep their explicit path intact.
+ */
+const isGeminiOfficialHost = (hostname: string): boolean => {
+  return GEMINI_OFFICIAL_HOST_PATTERN.test(hostname.trim());
+};
 const remoteCatalogCache = new Map<string, IDroidByokRemoteCatalog>();
 
 type FactorySettingsJson = Record<string, unknown> & {
@@ -108,14 +121,33 @@ const stripDroidByokBaseUrl = (baseUrl: string): string => {
     .replace(/\/models$/i, '');
 };
 
-const normalizeDroidByokBaseUrl = (baseUrl: string, provider?: DroidByokModelProvider): string => {
+/**
+ * Normalize a BYOK base URL. Official-domain Gemini endpoints are silently
+ * upgraded to `/v1beta/openai` so user-supplied URLs that end with `/v1beta`
+ * or the bare host work under the Factory-supported
+ * `generic-chat-completion-api` provider (see docs.factory.ai/cli/byok).
+ * For every other case we only strip trailing `/v1` since the CLI always
+ * appends its own version segment.
+ */
+export const normalizeDroidByokBaseUrl = (baseUrl: string, _provider?: DroidByokModelProvider): string => {
   const stripped = stripDroidByokBaseUrl(baseUrl);
 
-  if (provider === 'google') {
-    if (/\/v1beta$/i.test(stripped) || /\/v1$/i.test(stripped)) {
-      return stripped;
-    }
-    return stripped ? `${stripped}/v1beta` : stripped;
+  let hostname = '';
+  try {
+    hostname = new URL(stripped).hostname;
+  } catch {
+    hostname = '';
+  }
+
+  if (hostname && isGeminiOfficialHost(hostname)) {
+    // Strip any stale /v1 or /v1beta(/openai)? suffix so we can re-apply the
+    // canonical `/v1beta/openai` tail in a single place.
+    const withoutVersion = stripped
+      .replace(/\/v1beta\/openai\/?$/i, '')
+      .replace(/\/v1beta\/?$/i, '')
+      .replace(/\/v1\/?$/i, '')
+      .replace(/\/+$/, '');
+    return withoutVersion ? `${withoutVersion}/v1beta/openai` : withoutVersion;
   }
 
   return stripped.replace(/\/v1$/i, '');
@@ -214,7 +246,9 @@ export function inferByokModelCapabilities(
   }
 
   // --- Google / Gemini ----------------------------------------------------
-  if (isGeminiFamilyModel(normalized) || providerHint === 'google' || supportedEndpointTypes?.includes('gemini')) {
+  // Gemini now rides on `generic-chat-completion-api`; we only infer Gemini
+  // capabilities from the model family or the remote endpoint type map.
+  if (isGeminiFamilyModel(normalized) || supportedEndpointTypes?.includes('gemini')) {
     const gemini3 = /gemini-3/i.test(normalized);
     const gemini25 = /gemini-(2-5|2\.5)/i.test(normalized);
     const gemini2 = /gemini-(2-0|2\.0)/i.test(normalized);
@@ -450,7 +484,7 @@ const extractCapabilityOverrides = (
 const normalizeInputPayload = (input: IDroidByokModelConfigInput): NormalizedByokInput => {
   const model = input.model.trim();
   const apiKey = input.apiKey.trim();
-  const baseUrl = normalizeDroidByokBaseUrl(input.baseUrl, input.provider === 'google' ? undefined : input.provider);
+  const baseUrl = normalizeDroidByokBaseUrl(input.baseUrl, input.provider);
 
   assertRequiredField(baseUrl, 'Base URL');
   assertRequiredField(apiKey, 'API key');
@@ -564,7 +598,9 @@ const buildPersistedBaseUrl = (canonicalBaseUrl: string, provider: DroidByokMode
   if (provider === 'anthropic') {
     return trimmed;
   }
-  if (provider === 'google') {
+  // Gemini official endpoint already carries `/v1beta/openai`; leave it untouched
+  // so the CLI can append its own chat/responses suffix.
+  if (/\/v1beta(\/openai)?$/i.test(trimmed)) {
     return trimmed;
   }
   return /\/v\d+$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
@@ -759,31 +795,55 @@ const isGeminiFamilyModel = (model: string): boolean => {
   return /gemini/i.test(model);
 };
 
-const inferProviderFromModel = (
+/**
+ * Infer the Factory-official provider for a given model id. Narrowed to the
+ * three providers the CLI actually accepts
+ * (`anthropic` / `openai` / `generic-chat-completion-api`). Gemini + any other
+ * vendor that exposes an OpenAI-compatible endpoint (Qwen / DeepSeek / Kimi / …)
+ * rides on `generic-chat-completion-api`.
+ *
+ * Order of precedence:
+ *   1. Remote `supported_endpoint_types` metadata — authoritative if present.
+ *   2. Fuzzy match on the model id (case-insensitive).
+ *   3. `generic-chat-completion-api` fallback.
+ */
+export const inferProviderFromModel = (
   model: string,
   supportedEndpointTypes: SupportedEndpointType[]
 ): DroidByokModelProvider => {
-  if (supportedEndpointTypes.includes('gemini')) {
-    return 'google';
-  }
+  const normalized = model.toLowerCase();
+  const isGeminiLike = /(^|[-_/])(gemini|palm|bison|bard)([-_/.]|$)/.test(normalized);
 
+  // 1) Remote capability hint wins for unambiguous cases.
   if (supportedEndpointTypes.includes('anthropic')) {
     return 'anthropic';
   }
-
-  if (supportedEndpointTypes.includes('openai') || supportedEndpointTypes.includes('openai-response')) {
-    return isOpenAiFamilyModel(model) ? 'openai' : 'generic-chat-completion-api';
+  if (supportedEndpointTypes.includes('openai-response')) {
+    // Factory's OpenAI Responses API — always the pure `openai` provider.
+    return 'openai';
+  }
+  if (supportedEndpointTypes.includes('gemini')) {
+    return 'generic-chat-completion-api';
+  }
+  if (supportedEndpointTypes.includes('openai')) {
+    // Plain OpenAI-compat endpoint: if the model name looks like a Gemini
+    // family member, treat it as Gemini-on-OpenAI-compat gateway, which maps
+    // to the Factory-official `generic-chat-completion-api` provider. This
+    // preserves the pre-existing behavior around third-party Gemini proxies.
+    return isGeminiLike ? 'generic-chat-completion-api' : 'openai';
   }
 
-  if (isGeminiFamilyModel(model)) {
-    return 'google';
+  // 2) Fuzzy match by model family name.
+  if (/(^|[-_/])(opus|sonnet|haiku|claude)([-_/.]|$)/.test(normalized)) {
+    return 'anthropic';
   }
-
-  if (isOpenAiFamilyModel(model)) {
+  if (/(^|[-_/])(gpt-5|gpt-4\.?1|gpt-4o|codex|o[1345])([-_/.]|$)/.test(normalized)) {
     return 'openai';
   }
 
-  return isClaudeFamilyModel(model) ? 'anthropic' : 'generic-chat-completion-api';
+  // 3) Everything else (Gemini / Qwen / DeepSeek / GLM / …) falls back to the
+  // OpenAI-compatible generic provider.
+  return 'generic-chat-completion-api';
 };
 
 const getCandidateProviders = (
@@ -797,12 +857,11 @@ const getCandidateProviders = (
 
   const ordered = [
     inferProviderFromModel(model, supportedEndpointTypes),
-    ...(isGeminiFamilyModel(model) ? (['google', 'openai', 'generic-chat-completion-api', 'anthropic'] as const) : []),
     ...(isOpenAiFamilyModel(model)
-      ? (['openai', 'generic-chat-completion-api', 'google', 'anthropic'] as const)
+      ? (['openai', 'generic-chat-completion-api', 'anthropic'] as const)
       : isClaudeFamilyModel(model)
-        ? (['anthropic', 'google', 'openai', 'generic-chat-completion-api'] as const)
-        : (['generic-chat-completion-api', 'openai', 'google', 'anthropic'] as const)),
+        ? (['anthropic', 'generic-chat-completion-api', 'openai'] as const)
+        : (['generic-chat-completion-api', 'openai', 'anthropic'] as const)),
   ];
 
   return Array.from(new Set(ordered));
@@ -945,61 +1004,6 @@ const probeChatCompletionEndpoint = async (baseUrl: string, input: NormalizedByo
   }
 };
 
-const probeGoogleEndpoint = async (
-  baseUrl: string,
-  input: NormalizedByokInput
-): Promise<{ error: string | null; baseUrl?: string }> => {
-  const apiBases =
-    /\/v1beta$/i.test(baseUrl) || /\/v1$/i.test(baseUrl) ? [baseUrl] : [`${baseUrl}/v1beta`, `${baseUrl}/v1`];
-  let lastError = 'Unexpected Gemini-compatible response';
-
-  for (const apiBase of apiBases) {
-    try {
-      const response = await withFetchTimeout(
-        `${apiBase}/models/${encodeURIComponent(input.model)}:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${input.apiKey}`,
-            'x-goog-api-key': input.apiKey,
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: 'hi' }],
-              },
-            ],
-            generationConfig: {
-              maxOutputTokens: 1,
-            },
-          }),
-        },
-        DROID_BYOK_PROBE_TIMEOUT_MS
-      );
-
-      if (!response.ok) {
-        lastError = await extractErrorMessage(response);
-        continue;
-      }
-
-      const data = (await response.json().catch((): null => null)) as {
-        candidates?: unknown[];
-        promptFeedback?: unknown;
-      } | null;
-      if (Array.isArray(data?.candidates) || data?.promptFeedback) {
-        return { error: null, baseUrl: apiBase };
-      }
-
-      lastError = 'Unexpected Gemini-compatible response';
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  return { error: lastError };
-};
-
 const probeProvider = async (provider: DroidByokModelProvider, input: NormalizedByokInput): Promise<ProbeResult> => {
   if (provider === 'anthropic') {
     return {
@@ -1018,15 +1022,6 @@ const probeProvider = async (provider: DroidByokModelProvider, input: Normalized
     return {
       provider,
       error: chatError === null ? null : responseError,
-    };
-  }
-
-  if (provider === 'google') {
-    const result = await probeGoogleEndpoint(input.baseUrl, input);
-    return {
-      provider,
-      error: result.error,
-      ...(result.baseUrl ? { baseUrl: result.baseUrl } : {}),
     };
   }
 
@@ -1135,34 +1130,64 @@ const loadRemoteCatalogFromEndpoint = async (
   };
 };
 
+/**
+ * Build the candidate endpoint list to probe for `/models`. Gemini/OpenAI
+ * compatible base URLs often live at `/v1beta`; regular OpenAI-compatible
+ * ones at `/v1`. We always keep `${baseUrl}/models` as a last-resort fallback
+ * because some self-hosted gateways expose it there directly.
+ */
+const buildRemoteCatalogEndpoints = (baseUrl: string): string[] => {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  const endpoints = new Set<string>();
+
+  if (/\/v1beta(\/openai)?$/i.test(trimmed)) {
+    endpoints.add(`${trimmed}/models`);
+  }
+  endpoints.add(`${trimmed}/v1/models`);
+  endpoints.add(`${trimmed}/v1beta/models`);
+  endpoints.add(`${trimmed}/models`);
+  return Array.from(endpoints);
+};
+
+/**
+ * Resolve the remote BYOK model catalog by probing every candidate endpoint
+ * in parallel via `Promise.allSettled`. This fixes the "need to click fetch
+ * multiple times" bug where the first endpoint to resolve would win even if
+ * its payload contained zero models.
+ *
+ * Selection rules (applied in order):
+ *   1. Prefer the first fulfilled response whose `models.length > 0`.
+ *   2. Otherwise use the first fulfilled response (empty but legal).
+ *   3. Otherwise surface the first rejection reason.
+ */
 const loadRemoteCatalog = async (baseUrl: string, apiKey: string): Promise<IDroidByokRemoteCatalog> => {
-  const endpoints = [`${baseUrl}/v1/models`, `${baseUrl}/v1beta/models`, `${baseUrl}/models`];
+  const endpoints = buildRemoteCatalogEndpoints(baseUrl);
 
-  return await new Promise<IDroidByokRemoteCatalog>((resolve, reject) => {
-    let rejectedCount = 0;
-    let firstError: unknown;
+  const settled = await Promise.allSettled(
+    endpoints.map((endpoint) => loadRemoteCatalogFromEndpoint(baseUrl, endpoint, apiKey))
+  );
 
-    for (const endpoint of endpoints) {
-      void loadRemoteCatalogFromEndpoint(baseUrl, endpoint, apiKey)
-        .then((catalog) => {
-          resolve(catalog);
-        })
-        .catch((error) => {
-          rejectedCount += 1;
-          if (typeof firstError === 'undefined') {
-            firstError = error;
-          }
-
-          if (rejectedCount === endpoints.length) {
-            reject(
-              new Error(
-                firstError instanceof Error ? firstError.message : String(firstError ?? 'Failed to fetch remote models')
-              )
-            );
-          }
-        });
+  // 1. prefer the first fulfilled catalog with at least one model
+  for (const result of settled) {
+    if (result.status === 'fulfilled' && result.value.models.length > 0) {
+      return result.value;
     }
-  });
+  }
+
+  // 2. accept an empty fulfilled catalog so the UI can surface the empty state
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    }
+  }
+
+  // 3. every endpoint failed → report the first rejection
+  const firstRejection = settled.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  )?.reason;
+  throw new Error(
+    firstRejection instanceof Error ? firstRejection.message : String(firstRejection ?? 'Failed to fetch remote models')
+  );
 };
 
 export async function getDroidByokConfigs(): Promise<IDroidByokModelConfig[]> {
@@ -1200,7 +1225,14 @@ export async function fetchDroidByokModels(payload: {
   }
 
   const catalog = await loadRemoteCatalog(baseUrl, apiKey);
-  remoteCatalogCache.set(cacheKey, catalog);
+  // Only cache non-empty catalogs so a transient empty 200 response (seen in
+  // the wild on some Gemini-compatible gateways) does not stick around and
+  // force the user to refresh repeatedly.
+  if (catalog.models.length > 0) {
+    remoteCatalogCache.set(cacheKey, catalog);
+  } else {
+    remoteCatalogCache.delete(cacheKey);
+  }
   return catalog;
 }
 
@@ -1233,6 +1265,13 @@ const persistDroidByokConfig = async (
 export async function saveDroidByokConfig(input: IDroidByokModelConfigInput): Promise<IDroidByokModelConfig> {
   const normalizedInput = normalizeInputPayload(input);
   const config = await probeAndResolveConfig(normalizedInput);
+  // Defensive: refuse to persist an entry whose provider is not in the
+  // Factory-official set. probeAndResolveConfig should already guarantee this,
+  // but an explicit check here keeps future changes from silently regressing
+  // the BYOK contract enforced by the CLI.
+  if (!isDroidByokProvider(config.provider)) {
+    throw new Error(`Refusing to persist BYOK config with unsupported provider: ${config.provider}`);
+  }
   return persistDroidByokConfig(config, input.existingId);
 }
 
@@ -1353,6 +1392,13 @@ export async function importDroidByokConfigs(
         ? buildConfig(normalizedInput, resolvedProvider, supportedTypesForItem)
         : await probeAndResolveConfig(normalizedInput, supportedTypesForItem);
 
+      // Guard against legacy / crafted payloads that could smuggle an
+      // unsupported provider through batch import. Matches the single-save
+      // path in saveDroidByokConfig above.
+      if (!isDroidByokProvider(config.provider)) {
+        throw new Error(`Unsupported provider ${config.provider}`);
+      }
+
       resolvedConfigs.push(config);
       completed += 1;
       emit({ current: completed, total, model: normalizedModel, status: 'imported' });
@@ -1439,14 +1485,75 @@ const isByokLegacyMode = (): boolean => process.env.AIONUI_BYOK_LEGACY === '1';
 const BYOK_MIGRATION_VERSION = 1;
 
 /**
- * Build the stable `sha1(provider|normalizedBaseUrl)` id used to identify a
- * BYOK site across process restarts. Exported for tests + callers that need
- * to build an id without loading the full site list.
+ * Current schema version for the silent `provider: 'google'` rewrite. Bumped
+ * when the rewrite semantics need to re-run (e.g., if we discover another URL
+ * family that needs normalization).
  */
-export function buildDroidByokSiteId(provider: DroidByokModelProvider, baseUrl: string): string {
+const BYOK_GOOGLE_MIGRATION_VERSION = 1;
+
+/**
+ * Current schema version for the 2026-04-24 site-id rehash:
+ * `sha1(provider|baseUrl)` → `sha1(baseUrl)`. Bump when the site-id scheme
+ * changes again so the rewrite re-runs on existing installs.
+ */
+const BYOK_SITE_ID_V2_MIGRATION_VERSION = 1;
+
+/**
+ * Protocol-agnostic site base URL normalization. Unlike
+ * `normalizeDroidByokBaseUrl` (which massages the URL per provider — appending
+ * `/v1beta/openai` for Gemini, `/v1` for OpenAI-compat, etc.), this version
+ * collapses any surface variation into a single canonical form used purely
+ * for site grouping:
+ *
+ *   - lower-case scheme + host
+ *   - drop repeated / trailing slashes
+ *   - keep the path as-is (so `.../v1beta/openai` groups with `.../v1beta/openai`,
+ *     NOT with `.../v1`)
+ *
+ * This keeps the site id stable across protocol variants of the same gateway
+ * (same host+path, different underlying BYOK protocol) while still separating
+ * truly distinct endpoints.
+ *
+ * 站点 baseUrl 归一化（协议无关），仅用于 siteId 分组。
+ */
+export const normalizeSiteBaseUrl = (baseUrl: string): string => {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  try {
+    const url = new URL(trimmed);
+    const scheme = url.protocol.toLowerCase();
+    const host = url.host.toLowerCase();
+    const path = url.pathname.replace(/\/+$/, '');
+    return `${scheme}//${host}${path}`;
+  } catch {
+    // Fallback: just lower-case + trim slashes for non-URL inputs.
+    return trimmed.toLowerCase();
+  }
+};
+
+/**
+ * Build the stable `sha1(normalizedBaseUrl)` id used to identify a BYOK site
+ * across process restarts. Intentionally provider-agnostic — two models on
+ * the same baseUrl but different providers (e.g., Claude + Qwen behind the
+ * same gateway) share a single site card in the UI.
+ *
+ * Exported for tests + callers that need to build an id without loading the
+ * full site list.
+ */
+export function buildDroidByokSiteId(baseUrl: string): string {
+  return createHash('sha1').update(normalizeSiteBaseUrl(baseUrl)).digest('hex').slice(0, 16);
+}
+
+/**
+ * Legacy site id builder used ONLY by migration helpers that need to locate
+ * records stored under the pre-2026-04-24 scheme `sha1(provider|normalized)`.
+ * New code must call `buildDroidByokSiteId(baseUrl)` instead.
+ *
+ * Exported for tests that need to seed pre-migration label fixtures.
+ */
+export const buildLegacyDroidByokSiteId = (provider: DroidByokModelProvider, baseUrl: string): string => {
   const normalized = normalizeDroidByokBaseUrl(baseUrl, provider);
   return createHash('sha1').update(`${provider}|${normalized}`).digest('hex').slice(0, 16);
-}
+};
 
 type DroidByokSiteLabel = { id: string; label: string };
 
@@ -1534,7 +1641,7 @@ const pruneSiteLabels = async (validIds: Set<string>): Promise<void> => {
 type SiteAggregate = {
   id: string;
   baseUrl: string;
-  provider: DroidByokModelProvider;
+  providers: DroidByokModelProvider[];
   modelIds: string[];
   hasApiKey: boolean;
   supportsImageInput: boolean;
@@ -1545,6 +1652,10 @@ type SiteAggregate = {
  * `apiKey` contribute to `hasApiKey=true`; refs that lack backing entries (a
  * rare corrupted state) still appear but with `hasApiKey=false`.
  *
+ * Since 2026-04-24 the grouping is baseUrl-only — the same gateway hosting
+ * Claude + Qwen behind one URL now shows up as a single site card, with each
+ * model row carrying its own provider tag.
+ *
  * `supportsImageInput` is the logical OR across all members: a site exposes
  * multimodal capability if at least one of its models supports images.
  */
@@ -1552,7 +1663,7 @@ const aggregateSites = (refs: DroidByokModelRef[], entries: FactoryCustomModelEn
   const byId = new Map<string, SiteAggregate>();
 
   for (const ref of refs) {
-    const siteId = buildDroidByokSiteId(ref.provider, ref.baseUrl);
+    const siteId = buildDroidByokSiteId(ref.baseUrl);
     const existing = byId.get(siteId);
     const matchingEntry = entries.find((entry) => matchesManagedEntry(entry, ref));
     const hasApiKeyForRef = Boolean(typeof matchingEntry?.apiKey === 'string' && matchingEntry.apiKey.trim());
@@ -1571,11 +1682,14 @@ const aggregateSites = (refs: DroidByokModelRef[], entries: FactoryCustomModelEn
       existing.modelIds.push(ref.id);
       existing.hasApiKey = existing.hasApiKey || hasApiKeyForRef;
       existing.supportsImageInput = existing.supportsImageInput || capabilitiesForRef.supportsImageInput;
+      if (!existing.providers.includes(ref.provider)) {
+        existing.providers.push(ref.provider);
+      }
     } else {
       byId.set(siteId, {
         id: siteId,
         baseUrl: ref.baseUrl,
-        provider: ref.provider,
+        providers: [ref.provider],
         modelIds: [ref.id],
         hasApiKey: hasApiKeyForRef,
         supportsImageInput: capabilitiesForRef.supportsImageInput,
@@ -1591,7 +1705,7 @@ const aggregateSites = (refs: DroidByokModelRef[], entries: FactoryCustomModelEn
  * Empty groups are NOT surfaced; a site only exists when at least one model
  * references it. The `label` field is opt-in and stored separately.
  *
- * 列出所有 BYOK 站点（按 provider+归一化 baseUrl 聚合）；不包含明文 apiKey。
+ * 列出所有 BYOK 站点（按归一化 baseUrl 聚合，不区分 provider）；不包含明文 apiKey。
  */
 export async function listDroidByokSites(): Promise<IDroidByokSite[]> {
   const refs = await getDroidByokRefs();
@@ -1610,7 +1724,7 @@ export async function listDroidByokSites(): Promise<IDroidByokSite[]> {
         {
           id: aggregate.id,
           baseUrl: aggregate.baseUrl,
-          provider: aggregate.provider,
+          providers: aggregate.providers,
           hasApiKey: aggregate.hasApiKey,
           modelIds: aggregate.modelIds,
           modelCount: aggregate.modelIds.length,
@@ -1629,19 +1743,20 @@ export async function listDroidByokSites(): Promise<IDroidByokSite[]> {
  *   model`". Callers should seed the first model through
  *   `importDroidByokConfigs` / `saveDroidByokConfig`, then call this helper
  *   to attach a label if desired.
- * - **Update path** (`id` present): updates `baseUrl`, `provider`, and — if
- *   `apiKey` is supplied — rotates the API key on every underlying model
- *   entry. Setting `label` to an empty string clears the stored label.
+ * - **Update path** (`id` present): updates `baseUrl` and — if `apiKey` is
+ *   supplied — rotates the API key on every underlying model entry. When
+ *   `provider` is supplied, it is applied uniformly to every model in the
+ *   site (bulk protocol switch); when omitted, each model keeps its own
+ *   provider so mixed-protocol sites remain intact. Setting `label` to an
+ *   empty string clears the stored label.
  */
 export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Promise<IDroidByokSite> {
   const trimmedBaseUrl = input.baseUrl.trim();
   assertRequiredField(trimmedBaseUrl, 'Base URL');
-  if (!isDroidByokProvider(input.provider)) {
+  const hasExplicitProvider = typeof input.provider !== 'undefined' && input.provider !== null;
+  if (hasExplicitProvider && !isDroidByokProvider(input.provider)) {
     throw new Error('Unsupported provider');
   }
-
-  const nextBaseUrl = normalizeDroidByokBaseUrl(trimmedBaseUrl, input.provider);
-  assertRequiredField(nextBaseUrl, 'Base URL');
 
   const settings = await readFactorySettingsJson();
   const existingEntries = getCustomModelEntries(settings);
@@ -1654,9 +1769,7 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
   }
 
   const targetId = input.id.trim();
-  const refsBelongingToSite = existingRefs.filter(
-    (ref) => buildDroidByokSiteId(ref.provider, ref.baseUrl) === targetId
-  );
+  const refsBelongingToSite = existingRefs.filter((ref) => buildDroidByokSiteId(ref.baseUrl) === targetId);
   if (refsBelongingToSite.length === 0) {
     throw new Error('BYOK site not found');
   }
@@ -1683,11 +1796,14 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
   const nextRefs: DroidByokModelRef[] = [];
 
   for (const [entry, ref] of entryRefMap.entries()) {
-    const persistedBaseUrl = buildPersistedBaseUrl(nextBaseUrl, input.provider);
+    const providerForEntry: DroidByokModelProvider = hasExplicitProvider ? input.provider : ref.provider;
+    const nextBaseUrl = normalizeDroidByokBaseUrl(trimmedBaseUrl, providerForEntry);
+    assertRequiredField(nextBaseUrl, 'Base URL');
+    const persistedBaseUrl = buildPersistedBaseUrl(nextBaseUrl, providerForEntry);
     const modelName = typeof entry.model === 'string' ? entry.model.trim() : ref.model;
     // Re-resolve capabilities per entry so an explicit site-level override
     // wins, otherwise fall back to the stored/inferred per-model value.
-    const resolvedCaps = resolveByokModelCapabilities(modelName, input.provider, undefined, {
+    const resolvedCaps = resolveByokModelCapabilities(modelName, providerForEntry, undefined, {
       ...extractCapabilityOverrides({
         supportsImageInput: entry.supportsImageInput,
         reasoningLevels: entry.reasoningLevels,
@@ -1698,7 +1814,7 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
     const nextEntry: FactoryCustomModelEntry = {
       ...entry,
       baseUrl: persistedBaseUrl,
-      provider: input.provider,
+      provider: providerForEntry,
       ...(typeof apiKey === 'string' && apiKey.length > 0 ? { apiKey } : {}),
       supportsImageInput: resolvedCaps.supportsImageInput,
       reasoningLevels: resolvedCaps.reasoningLevels,
@@ -1710,11 +1826,11 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
       id: buildDroidByokModelRefId({
         model: modelName,
         baseUrl: nextBaseUrl,
-        provider: input.provider,
+        provider: providerForEntry,
       }),
       model: modelName,
       baseUrl: nextBaseUrl,
-      provider: input.provider,
+      provider: providerForEntry,
     });
   }
 
@@ -1724,11 +1840,14 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
   const refIdsToRemove = new Set(refsBelongingToSite.map((ref) => ref.id));
   await setDroidByokRefs([...existingRefs.filter((ref) => !refIdsToRemove.has(ref.id)), ...nextRefs]);
 
+  // Compute the post-upsert site id from any updated ref's baseUrl. Because
+  // the site id is provider-agnostic, all nextRefs share the same site id.
+  const nextSiteId = nextRefs.length > 0 ? buildDroidByokSiteId(nextRefs[0].baseUrl) : targetId;
+
   if (typeof input.label === 'string') {
-    await setSiteLabel(buildDroidByokSiteId(input.provider, nextBaseUrl), input.label.trim() || undefined);
+    await setSiteLabel(nextSiteId, input.label.trim() || undefined);
   }
 
-  const nextSiteId = buildDroidByokSiteId(input.provider, nextBaseUrl);
   const sites = await listDroidByokSites();
   const persisted = sites.find((site) => site.id === nextSiteId);
   if (!persisted) {
@@ -1741,7 +1860,7 @@ export async function upsertDroidByokSite(input: IDroidByokSiteUpsertInput): Pro
  * Remove all model entries that belong to the specified site. Site labels are
  * also pruned to keep config storage tidy.
  *
- * 级联删除站点下所有模型条目，同时清理对应的 site label。
+ * 级联删除站点下所有模型条目（不区分 provider），同时清理对应的 site label。
  */
 export async function removeDroidByokSite(id: string): Promise<void> {
   const siteId = id.trim();
@@ -1750,7 +1869,7 @@ export async function removeDroidByokSite(id: string): Promise<void> {
   }
 
   const existingRefs = await getDroidByokRefs();
-  const refsToRemove = existingRefs.filter((ref) => buildDroidByokSiteId(ref.provider, ref.baseUrl) === siteId);
+  const refsToRemove = existingRefs.filter((ref) => buildDroidByokSiteId(ref.baseUrl) === siteId);
   if (refsToRemove.length === 0) {
     return;
   }
@@ -1770,7 +1889,7 @@ export async function removeDroidByokSite(id: string): Promise<void> {
   await setDroidByokRefs(existingRefs.filter((ref) => !refIdsToRemove.has(ref.id)));
 
   const remainingRefs = existingRefs.filter((ref) => !refIdsToRemove.has(ref.id));
-  const remainingSiteIds = new Set(remainingRefs.map((ref) => buildDroidByokSiteId(ref.provider, ref.baseUrl)));
+  const remainingSiteIds = new Set(remainingRefs.map((ref) => buildDroidByokSiteId(ref.baseUrl)));
   await pruneSiteLabels(remainingSiteIds);
 }
 
@@ -1787,7 +1906,7 @@ export async function rotateDroidByokSiteApiKey(id: string, newApiKey: string): 
   assertRequiredField(trimmedKey, 'API key');
 
   const existingRefs = await getDroidByokRefs();
-  const refsInSite = existingRefs.filter((ref) => buildDroidByokSiteId(ref.provider, ref.baseUrl) === siteId);
+  const refsInSite = existingRefs.filter((ref) => buildDroidByokSiteId(ref.baseUrl) === siteId);
   if (refsInSite.length === 0) {
     throw new Error('BYOK site not found');
   }
@@ -1808,6 +1927,189 @@ export async function rotateDroidByokSiteApiKey(id: string, newApiKey: string): 
     throw new Error('BYOK site not found after rotate');
   }
   return persisted;
+}
+
+/**
+ * Resolve the stored plaintext API key for a site by reading the first model
+ * entry that the site aggregates. Returns `null` when no entry carries a
+ * non-empty `apiKey` (e.g. a corrupted or freshly seeded site). The caller
+ * MUST keep the plaintext key inside the main process — this helper is the
+ * whole reason the "add-model-to-existing-site" flow is implemented here
+ * rather than round-tripping the key through renderer IPC.
+ *
+ * 从已持久化条目中取站点 apiKey（仅主进程内部使用；不得返回到 renderer）。
+ */
+const resolveSiteApiKey = async (siteId: string): Promise<{ baseUrl: string; apiKey: string } | null> => {
+  const trimmed = siteId.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const refs = await getDroidByokRefs();
+  const siteRefs = refs.filter((ref) => buildDroidByokSiteId(ref.baseUrl) === trimmed);
+  if (siteRefs.length === 0) {
+    return null;
+  }
+
+  const settings = await readFactorySettingsJson();
+  const entries = getCustomModelEntries(settings);
+  for (const ref of siteRefs) {
+    const matching = entries.find((entry) => matchesManagedEntry(entry, ref));
+    const apiKey = typeof matching?.apiKey === 'string' ? matching.apiKey.trim() : '';
+    if (apiKey) {
+      return { baseUrl: ref.baseUrl, apiKey };
+    }
+  }
+  return null;
+};
+
+/**
+ * Fetch the remote model catalog for a BYOK site by reusing its stored API
+ * key. The renderer never sees the plaintext key — the key stays inside the
+ * main process, and this helper returns just the `IDroidByokRemoteCatalog`
+ * (model listings + inferred provider). Raises when the site id cannot be
+ * resolved or when no stored API key is available.
+ *
+ * 站点内新增模型时的远端目录拉取：直接复用已存 apiKey，主进程内部调用；
+ * apiKey 不会通过 renderer IPC 回流。
+ */
+export async function fetchDroidByokModelsForSite(payload: {
+  siteId: string;
+  refresh?: boolean;
+}): Promise<IDroidByokRemoteCatalog> {
+  const siteId = payload.siteId.trim();
+  assertRequiredField(siteId, 'Site id');
+
+  const resolved = await resolveSiteApiKey(siteId);
+  if (!resolved) {
+    throw new Error('BYOK site has no stored API key — please rotate key first.');
+  }
+
+  return fetchDroidByokModels({
+    baseUrl: resolved.baseUrl,
+    apiKey: resolved.apiKey,
+    refresh: payload.refresh,
+  });
+}
+
+/**
+ * Import one or more remote models into an existing BYOK site by reusing its
+ * stored API key. Semantically equivalent to calling
+ * `importDroidByokConfigs` with the site's `{baseUrl, apiKey}`, but shields
+ * the plaintext key from renderer IPC callers.
+ *
+ * The `models` array carries catalog metadata (supportedEndpointTypes,
+ * providerHint, displayName) forwarded verbatim to `importDroidByokConfigs`
+ * so skip-probe paths stay near-instant.
+ *
+ * 站点内批量导入模型：内部复用 stored apiKey 调 importDroidByokConfigs，避免把明文 key 外泄。
+ */
+export async function importDroidByokConfigsIntoSite(
+  payload: {
+    siteId: string;
+    models: IDroidByokImportConfigsInput['models'];
+    skipProbe?: boolean;
+  },
+  options: { onProgress?: (progress: IDroidByokImportProgress) => void } = {}
+): Promise<IDroidByokImportResult> {
+  const siteId = payload.siteId.trim();
+  assertRequiredField(siteId, 'Site id');
+  if (!Array.isArray(payload.models) || payload.models.length === 0) {
+    return { imported: [], failed: [] };
+  }
+
+  const resolved = await resolveSiteApiKey(siteId);
+  if (!resolved) {
+    throw new Error('BYOK site has no stored API key — please rotate key first.');
+  }
+
+  return importDroidByokConfigs(
+    {
+      baseUrl: resolved.baseUrl,
+      apiKey: resolved.apiKey,
+      models: payload.models,
+      ...(typeof payload.skipProbe === 'boolean' ? { skipProbe: payload.skipProbe } : {}),
+    },
+    options
+  );
+}
+
+/**
+ * Tuple key for matching a CLI-probed `FactoryModel` against a persisted BYOK
+ * config. We match on `(modelProvider, sourceModelId)` — the two immutable
+ * fields that both sides share.
+ *
+ * We deliberately DON'T use `id`:
+ *   - CLI issues its own id format (`custom:<displayName>[-<N>]`).
+ *   - Our internal refs use a 16-char sha1 (`buildDroidByokModelRefId`).
+ *   - These two id spaces never intersect.
+ *
+ * 用 (provider, sourceModelId) 二元组跨 CLI 与本地 byokConfig 对齐，
+ * 避免 sha1 与 `custom:...` 两套 id 体系互不相认。
+ */
+const buildByokCatalogTupleKey = (provider: string | undefined, sourceModelId: string | undefined): string => {
+  return `${provider ?? ''}\n${sourceModelId ?? ''}`;
+};
+
+/**
+ * Reconcile the in-memory Factory Droid catalog against the current BYOK
+ * refs. This function performs **pruning only** — it never synthesizes new
+ * entries because only the CLI knows the exact `custom:<…>[-N]` id that
+ * the API will accept at session time.
+ *
+ * Matching strategy (robust against optional FactoryModel fields):
+ *   1. `model.name` contains the BYOK config's `displayName` (e.g.
+ *      CLI's `"opus-4-6 [BYOK]"` matches our config `displayName`)
+ *   2. `model.sourceModelId` equals the BYOK config's `model` field
+ * Either match is sufficient to keep the entry.
+ *
+ * When a BYOK ref exists in persistence but the CLI probe hasn't surfaced it
+ * yet, we intentionally leave it out of the catalog. It will appear on the
+ * next successful probe.
+ *
+ * 仅做剪枝、不做合成。匹配用 displayName 或 sourceModelId 作为 fallback，
+ * 因为 CLI 的 AvailableModelConfig.modelId 可能为空。
+ */
+export async function rebuildDroidCatalogFromRefs(): Promise<void> {
+  try {
+    const byokConfigs = await getDroidByokConfigs();
+    // Build lookup sets for robust matching
+    const allowedModels = new Set(byokConfigs.map((c) => c.model));
+    const allowedDisplayNames = new Set(byokConfigs.map((c) => c.displayName));
+
+    // Observe whatever the probe just wrote to the in-memory catalog.
+    const currentCatalog = getFactoryModels();
+    const retained: FactoryModel[] = [];
+    let pruned = 0;
+    for (const model of currentCatalog) {
+      if (model.isCustom !== true) {
+        retained.push(model);
+        continue;
+      }
+      // A custom entry survives if it matches ANY known BYOK ref by either
+      // sourceModelId or displayName. This is deliberately lenient because
+      // the CLI may not populate sourceModelId (modelId) for custom entries.
+      const matchBySourceModel = model.sourceModelId && allowedModels.has(model.sourceModelId);
+      const matchByName = model.name && allowedDisplayNames.has(model.name);
+      if (matchBySourceModel || matchByName) {
+        retained.push(model);
+      } else {
+        pruned += 1;
+      }
+    }
+
+    // NO synthesize — CLI probe is the sole source of truth for FactoryModel.id.
+
+    setDroidModelCatalog(retained);
+    mainLog('[DroidByokService]', 'rebuildDroidCatalogFromRefs', {
+      retained: retained.length,
+      pruned,
+      byokRefs: byokConfigs.length,
+    });
+  } catch (error) {
+    mainWarn('[DroidByokService]', 'rebuildDroidCatalogFromRefs failed', {
+      err: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -1833,11 +2135,20 @@ export function verifyByokCapabilitiesAgainstCli(
   cliModels: ReadonlyArray<{
     id: string;
     noImageSupport?: boolean;
-  }> | null
+  }> | null,
+  cliDiagnostic?: DroidCliDiagnostic
 ): IDroidByokVerificationResult {
   if (cliModels === null) {
-    mainLog('[DroidByokService]', 'droid.byok.verifier.cli_unreachable');
-    return { ok: [], missing: [], conflict: [], unreachable: true };
+    mainLog('[DroidByokService]', 'droid.byok.verifier.cli_unreachable', {
+      diagnosticCode: cliDiagnostic?.code,
+    });
+    return {
+      ok: [],
+      missing: [],
+      conflict: [],
+      unreachable: true,
+      ...(cliDiagnostic ? { cliDiagnosticCode: cliDiagnostic.code } : {}),
+    };
   }
 
   const cliModelMap = new Map(cliModels.map((m) => [m.id, m]));
@@ -1853,6 +2164,7 @@ export function verifyByokCapabilitiesAgainstCli(
       missing.push(local.id);
       mainWarn('[DroidByokService]', 'capabilities_unverified', {
         modelId: local.id,
+        sourceModelId: local.model,
         reason: 'cli-missing',
       });
       continue;
@@ -1870,12 +2182,25 @@ export function verifyByokCapabilitiesAgainstCli(
         local: localSupportsImage,
         cli: cliSupportsImage,
       });
+      mainWarn('[DroidByokService]', 'capabilities_conflict', {
+        modelId: local.id,
+        sourceModelId: local.model,
+        field: 'supportsImageInput',
+        local: localSupportsImage,
+        cli: cliSupportsImage,
+      });
     } else {
       ok.push(local.id);
     }
   }
 
-  return { ok, missing, conflict, unreachable: false };
+  return {
+    ok,
+    missing,
+    conflict,
+    unreachable: false,
+    ...(cliDiagnostic ? { cliDiagnosticCode: cliDiagnostic.code } : {}),
+  };
 }
 
 /**
@@ -1930,7 +2255,7 @@ export async function migrateLegacyModelsIntoSites(): Promise<void> {
       await writeFactorySettingsJson(settings);
     }
 
-    const remainingSiteIds = new Set(refs.map((ref) => buildDroidByokSiteId(ref.provider, ref.baseUrl)));
+    const remainingSiteIds = new Set(refs.map((ref) => buildDroidByokSiteId(ref.baseUrl)));
     await pruneSiteLabels(remainingSiteIds);
   } catch (error) {
     mainWarn('[DroidByokService]', 'migrateLegacyModelsIntoSites failed', {
@@ -1939,6 +2264,313 @@ export async function migrateLegacyModelsIntoSites(): Promise<void> {
   } finally {
     const latestAcpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
     const nextDroidConfig = { ...latestAcpConfig.droid, byokMigrationVersion: BYOK_MIGRATION_VERSION };
+    await ProcessConfig.set('acp.config', {
+      ...latestAcpConfig,
+      droid: nextDroidConfig,
+    });
+  }
+}
+
+/**
+ * Rewrite any `provider: 'google'` BYOK entries to the Factory-supported
+ * `generic-chat-completion-api` provider, upgrading the canonical
+ * `generativelanguage.googleapis.com` base URL to the `/v1beta/openai` path
+ * the CLI expects. Runs once on startup — guarded by
+ * `acp.config.droid.droidByokGoogleMigrationVersion`.
+ *
+ * Steps (all idempotent):
+ *   1. Read `settings.local.json`; rewrite each `customModels[]` entry whose
+ *      `provider === 'google'`:
+ *        - `provider` → `'generic-chat-completion-api'`
+ *        - `baseUrl`: if host matches `generativelanguage.googleapis.com`
+ *          and path does not already end with `/openai`, append `/openai`.
+ *   2. Recompute `acp.config.droid.byokModelRefs` so each ref picks up the
+ *      new provider + normalized base URL + sha1 id, while preserving the
+ *      original order.
+ *   3. Move any site label stored under the old `(google, oldBaseUrl)` site id
+ *      to the new `(generic-chat-completion-api, newBaseUrl)` id.
+ *   4. Write `droidByokGoogleMigrationVersion = 1`.
+ *
+ * 幂等；`AIONUI_BYOK_LEGACY=1` 时跳过以便回滚老数据。
+ */
+export async function migrateLegacyGoogleProvider(): Promise<void> {
+  if (isByokLegacyMode()) {
+    return;
+  }
+
+  const acpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+  if (acpConfig.droid?.droidByokGoogleMigrationVersion === BYOK_GOOGLE_MIGRATION_VERSION) {
+    return;
+  }
+
+  const rewriteGeminiBaseUrl = (rawBaseUrl: string): string => {
+    const trimmed = rawBaseUrl.trim().replace(/\/+$/, '');
+    if (!trimmed) {
+      return trimmed;
+    }
+    let hostname = '';
+    try {
+      hostname = new URL(trimmed).hostname;
+    } catch {
+      hostname = '';
+    }
+    if (!hostname || !isGeminiOfficialHost(hostname)) {
+      return trimmed;
+    }
+    if (/\/v1beta\/openai\/?$/i.test(trimmed)) {
+      return trimmed;
+    }
+    const withoutVersion = trimmed
+      .replace(/\/v1beta\/?$/i, '')
+      .replace(/\/v1\/?$/i, '')
+      .replace(/\/+$/, '');
+    return withoutVersion ? `${withoutVersion}/v1beta/openai` : withoutVersion;
+  };
+
+  let migrationAttempted = false;
+  try {
+    // 1. customModels rewrite
+    const settings = await readFactorySettingsJson();
+    const entries = getCustomModelEntries(settings);
+    let entriesMutated = false;
+    const renameIndex = new Map<string, { provider: DroidByokModelProvider; baseUrl: string }>();
+
+    for (const entry of entries) {
+      if (entry.provider !== 'google') {
+        continue;
+      }
+      migrationAttempted = true;
+      const originalBaseUrl = typeof entry.baseUrl === 'string' ? entry.baseUrl : '';
+      const nextBaseUrl = rewriteGeminiBaseUrl(originalBaseUrl);
+      if (typeof entry.model === 'string' && originalBaseUrl) {
+        // Remember the old (google, oldBaseUrl) → (generic, newBaseUrl) pairing
+        // so we can migrate site labels further down. Use the LEGACY site id
+        // builder here because pre-migration labels were stored under the old
+        // `sha1(provider|baseUrl)` scheme.
+        const oldSiteId = buildLegacyDroidByokSiteId('google' as DroidByokModelProvider, originalBaseUrl);
+        renameIndex.set(oldSiteId, {
+          provider: 'generic-chat-completion-api',
+          baseUrl: nextBaseUrl,
+        });
+      }
+      entry.provider = 'generic-chat-completion-api';
+      if (nextBaseUrl) {
+        entry.baseUrl = nextBaseUrl;
+      }
+      entriesMutated = true;
+    }
+
+    if (entriesMutated) {
+      settings.customModels = entries;
+      await writeFactorySettingsJson(settings);
+    }
+
+    // 2. byokModelRefs rewrite (keep order; recompute id when provider/baseUrl changes)
+    const latestAcpForRefs = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+    const refs = Array.isArray(latestAcpForRefs.droid?.byokModelRefs) ? latestAcpForRefs.droid.byokModelRefs : [];
+    let refsMutated = false;
+    const rewrittenRefs = refs.map((raw) => {
+      if (!raw || typeof raw !== 'object') {
+        return raw;
+      }
+      const ref = raw as DroidByokModelRef;
+      if (ref.provider !== ('google' as DroidByokModelProvider)) {
+        return ref;
+      }
+      migrationAttempted = true;
+      const nextBaseUrl = rewriteGeminiBaseUrl(ref.baseUrl || '');
+      const nextProvider: DroidByokModelProvider = 'generic-chat-completion-api';
+      const nextId = buildDroidByokModelRefId({
+        model: ref.model,
+        baseUrl: nextBaseUrl || ref.baseUrl,
+        provider: nextProvider,
+      });
+      // Track old→new site id mapping for label migration (if not already captured).
+      const oldSiteId = buildLegacyDroidByokSiteId('google' as DroidByokModelProvider, ref.baseUrl || '');
+      if (!renameIndex.has(oldSiteId) && (ref.baseUrl || '').length > 0) {
+        renameIndex.set(oldSiteId, {
+          provider: nextProvider,
+          baseUrl: nextBaseUrl || ref.baseUrl,
+        });
+      }
+      refsMutated = true;
+      return {
+        id: nextId,
+        model: ref.model,
+        baseUrl: nextBaseUrl || ref.baseUrl,
+        provider: nextProvider,
+      };
+    });
+
+    if (refsMutated) {
+      const dedupedRefs = Array.from(
+        new Map(
+          rewrittenRefs
+            .filter((r): r is DroidByokModelRef => Boolean(r && typeof r === 'object' && 'id' in r))
+            .map((ref) => [ref.id, ref])
+        ).values()
+      );
+      const nextDroidConfig = { ...latestAcpForRefs.droid, byokModelRefs: dedupedRefs };
+      await ProcessConfig.set('acp.config', {
+        ...latestAcpForRefs,
+        droid: nextDroidConfig,
+      });
+    }
+
+    // 3. Site label rewrite
+    if (renameIndex.size > 0) {
+      const latestAcpForLabels = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+      const existingLabels = Array.isArray(latestAcpForLabels.droid?.byokSiteLabels)
+        ? latestAcpForLabels.droid.byokSiteLabels
+            .map((value) => normalizeSiteLabel(value))
+            .filter((value): value is DroidByokSiteLabel => Boolean(value))
+        : [];
+      let labelsMutated = false;
+      const nextLabels: DroidByokSiteLabel[] = existingLabels.map((label) => {
+        const mapping = renameIndex.get(label.id);
+        if (!mapping) {
+          return label;
+        }
+        const nextId = buildDroidByokSiteId(mapping.baseUrl);
+        if (nextId === label.id) {
+          return label;
+        }
+        labelsMutated = true;
+        return { id: nextId, label: label.label };
+      });
+      if (labelsMutated) {
+        const nextDroidConfig = { ...latestAcpForLabels.droid, byokSiteLabels: nextLabels };
+        await ProcessConfig.set('acp.config', {
+          ...latestAcpForLabels,
+          droid: nextDroidConfig,
+        });
+      }
+    }
+
+    if (migrationAttempted) {
+      mainLog('[DroidByokService]', 'droid.byok.google_provider_migrated');
+    }
+  } catch (error) {
+    mainWarn('[DroidByokService]', 'migrateLegacyGoogleProvider failed', {
+      err: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    const latestAcpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+    const nextDroidConfig = {
+      ...latestAcpConfig.droid,
+      droidByokGoogleMigrationVersion: BYOK_GOOGLE_MIGRATION_VERSION,
+    };
+    await ProcessConfig.set('acp.config', {
+      ...latestAcpConfig,
+      droid: nextDroidConfig,
+    });
+  }
+}
+
+/**
+ * Rewrite existing `byokSiteLabels` entries from the pre-2026-04-24 site id
+ * scheme `sha1(provider|baseUrl)` to the new scheme `sha1(baseUrl)`. Both
+ * label and migration flag are updated atomically per storage write, and the
+ * helper is idempotent — once the flag is set to `BYOK_SITE_ID_V2_MIGRATION_VERSION`
+ * subsequent startups short-circuit.
+ *
+ * Conflict resolution: when two legacy site ids collapse onto the same new
+ * id (possible when the SAME baseUrl had both e.g. anthropic + openai under
+ * different provider site records), the LAST label in the stored array wins.
+ * Users can still rename via the site card afterwards.
+ *
+ * `AIONUI_BYOK_LEGACY=1` skips the migration to preserve legacy data shape
+ * for rollback diagnostics.
+ *
+ * 把历史 sha1(provider|baseUrl) 站点 id 升级为 sha1(baseUrl) 新 scheme；幂等。
+ */
+export async function migrateSiteLabelsToBaseUrlOnlyIds(): Promise<void> {
+  if (isByokLegacyMode()) {
+    return;
+  }
+
+  const acpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+  if (acpConfig.droid?.droidByokSiteIdV2MigrationVersion === BYOK_SITE_ID_V2_MIGRATION_VERSION) {
+    return;
+  }
+
+  try {
+    // Build old-id → (provider, baseUrl) mapping from the current byokModelRefs.
+    // A single site may correspond to multiple legacy rows (one per provider).
+    const refs = await getDroidByokRefs();
+    if (refs.length === 0) {
+      return;
+    }
+
+    const legacyIdToBaseUrl = new Map<string, string>();
+    for (const ref of refs) {
+      const legacyId = buildLegacyDroidByokSiteId(ref.provider, ref.baseUrl);
+      if (!legacyIdToBaseUrl.has(legacyId)) {
+        legacyIdToBaseUrl.set(legacyId, ref.baseUrl);
+      }
+    }
+
+    const existingLabels = Array.isArray(acpConfig.droid?.byokSiteLabels)
+      ? acpConfig.droid.byokSiteLabels
+          .map((value) => normalizeSiteLabel(value))
+          .filter((value): value is DroidByokSiteLabel => Boolean(value))
+      : [];
+
+    if (existingLabels.length === 0) {
+      return;
+    }
+
+    // Rewrite each label. Conflict resolution: keep the LAST occurrence so
+    // users can deterministically see which label survived.
+    const nextLabelMap = new Map<string, string>();
+    let mutated = false;
+    for (const label of existingLabels) {
+      const baseUrl = legacyIdToBaseUrl.get(label.id);
+      if (!baseUrl) {
+        // This label's site no longer exists — drop it (same effect as
+        // pruneSiteLabels would have).
+        mutated = true;
+        continue;
+      }
+      const nextId = buildDroidByokSiteId(baseUrl);
+      if (nextId !== label.id) {
+        mutated = true;
+      }
+      nextLabelMap.set(nextId, label.label);
+    }
+
+    if (mutated) {
+      const nextLabels: DroidByokSiteLabel[] = Array.from(nextLabelMap.entries()).map(([id, labelText]) => ({
+        id,
+        label: labelText,
+      }));
+      const latestAcpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+      const nextDroidConfig = {
+        ...latestAcpConfig.droid,
+        ...(nextLabels.length > 0 ? { byokSiteLabels: nextLabels } : { byokSiteLabels: undefined }),
+      };
+      if (nextLabels.length === 0) {
+        delete nextDroidConfig.byokSiteLabels;
+      }
+      await ProcessConfig.set('acp.config', {
+        ...latestAcpConfig,
+        droid: nextDroidConfig,
+      });
+      mainLog('[DroidByokService]', 'droid.byok.site_id_v2_migrated', {
+        relabeled: nextLabels.length,
+        originalCount: existingLabels.length,
+      });
+    }
+  } catch (error) {
+    mainWarn('[DroidByokService]', 'migrateSiteLabelsToBaseUrlOnlyIds failed', {
+      err: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    const latestAcpConfig = (await ProcessConfig.get('acp.config').catch((): undefined => undefined)) || {};
+    const nextDroidConfig = {
+      ...latestAcpConfig.droid,
+      droidByokSiteIdV2MigrationVersion: BYOK_SITE_ID_V2_MIGRATION_VERSION,
+    };
     await ProcessConfig.set('acp.config', {
       ...latestAcpConfig,
       droid: nextDroidConfig,

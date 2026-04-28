@@ -10,7 +10,7 @@ import type { DroidByokModelProvider } from '../adapter/ipcBridge';
 import type { FactoryModel } from './factoryModels';
 import { storage } from '@office-ai/platform';
 
-export type DroidRuntimePermissionMode = 'safe-auto' | 'deny-all' | 'custom';
+export type DroidRuntimePermissionMode = 'allow-all' | 'safe-auto' | 'deny-all' | 'custom';
 export type DroidRuntimeOverloadStrategy = 'queue' | 'reject';
 export type DroidChannelPlatform = 'telegram' | 'lark' | 'dingtalk' | 'weixin';
 
@@ -118,7 +118,10 @@ export const sanitizeDroidChannelRuntimeConfig = (
     ...(value.overloadStrategy === 'queue' || value.overloadStrategy === 'reject'
       ? { overloadStrategy: value.overloadStrategy }
       : {}),
-    ...(value.permissionMode === 'safe-auto' || value.permissionMode === 'deny-all' || value.permissionMode === 'custom'
+    ...(value.permissionMode === 'allow-all' ||
+    value.permissionMode === 'safe-auto' ||
+    value.permissionMode === 'deny-all' ||
+    value.permissionMode === 'custom'
       ? { permissionMode: value.permissionMode }
       : {}),
     ...(sanitizeStringList(value.allowExecCommands)
@@ -283,6 +286,24 @@ export interface IConfigStorageRefer {
        * BYOK 数据结构迁移版本号；在首次迁移后写入以避免重复运行。
        */
       byokMigrationVersion?: number;
+      /**
+       * Migration version for the legacy `provider: 'google'` → `'generic-chat-completion-api'`
+       * rewrite. Bumped when the silent migration completes so subsequent
+       * startups fast-path. See `migrateLegacyGoogleProvider()` in
+       * DroidByokService.
+       *
+       * google→generic 静默迁移版本号；首次迁移成功后写入。
+       */
+      droidByokGoogleMigrationVersion?: number;
+      /**
+       * Migration version for the 2026-04-24 site-id scheme change:
+       * `sha1(provider|baseUrl)` → `sha1(baseUrl)`. When the migration helper
+       * has rewritten site labels to the new ids, this flag is bumped so
+       * subsequent startups skip the rehash.
+       *
+       * BYOK 站点 id 由 provider+baseUrl 转为仅基于 baseUrl 的迁移版本号；首次迁移成功后写入。
+       */
+      droidByokSiteIdV2MigrationVersion?: number;
       /** LLM prompt timeout in seconds (default: 300) / LLM 请求超时时间（秒，默认 300） */
       promptTimeout?: number;
     };

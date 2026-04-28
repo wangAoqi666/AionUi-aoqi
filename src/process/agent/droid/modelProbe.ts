@@ -6,11 +6,24 @@
 
 import { FACTORY_PROTOCOL_VERSION, createSession, type AvailableModelConfig } from '@factory/droid-sdk';
 import type { FactoryModel, ReasoningLevel } from '@/common/config/factoryModels';
-import type { DroidCliUpdateInfo, DroidLoginStatus, DroidStatusInfo } from '@/common/types/acpTypes';
+import type {
+  DroidCliDiagnostic,
+  DroidCliUpdateInfo,
+  DroidLoginStatus,
+  DroidStatusInfo,
+} from '@/common/types/acpTypes';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
 import { mainLog, mainWarn } from '@process/utils/mainLogger';
 import packageJson from '../../../../package.json';
-import { resolveWorkingDroidCli } from './cliRuntime';
+import {
+  createCmdShimPipeIncompatibleDiagnostic,
+  createDroidCliDiagnostic,
+  pickMostRelevantDroidCliDiagnostic,
+  resolveWorkingDroidCli,
+  resolvePreferredDroidCliDiagnostic,
+  toDroidCliDiagnosticUserMessage,
+} from './cliRuntime';
+import { composeSdkExecArgs, type DroidCliSource } from './cliResolver';
 import semver from 'semver';
 
 const appPackageJson = packageJson as {
@@ -49,6 +62,16 @@ const FACTORY_DROID_SDK_VERSION =
 
 let latestCliVersionCache: { version: string; registry: string; expiresAt: number } | null = null;
 let latestCliVersionInFlight: Promise<{ version: string | null; registry: string | null }> | null = null;
+export type DroidModelCatalogProbeReport = {
+  success: boolean;
+  cliSource: DroidCliSource;
+  cliVersion: string | null;
+  diagnostic?: DroidCliDiagnostic;
+  usedSoftPreflight: boolean;
+  error?: string;
+};
+
+let lastDroidModelCatalogProbeReport: DroidModelCatalogProbeReport | null = null;
 
 function normalizeDependencyVersion(value: string | undefined): string | null {
   if (!value) {
@@ -69,6 +92,20 @@ function toReasoningLevel(value: string | null | undefined): ReasoningLevel | nu
     return null;
   }
   return REASONING_LEVEL_MAP[value] || null;
+}
+
+function getDroidSessionEnv(cliSource: DroidCliSource): Record<string, string> {
+  return getEnhancedEnv(undefined, {
+    includeBundledDroidInPath: cliSource !== 'system',
+  });
+}
+
+function shouldSoftContinueAfterPreflightFailure(diagnostic: DroidCliDiagnostic | undefined): boolean {
+  return diagnostic?.code === 'probe-timeout';
+}
+
+export function getLastDroidModelCatalogProbeReport(): DroidModelCatalogProbeReport | null {
+  return lastDroidModelCatalogProbeReport;
 }
 
 async function fetchCliVersionFromEndpoint(
@@ -163,8 +200,14 @@ async function fetchLatestFactoryCliVersion(): Promise<{ version: string | null;
   return latestCliVersionInFlight;
 }
 
+const SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE =
+  'Droid CLI is detected via a cmd.exe shell wrapper; its JSON-RPC stdio pipe is not compatible with @factory/droid-sdk. Reinstall @factory/cli so the JS entrypoint is resolvable (e.g. `npm i -g @factory/cli`).';
+
 export async function probeDroidStatus(options: ProbeDroidModelCatalogOptions): Promise<DroidStatusInfo> {
   const resolvedCli = resolveWorkingDroidCli(options.execPath);
+  const preflightDiagnostic = resolvedCli.diagnostic;
+  const softPreflight = !resolvedCli.version && shouldSoftContinueAfterPreflightFailure(preflightDiagnostic);
+  const env = getDroidSessionEnv(resolvedCli.source);
   const execPath = resolvedCli.execPath;
   const baseStatus: Omit<DroidStatusInfo, 'loginStatus' | 'available' | 'modelCount'> = {
     cliSource: resolvedCli.source,
@@ -174,13 +217,46 @@ export async function probeDroidStatus(options: ProbeDroidModelCatalogOptions): 
     protocolVersion: FACTORY_PROTOCOL_VERSION,
   };
 
-  if (!resolvedCli.version) {
+  if (!resolvedCli.version && !softPreflight) {
     return {
       ...baseStatus,
       available: false,
       loginStatus: 'unavailable',
       modelCount: 0,
-      ...(resolvedCli.error ? { error: resolvedCli.error } : {}),
+      ...(preflightDiagnostic ? { diagnosticCode: preflightDiagnostic.code } : {}),
+      ...(resolvedCli.error ? { error: toDroidCliDiagnosticUserMessage(preflightDiagnostic, resolvedCli.error) } : {}),
+    };
+  }
+
+  if (softPreflight) {
+    mainWarn('[DroidStatusProbe]', 'Droid CLI version preflight timed out; continuing with SDK session spawn', {
+      cwd: options.cwd,
+      execPath,
+      execArgs: resolvedCli.execArgs,
+      diagnosticCode: preflightDiagnostic?.code,
+      error: resolvedCli.error,
+    });
+  }
+
+  // Refuse to create a real SDK session against the cmd.exe shell wrapper. The
+  // version probe worked (execFileSync consumes stdout once and exits) but the
+  // SDK's `initialize_session` hangs for 60 s because cmd.exe breaks the
+  // bidirectional JSON-RPC pipe (CRLF translation, stdin EOF handling, ConPTY
+  // interference). Surface a clear error instead of a silent timeout so the
+  // user can reinstall @factory/cli.
+  if (resolvedCli.pipeCompatible === false) {
+    mainWarn('[DroidStatusProbe]', SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE, {
+      cwd: options.cwd,
+      execPath,
+      execArgs: resolvedCli.execArgs,
+    });
+    return {
+      ...baseStatus,
+      available: false,
+      loginStatus: 'unavailable',
+      modelCount: 0,
+      diagnosticCode: 'cmd-shim-pipe-incompatible',
+      error: SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE,
     };
   }
 
@@ -190,7 +266,13 @@ export async function probeDroidStatus(options: ProbeDroidModelCatalogOptions): 
     session = await createSession({
       cwd: options.cwd,
       execPath,
-      env: getEnhancedEnv(),
+      // Tail-merge SDK stream-jsonrpc args onto the resolver's launch prefix.
+      // Without this, the SDK overrides its own DEFAULT_EXEC_ARGS with our
+      // bare `['<js-entrypoint>']` and droid spawns in interactive TUI mode,
+      // deadlocking `droid.initialize_session` for 60 s. See
+      // `composeSdkExecArgs` docblock in cliResolver.ts.
+      execArgs: composeSdkExecArgs(resolvedCli.execArgs),
+      env,
       machineId: 'agent-factory-droid-status-probe',
     });
 
@@ -202,12 +284,18 @@ export async function probeDroidStatus(options: ProbeDroidModelCatalogOptions): 
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const diagnostic = resolvePreferredDroidCliDiagnostic(
+      createDroidCliDiagnostic(error, 'session'),
+      preflightDiagnostic
+    );
+    const cliUnavailable = Boolean(diagnostic);
     return {
       ...baseStatus,
-      available: true,
-      loginStatus: toLoginStatus(error),
+      available: !cliUnavailable,
+      loginStatus: cliUnavailable ? 'unavailable' : toLoginStatus(error),
       modelCount: 0,
-      error: message,
+      ...(diagnostic ? { diagnosticCode: diagnostic.code } : {}),
+      error: toDroidCliDiagnosticUserMessage(diagnostic, message),
     };
   } finally {
     if (session) {
@@ -269,22 +357,80 @@ export function mapDroidAvailableModelToFactoryModel(model: AvailableModelConfig
 
 export async function probeDroidModelCatalog(options: ProbeDroidModelCatalogOptions): Promise<FactoryModel[] | null> {
   let session: Awaited<ReturnType<typeof createSession>> | null = null;
+  let resolvedCliResult: ReturnType<typeof resolveWorkingDroidCli> | null = null;
+  let preflightDiagnostic: DroidCliDiagnostic | undefined;
+  let softPreflight = false;
 
   try {
     const resolvedCli = resolveWorkingDroidCli(options.execPath);
-    if (!resolvedCli.version) {
-      mainWarn('[DroidModelProbe]', 'Droid model probe skipped because CLI is unavailable', {
+    resolvedCliResult = resolvedCli;
+    preflightDiagnostic = resolvedCli.diagnostic;
+    softPreflight = !resolvedCli.version && shouldSoftContinueAfterPreflightFailure(preflightDiagnostic);
+    if (!resolvedCli.version && !softPreflight) {
+      mainWarn('[DroidModelProbe]', 'Droid model probe skipped because CLI preflight failed', {
         cwd: options.cwd,
         execPath: resolvedCli.execPath,
+        execArgs: resolvedCli.execArgs,
         error: resolvedCli.error,
+        diagnosticCode: preflightDiagnostic?.code,
       });
+      lastDroidModelCatalogProbeReport = {
+        success: false,
+        cliSource: resolvedCli.source,
+        cliVersion: resolvedCli.version,
+        diagnostic: preflightDiagnostic,
+        usedSoftPreflight: false,
+        ...(resolvedCli.error ? { error: resolvedCli.error } : {}),
+      };
       return null;
     }
+
+    if (softPreflight) {
+      mainWarn(
+        '[DroidModelProbe]',
+        'Droid model probe version preflight timed out; continuing with SDK session spawn',
+        {
+          cwd: options.cwd,
+          execPath: resolvedCli.execPath,
+          execArgs: resolvedCli.execArgs,
+          error: resolvedCli.error,
+          diagnosticCode: preflightDiagnostic?.code,
+        }
+      );
+    }
+
+    // The cmd.exe shell wrapper can answer `--version` but cannot carry the
+    // SDK's JSON-RPC stream; attempting createSession deadlocks for 60 s on
+    // `droid.initialize_session`. Abort early with a clear warning so the
+    // BYOK verifier reports `capabilities_unverified` without a multi-minute
+    // wait per site.
+    if (resolvedCli.pipeCompatible === false) {
+      mainWarn('[DroidModelProbe]', SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE, {
+        cwd: options.cwd,
+        execPath: resolvedCli.execPath,
+        execArgs: resolvedCli.execArgs,
+      });
+      lastDroidModelCatalogProbeReport = {
+        success: false,
+        cliSource: resolvedCli.source,
+        cliVersion: resolvedCli.version,
+        diagnostic: createCmdShimPipeIncompatibleDiagnostic(SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE),
+        usedSoftPreflight: softPreflight,
+        error: SHIM_PIPE_INCOMPATIBLE_ERROR_MESSAGE,
+      };
+      return null;
+    }
+
+    const env = getDroidSessionEnv(resolvedCli.source);
 
     session = await createSession({
       cwd: options.cwd,
       execPath: resolvedCli.execPath,
-      env: getEnhancedEnv(),
+      // See composeSdkExecArgs docblock (cliResolver.ts) for why this is
+      // mandatory: passing bare `['<js-entrypoint>']` to the SDK overrides
+      // DEFAULT_EXEC_ARGS and the resulting TUI spawn deadlocks initialize_session.
+      execArgs: composeSdkExecArgs(resolvedCli.execArgs),
+      env,
       machineId: 'aionui-droid-model-probe',
     });
 
@@ -295,19 +441,52 @@ export async function probeDroidModelCatalog(options: ProbeDroidModelCatalogOpti
 
     if (catalog.length === 0) {
       mainWarn('[DroidModelProbe]', 'Droid model probe returned no available models');
+      lastDroidModelCatalogProbeReport = {
+        success: false,
+        cliSource: resolvedCli.source,
+        cliVersion: resolvedCli.version,
+        diagnostic: preflightDiagnostic,
+        usedSoftPreflight: softPreflight,
+        error: 'Droid model probe returned no available models',
+      };
       return null;
     }
 
     mainLog('[DroidModelProbe]', 'Probed droid model catalog', {
       cwd: options.cwd,
       execPath: resolvedCli.execPath,
+      execArgs: resolvedCli.execArgs,
       modelCount: catalog.length,
       sampleModelIds: catalog.slice(0, 8).map((model) => model.id),
+      usedSoftPreflight: softPreflight,
     });
+
+    lastDroidModelCatalogProbeReport = {
+      success: true,
+      cliSource: resolvedCli.source,
+      cliVersion: resolvedCli.version,
+      usedSoftPreflight: softPreflight,
+    };
 
     return catalog;
   } catch (error) {
-    mainWarn('[DroidModelProbe]', 'Failed to probe droid model catalog', error);
+    const message = error instanceof Error ? error.message : String(error);
+    const diagnostic = pickMostRelevantDroidCliDiagnostic([
+      createDroidCliDiagnostic(error, 'session'),
+      preflightDiagnostic,
+    ]);
+    mainWarn('[DroidModelProbe]', 'Failed to probe droid model catalog', {
+      error: message,
+      diagnosticCode: diagnostic?.code,
+    });
+    lastDroidModelCatalogProbeReport = {
+      success: false,
+      cliSource: resolvedCliResult?.source || 'system',
+      cliVersion: resolvedCliResult?.version ?? null,
+      diagnostic,
+      usedSoftPreflight: softPreflight,
+      error: message,
+    };
     return null;
   } finally {
     if (session) {

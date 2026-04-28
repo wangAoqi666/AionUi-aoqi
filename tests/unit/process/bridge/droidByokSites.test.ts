@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockReadFile, mockWriteFile, mockMkdir, mockProcessConfigGet, mockProcessConfigSet, mockGetFactoryRootDir } =
   vi.hoisted(() => ({
@@ -129,18 +129,25 @@ describe('DroidByokService site aggregation (B1)', () => {
     return config;
   };
 
-  it('exposes a stable id derived from provider + normalized baseUrl', () => {
-    const first = buildDroidByokSiteId('anthropic', 'https://api.example.com/v1/messages');
-    const second = buildDroidByokSiteId('anthropic', 'https://api.example.com');
+  it('exposes a stable id derived from normalized baseUrl (provider-agnostic)', () => {
+    // Trailing slash / case differences normalize to the same id.
+    const first = buildDroidByokSiteId('https://API.Example.com/');
+    const second = buildDroidByokSiteId('https://api.example.com');
     expect(first).toEqual(second);
     expect(first).toHaveLength(16);
     expect(first).toMatch(/^[0-9a-f]+$/i);
 
-    const different = buildDroidByokSiteId('openai', 'https://api.example.com');
+    // Different path → intentionally different id (protocol variants of the
+    // same gateway are tracked separately so the UI can show them as-is).
+    const withPath = buildDroidByokSiteId('https://api.example.com/v1/messages');
+    expect(withPath).not.toEqual(first);
+
+    // Different host → different id.
+    const different = buildDroidByokSiteId('https://api.other.example.com');
     expect(different).not.toEqual(first);
   });
 
-  it('groups BYOK entries by (provider, baseUrl) and hides plaintext apiKey', async () => {
+  it('groups BYOK entries by baseUrl (provider-agnostic) and hides plaintext apiKey', async () => {
     await seedAnthropicModel({
       baseUrl: 'https://api.example.com',
       apiKey: 'sk-anthro',
@@ -157,12 +164,12 @@ describe('DroidByokService site aggregation (B1)', () => {
     const sites = await listDroidByokSites();
     expect(sites).toHaveLength(1);
     const [site] = sites;
-    expect(site.provider).toBe('anthropic');
+    expect(site.providers).toContain('anthropic');
     expect(site.baseUrl).toBe('https://api.example.com');
     expect(site.modelCount).toBe(2);
     expect(site.hasApiKey).toBe(true);
     expect(site).not.toHaveProperty('apiKey');
-    expect(site.id).toEqual(buildDroidByokSiteId('anthropic', site.baseUrl));
+    expect(site.id).toEqual(buildDroidByokSiteId(site.baseUrl));
   });
 
   it('rejects creating an empty site without an existing id', async () => {
@@ -187,7 +194,7 @@ describe('DroidByokService site aggregation (B1)', () => {
       model: 'claude-haiku-4',
     });
 
-    const siteId = buildDroidByokSiteId('anthropic', 'https://api.example.com');
+    const siteId = buildDroidByokSiteId('https://api.example.com');
     const site = await rotateDroidByokSiteApiKey(siteId, 'sk-rotated');
     expect(site.id).toEqual(siteId);
     expect(site.hasApiKey).toBe(true);
@@ -215,8 +222,8 @@ describe('DroidByokService site aggregation (B1)', () => {
       model: 'claude-sonnet-4-6',
     });
 
-    const keepId = buildDroidByokSiteId('anthropic', 'https://api.keep.example.com');
-    const removeId = buildDroidByokSiteId('anthropic', 'https://api.remove.example.com');
+    const keepId = buildDroidByokSiteId('https://api.keep.example.com');
+    const removeId = buildDroidByokSiteId('https://api.remove.example.com');
 
     // Attach labels to both sites so we can assert the orphan one is pruned.
     await upsertDroidByokSite({
@@ -337,7 +344,7 @@ describe('DroidByokService site aggregation (B1)', () => {
       model: 'claude-haiku-4',
     });
 
-    const oldId = buildDroidByokSiteId('anthropic', 'https://api.old.example.com');
+    const oldId = buildDroidByokSiteId('https://api.old.example.com');
     const updated = await upsertDroidByokSite({
       id: oldId,
       baseUrl: 'https://api.new.example.com',
@@ -347,7 +354,7 @@ describe('DroidByokService site aggregation (B1)', () => {
     });
 
     expect(updated.baseUrl).toBe('https://api.new.example.com');
-    expect(updated.id).toBe(buildDroidByokSiteId('anthropic', 'https://api.new.example.com'));
+    expect(updated.id).toBe(buildDroidByokSiteId('https://api.new.example.com'));
     expect(updated.label).toBe('Renamed');
     expect(updated.modelCount).toBe(2);
 
@@ -378,7 +385,7 @@ describe('DroidByokService site aggregation (B1)', () => {
     const sites = await listDroidByokSites();
     expect(sites).toHaveLength(1);
     expect(sites[0].baseUrl).toBe('https://imported.example.com');
-    expect(sites[0].provider).toBe('anthropic');
+    expect(sites[0].providers).toContain('anthropic');
     expect(sites[0].modelCount).toBe(1);
     expect(sites[0].hasApiKey).toBe(true);
   });
@@ -436,7 +443,7 @@ describe('DroidByokService site aggregation (B1)', () => {
       provider: 'anthropic',
     });
 
-    const siteId = buildDroidByokSiteId('anthropic', 'https://bulk.example.com');
+    const siteId = buildDroidByokSiteId('https://bulk.example.com');
 
     await upsertDroidByokSite({
       id: siteId,

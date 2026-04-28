@@ -10,6 +10,7 @@
 - 用户已明确纠正过一次：左上角品牌位只能使用软件 Logo，不能再误用 Factory Droid / Agent Factory 的 agent logo；后续凡是改品牌位，先判断这是“软件 Logo”还是“Factory/agent Logo”
 - 用户希望做桌面端测试时优先直接操作运行中的 Electron 应用，不要只在浏览器 WebUI 上做替代验证
 - 用户已明确要求：这个项目因大改后版本号要从 `0.1.0` 重新开始，后续版本显示、运行时版本、打包产物和更新元数据都必须以这条新版本线为准，不再沿用历史 `1.9.x`
+- 每次打 Windows/Mac 安装包之前，必须先更新 package.json 的小版本号（patch bump），确保每次打包产出都有新版本号
 
 ## 项目背景
 
@@ -89,6 +90,13 @@
 - 分类：Bug Fixes / New Features / Breaking Changes
 - 每条简洁描述修改内容和根因
 
+### BYOK 模型 ID 教训（2026-04-24 确认）
+
+- **根因**：`rebuildDroidCatalogFromRefs` 用内部 sha1 ref id 作为 `FactoryModel.id` 写入运行时目录，而 CLI 用 `custom:<displayName>[-N]` 格式。两套 id 永远不相等，导致：(1) UI 模型选择器显示 sha1 hash 而非模型名；(2) 新会话首条消息发送 sha1 给 CLI 被返回 400 "Invalid model ID"；(3) `AcpAgentManager` 发现 sha1 不在 `availableModels` 中就清除 `persistedModelId` 回退到默认模型
+- **第一次修复尝试失败**：用 `custom:<displayName>`（无后缀）合成 id 仍然不对，因为 CLI 可能追加 `-2`、`-3` 等去重后缀，合成的 id 依然不匹配
+- **正确修复**：`rebuildDroidCatalogFromRefs` 只做 prune（按 `(provider, sourceModelId)` 元组匹配决定保留/删除），绝不 synthesize 新条目。CLI probe 是 `FactoryModel.id` 的唯一权威来源
+- **连带修复**：BYOK CRUD 后 renderer 侧 `AcpModelSelector` 的 `availableModels` 列表没有跟着刷新，导致新增模型不出现在对话页下拉框里。修复方式：监听 `factoryCatalog` 变化时从最新目录重建 `modelInfo`
+
 ## 常见陷阱与注意事项
 
 - macOS 环境已配置 Clash 代理（127.0.0.1:7890），git 全局 HTTPS 代理已设置
@@ -119,6 +127,23 @@
 - **前置**：构建机需 `brew install p7zip`（p7zip 17.x 才能在 ARM64 Mac 上正确生成 7z）
 - **验证**：构建后提取 `app-64.7z`，`file` 命令必须显示 `7-zip archive data`，不能是 `Zip archive data`
 - **体积对比**：修复后 224MB（7z 压缩）vs 修复前 355MB（zip 压缩），减少 37%
+
+### 打包前必须先验证网络环境（2026-04-23 确认）
+
+- **规则**：每次执行打包前，必须先验证网络连通性，确认能访问所有必需的外部下载源，验证通过后再启动构建。不能直接开始打包再事后处理网络失败
+- **验证清单**（按顺序检查）：
+  1. Clash 代理是否在运行且正常：`curl -x http://127.0.0.1:7890 --max-time 10 https://github.com`
+  2. GitHub Releases 是否可达：测试 `https://github.com/electron-userland/electron-builder-binaries/releases/` 的连通性
+  3. electron-builder 本地缓存是否齐全：检查 `~/Library/Caches/electron-builder/` 下 nsis、nsis-resources、winCodeSign、wine、dmg-builder 目录是否存在且非空
+- **缓存补齐**：如果网络不通但 `~/Library/Caches/electron-builder/` 已有全部缓存，可以直接打包（electron-builder 优先读本地缓存）
+- **npmmirror 镜像兜底**：当 GitHub 不可达时，nsis-resources 等可从 `https://registry.npmmirror.com/-/binary/electron-builder-binaries/` 下载后手动解压到缓存目录
+- **曾经踩坑**：Clash 代理 SSL 握手失败（SSL_ERROR_SYSCALL / x509 证书不合规）导致 nsis-resources 下载超时，四个平台构建全部白跑一遍（每个要 5-8 分钟），浪费了 30+ 分钟
+
+### 打包错误教训汇总（持续更新）
+
+- **不要并行跑两个 electron-builder**：electron-builder 的 Vite 构建和 asar 打包会互相锁文件，并行构建必定有一个 esbuild 冲突失败。正确做法：第一个走完整构建，后续用 `--skip-vite` 复用 Vite 产物串行跑
+- **不要在 Execute 里跑超过 600s 的构建**：electron-builder 全量构建（含 native module 重编译 + 签名）在 macOS 上经常超过 10 分钟，必须用 `fireAndForget` 后台执行 + `sleep N && tail` 轮询
+- **dmg-builder 下载偶尔卡住**：dmg-builder 的 tar.gz 从 GitHub 下载不稳定，如果 zip 产物已完成但 dmg 卡住，可以杀掉进程重跑，因为 dmg-builder 缓存一旦写入 `.complete` 标记文件后续就不会重新下载
 
 ## Paper 原型状态
 

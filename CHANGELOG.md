@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.8] - 2026-04-24
+
+修复 BYOK 模型 ID 致命 bug + 对话页模型列表实时刷新。
+
+### BYOK Model ID Fix (Critical)
+
+- **修复首条消息 400 错误**：`rebuildDroidCatalogFromRefs` 不再用内部 sha1 ref id 合成 `FactoryModel` 条目。改为 prune-only 策略——按 `(provider, sourceModelId)` 元组匹配决定保留/删除，CLI probe 返回的 `custom:<displayName>[-N]` id 原样保留。此前合成的 sha1 id 被发送给 CLI 导致 400 "Invalid model ID"，新会话首条消息必然失败（`src/process/bridge/services/DroidByokService.ts`）
+- **修复 verifier tuple 对齐**：`catalogRefresher.runByokVerification` 按 `(provider, model)` 二元组将本地 BYOK config 的 sha1 id 映射到 CLI catalog 的 `custom:...` id 后再传入 verifier，消除 `capabilities_unverified` 假警告（`src/process/agent/droid/catalogRefresher.ts`）
+
+### BYOK Catalog Sync
+
+- **对话页模型列表实时刷新**：`AcpModelSelector` 新增 `factoryCatalog` 变化监听——当 BYOK 模型增删后，对话页下拉框的 `availableModels` 列表立即从最新目录重建，无需切换页面或重启应用。若当前选中模型已被删除，自动回退到 Factory 默认模型（`src/renderer/components/agent/AcpModelSelector.tsx`）
+
 ## [0.1.7] - 2026-04-23
 
 本次版本是 Droid SDK 深度集成闭环的最终发布，覆盖 5 个里程碑（M1-M5）共 18 个 feature，确保每个后端能力均有前端入口、单测 + DOM 测试双层覆盖。

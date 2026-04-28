@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { IDroidByokModelConfig, IDroidByokSite } from '@/common/adapter/ipcBridge';
+import type { DroidByokModelProvider, IDroidByokModelConfig, IDroidByokSite } from '@/common/adapter/ipcBridge';
 import {
   getFactoryModels,
   getFactoryReasoningLabel,
@@ -24,12 +24,10 @@ import { useTranslation } from 'react-i18next';
  *
  * 按协议簇区分色值，保持与旧版 BYOK 视图一致。
  */
-const getProviderTagColor = (provider: IDroidByokSite['provider']): string => {
+const getProviderTagColor = (provider: DroidByokModelProvider): string => {
   switch (provider) {
     case 'anthropic':
       return 'orange';
-    case 'google':
-      return 'blue';
     case 'openai':
       return 'green';
     default:
@@ -37,14 +35,12 @@ const getProviderTagColor = (provider: IDroidByokSite['provider']): string => {
   }
 };
 
-const getProviderLabelKey = (provider: IDroidByokSite['provider']): string => {
+const getProviderLabelKey = (provider: DroidByokModelProvider): string => {
   switch (provider) {
     case 'anthropic':
       return 'settings.droidByok.providerAnthropic';
     case 'openai':
       return 'settings.droidByok.providerOpenai';
-    case 'google':
-      return 'settings.droidByok.providerGoogle';
     default:
       return 'settings.droidByok.providerGeneric';
   }
@@ -257,9 +253,11 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <Tag size='small' color={getProviderTagColor(site.provider)}>
-                  {t(getProviderLabelKey(site.provider))}
-                </Tag>
+                {site.providers.map((provider) => (
+                  <Tag key={provider} size='small' color={getProviderTagColor(provider)}>
+                    {t(getProviderLabelKey(provider))}
+                  </Tag>
+                ))}
                 {site.supportsImageInput === true && (
                   <Tooltip content={t('settings.droidByok.capability.multimodalTooltip')}>
                     <Tag size='small' color='magenta' icon={<Pic size='12' />}>
@@ -338,6 +336,13 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                     </span>
                   </div>
                   <div className='flex items-center gap-4px shrink-0'>
+                    {/* Per-model provider tag: multi-protocol sites show which protocol each model speaks. */}
+                    {/* 每条模型自己的 provider 标签，用于混合协议站点区分。 */}
+                    {site.providers.length > 1 && model.managedConfig?.provider && (
+                      <Tag size='small' color={getProviderTagColor(model.managedConfig.provider)}>
+                        {t(getProviderLabelKey(model.managedConfig.provider))}
+                      </Tag>
+                    )}
                     {model.supportsImageInput === true && (
                       <Tooltip content={t('settings.droidByok.capability.multimodalTooltip')}>
                         <Tag size='small' color='magenta' icon={<Pic size='12' />}>

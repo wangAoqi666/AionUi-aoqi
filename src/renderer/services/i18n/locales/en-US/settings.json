@@ -197,12 +197,12 @@
     "providerAnthropic": "Anthropic",
     "providerOpenai": "OpenAI",
     "providerGeneric": "Generic Chat Completion API",
-    "providerGoogle": "Google Gemini",
     "fetchModels": "Fetch Models",
     "refreshModels": "Refresh",
     "fetchModelsHint": "Enter Base URL and API key, then fetch the remote model list before importing.",
     "fetchModelsRequired": "Fill in Base URL and API Key first.",
     "fetchModelsFailed": "Failed to fetch remote models",
+    "fetchReturnedEmpty": "Remote endpoint returned no models. Verify Base URL + API key or try again.",
     "refreshSuccess": "Remote model list refreshed.",
     "modelsFound": "{{count}} models",
     "noRemoteModels": "No remote models loaded yet.",
@@ -249,7 +249,17 @@
       "hasApiKey": "An API key is configured for this site.",
       "keySet": "Key saved",
       "loadFailed": "Failed to load BYOK sites",
-      "emptyHint": "No BYOK sites yet. Click \"Add Custom Model\" above to create the first one."
+      "emptyHint": "No BYOK sites yet. Click \"Add Custom Model\" above to create the first one.",
+      "useExistingKey": "This site's stored API key will be reused. You don't need to enter it again."
+    },
+    "warning": {
+      "missingPlatformBinary": "BYOK settings were saved, but the Windows Droid CLI install is incomplete. Reinstall or update @factory/cli, then refresh the model catalog.",
+      "cliNotFound": "BYOK settings were saved, but Droid CLI is not available on PATH for this Windows account. Install or repair @factory/cli, then refresh the model catalog.",
+      "probeTimeout": "BYOK settings were saved, but the Windows Droid CLI is still warming up. Wait a moment, then refresh the model catalog or retry the conversation.",
+      "cmdShim": "BYOK settings were saved, but Droid CLI is only reachable through a Windows cmd shim. Reinstall @factory/cli so the JS entrypoint can be used for JSON-RPC.",
+      "cliUnavailable": "BYOK settings were saved, but Factory Droid could not verify the local CLI right now. Refresh the model catalog after repairing the CLI.",
+      "missingModels": "{{count}} BYOK models were saved, but Factory Droid is not exposing them yet. Refresh the model catalog after the CLI finishes starting.",
+      "capabilityConflict": "{{count}} BYOK models were saved, but their capability flags do not match the Factory Droid catalog. Review them in settings."
     },
     "capability": {
       "editTitle": "Edit model capabilities",
@@ -530,6 +540,7 @@
   "channels.droidRuntime.listPlaceholder": "One item per line",
   "channels.droidRuntime.queueLabel": "Queue",
   "channels.droidRuntime.rejectLabel": "Reject",
+  "channels.droidRuntime.allowAllLabel": "Allow all",
   "channels.droidRuntime.safeAutoLabel": "Safe auto",
   "channels.droidRuntime.denyAllLabel": "Deny all",
   "channels.droidRuntime.customLabel": "Custom allowlists",

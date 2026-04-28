@@ -260,7 +260,11 @@ describe('DroidSdkAgent.sendMessageInternal native attachment integration', () =
     };
   });
 
-  it('new message + non-empty files + non-@ content → stream called with native images/files', async () => {
+  it('new message + non-empty files + non-@ content → prompt carries @path refs and options stay empty', async () => {
+    // Regression guard (CLI-stall fix): the native `MessageOptions.images/files`
+    // channel caused `droid.add_user_message` to hang on large base64 blobs.
+    // Local attachments are now ALWAYS routed through the legacy `@path`
+    // prepend so the Droid CLI can mmap files directly from disk.
     const png = join(tmp, 'pic.png');
     const pdf = join(tmp, 'report.pdf');
     await writeFile(png, TINY_PNG_BUFFER);
@@ -284,19 +288,11 @@ describe('DroidSdkAgent.sendMessageInternal native attachment integration', () =
 
     expect(calls).toHaveLength(1);
     const call = calls[0];
-    expect(call.prompt).not.toContain(`@${png}`);
-    expect(call.prompt).not.toContain(`@${pdf}`);
-    expect(call.options).toBeDefined();
-    const opts = call.options as { images?: unknown[]; files?: unknown[] };
-    expect(opts.images).toHaveLength(1);
-    expect(opts.files).toHaveLength(1);
-    // Quick shape spot-check to catch accidental payload regressions.
-    const image = (opts.images as Array<Record<string, unknown>>)[0];
-    expect(image.type).toBe('base64');
-    expect(image.mediaType).toBe('image/png');
-    const doc = (opts.files as Array<Record<string, unknown>>)[0];
-    expect(doc.mediaType).toBe('application/pdf');
-    expect(doc.name).toBe('report.pdf');
+    // Legacy @path prepend MUST appear so the CLI can mmap the file directly.
+    expect(call.prompt).toContain(`@${png}`);
+    expect(call.prompt).toContain(`@${pdf}`);
+    // Native options MUST stay empty — base64 in-band payloads stall the CLI.
+    expect(call.options).toBeUndefined();
   });
 
   it('legacy content starting with "@" + files → stream options MUST NOT carry images/files', async () => {
@@ -350,7 +346,11 @@ describe('DroidSdkAgent.sendMessageInternal native attachment integration', () =
     expect(calls[0].options).toBeUndefined();
   });
 
-  it('missing files trigger a <system-reminder> and keep options clean when everything is skipped', async () => {
+  it('missing files still prepend as @path refs (legacy) so the CLI surfaces the filesystem error', async () => {
+    // Legacy routing no longer does a filesystem pre-check. The CLI will
+    // report a clear "file not found" itself when it tries to mmap the
+    // @path, which matches Droid's existing UX and avoids the overhead of
+    // stat()-ing every attachment from the main process.
     const ghost = join(tmp, 'ghost.txt');
     const { session, calls } = buildSessionStub();
     createSessionMock.mockResolvedValue(session);
@@ -370,13 +370,9 @@ describe('DroidSdkAgent.sendMessageInternal native attachment integration', () =
 
     expect(calls).toHaveLength(1);
     const call = calls[0];
-    // Nothing resolved → no options.
+    // Native options stay empty under the legacy-only contract.
     expect(call.options).toBeUndefined();
-    // Prompt now contains an explicit "not delivered" reminder so the model
-    // doesn't hallucinate access to the missing file.
-    expect(call.prompt).toContain('attachments were not delivered');
-    expect(call.prompt).toContain(ghost);
-    // Legacy `@path` prepend MUST NOT appear for a non-oversized skip.
-    expect(call.prompt).not.toContain(`@${ghost}`);
+    // @path prepend must still be present so the CLI can attempt to resolve it.
+    expect(call.prompt).toContain(`@${ghost}`);
   });
 });

@@ -350,6 +350,21 @@ describe('verifyByokCapabilitiesAgainstCli', () => {
       expect(result.conflict).toEqual([]);
     });
 
+    it('threads through the CLI diagnostic code when the latest probe failed', () => {
+      const result = verifyByokCapabilitiesAgainstCli(
+        [{ id: 'my-model', model: 'my-model', supportsImageInput: true }],
+        null,
+        {
+          code: 'missing-platform-binary',
+          stage: 'preflight',
+          detail: 'Could not find the droid binary for win32-x64',
+        }
+      );
+
+      expect(result.unreachable).toBe(true);
+      expect(result.cliDiagnosticCode).toBe('missing-platform-binary');
+    });
+
     it('returns unreachable even with multiple local configs', () => {
       const result = verifyByokCapabilitiesAgainstCli(
         [

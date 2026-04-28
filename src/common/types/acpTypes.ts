@@ -879,6 +879,19 @@ export interface AcpModelInfo {
 
 export type DroidLoginStatus = 'authenticated' | 'unauthenticated' | 'unavailable' | 'error';
 
+export type DroidCliDiagnosticCode =
+  | 'missing-platform-binary'
+  | 'cli-not-found'
+  | 'probe-timeout'
+  | 'cmd-shim-pipe-incompatible'
+  | 'unknown';
+
+export type DroidCliDiagnostic = {
+  code: DroidCliDiagnosticCode;
+  stage: 'preflight' | 'session';
+  detail: string;
+};
+
 export type DroidStatusInfo = {
   available: boolean;
   loginStatus: DroidLoginStatus;
@@ -888,6 +901,7 @@ export type DroidStatusInfo = {
   sdkVersion: string;
   protocolVersion: string;
   modelCount: number;
+  diagnosticCode?: DroidCliDiagnosticCode;
   error?: string;
 };
 

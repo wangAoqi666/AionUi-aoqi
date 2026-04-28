@@ -111,6 +111,36 @@
 - `electron-builder.yml` 顶层 `executableName` 和 `win.executableName` 都会影响 NSIS 的 `PRODUCT_FILENAME` 变量，确保它们一致或只保留平台特定配置
 - Windows 安装包产物校验必须包含 7z 格式检查：提取内嵌 `app-64.7z`，用 `file` 命令确认为 `7-zip archive data`，不能是 `Zip archive data`
 
+## BYOK 修复期间必读规则（2026-04-23 起）
+
+- 存在 `tasks/byok-fixes-todo.md` 文件时，任务开始前必须先 `Read` 它恢复进度，并在每一步完成后即时更新 `[ ] → [x]`；全部完成后把该文件移至 `tasks/archive/byok-fixes-2026-04-23.md`
+- 对应批准 Spec：`~/.factory/specs/2026-04-23-byok-windows.md`
+- BYOK Provider 枚举已收窄为 Factory 官方三种：`anthropic` / `openai` / `generic-chat-completion-api`，禁止再引入 `google`
+- Gemini 站点（`generativelanguage.googleapis.com` 等）一律走 `generic-chat-completion-api`，`baseUrl` 末尾必须带 `/v1beta/openai`
+- Provider 推断使用统一模糊匹配：opus/sonnet/haiku/claude→`anthropic`；gpt/codex/o3/o4→`openai`；其余默认 `generic-chat-completion-api`
+- 任何触及 BYOK 数据结构的新增逻辑，必须同时提供 google→generic 的幂等静默迁移入口，禁止让旧用户手工改配置
+
+## BYOK 站点化改造期间必读规则（2026-04-24 起）
+
+- 存在 `tasks/byok-site-refactor-todo.md` 文件时，任务开始前必须先 `Read` 它恢复进度，并在每一步完成后即时更新 `[ ] → [x]`；全部完成后把该文件移至 `tasks/archive/byok-site-refactor-2026-04-24.md`
+- 对应批准 Spec：`~/.factory/specs/2026-04-23-byok-site-centric-overhaul-delete-sync-windows-build.md`
+- 站点 id 必须基于 `sha1(normalizedBaseUrl)`，不再按 provider 区分；`buildDroidByokSiteId` 的签名从 `(provider, baseUrl)` 改为 `(baseUrl)`
+- 同一 baseUrl 不同 provider 的模型必须合并到同一站点，`IDroidByokSite.providers: DroidByokModelProvider[]` 列出该站点所有协议
+- 从站点"+"按钮添加模型时，apiKey **不得**回传到 renderer；必须走主进程内部通道（`fetchDroidByokModelsForSite` / `importDroidByokConfigsIntoSite`），复用站点已存的 apiKey
+- BYOK 删除同步契约（任何 CRUD 结束后必须满足）：
+  - `settings.local.json::customModels` 已清除
+  - `acp.config.droid.byokModelRefs` 已清除
+  - Factory Droid catalog 已刷新（probe 失败时走 in-memory `rebuildDroidCatalogFromRefs` 兜底）
+  - 对话页 `AcpModelSelector` 能感知当前 modelId 已被删除并自动 reload
+- 站点 id 迁移用 `droidByokSiteIdV2MigrationVersion` 幂等标记，冲突时保留最新 label
+
+## BYOK 模型 ID 铁律（2026-04-24 起）
+
+- **FactoryModel.id 的唯一真相来源是 CLI probe（`session.initResult.availableModels[i].id`）**，格式为 `custom:<displayName>[-<N>]`。禁止在任何代码路径中自行合成、猜测或替换这个 id
+- 内部 sha1 ref id（`buildDroidByokModelRefId` 的 16 位 hex）仅用于 `byokModelRefs` 的存储引用（删除 / 去重），**绝不可作为 FactoryModel.id 写入运行时目录**
+- `rebuildDroidCatalogFromRefs` 只做剪枝（prune），**不做合成（synthesize）**。如果 CLI probe 还没返回某个 BYOK 模型，宁可不显示也不要用假 id 凑数——假 id 会污染 `persistedModelId`，导致后续每次新会话首条消息都 400 失败
+- 任何 BYOK CRUD 完成后，renderer 侧的模型目录（`factoryModels.ts` 的 `droidModelCatalog`）必须同步刷新，对话页 `AcpModelSelector` 的 `availableModels` 列表必须立刻反映变化（增删都要）
+
 ## 协作规则
 
 - 当用户说 **"记住这个规矩"** 时，将新规则以条目形式追加到本文件的相应章节

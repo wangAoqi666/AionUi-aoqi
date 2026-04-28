@@ -197,12 +197,12 @@
     "providerAnthropic": "Anthropic",
     "providerOpenai": "OpenAI",
     "providerGeneric": "Generic Chat Completion API",
-    "providerGoogle": "Google Gemini",
     "fetchModels": "モデルを取得",
     "refreshModels": "更新",
     "fetchModelsHint": "まず Base URL と API Key を入力し、リモートモデル一覧を取得してからインポートしてください。",
     "fetchModelsRequired": "先に Base URL と API Key を入力してください。",
     "fetchModelsFailed": "リモートモデルの取得に失敗しました",
+    "fetchReturnedEmpty": "リモートエンドポイントがモデルを返しませんでした。Base URL と API キーを確認し、再試行してください。",
     "refreshSuccess": "リモートモデル一覧を更新しました。",
     "modelsFound": "{{count}} 件のモデル",
     "noRemoteModels": "まだリモートモデルは読み込まれていません。",
@@ -249,7 +249,17 @@
       "hasApiKey": "このサイトには API キーが設定されています。",
       "keySet": "キー設定済み",
       "loadFailed": "BYOK サイトの読み込みに失敗しました",
-      "emptyHint": "BYOK サイトはまだありません。上部の「カスタムモデルを追加」から最初のサイトを作成してください。"
+      "emptyHint": "BYOK サイトはまだありません。上部の「カスタムモデルを追加」から最初のサイトを作成してください。",
+      "useExistingKey": "このサイトに保存された API キーを再利用します。再入力の必要はありません。"
+    },
+    "warning": {
+      "missingPlatformBinary": "BYOK 設定は保存されましたが、Windows の Droid CLI インストールが不完全です。@factory/cli を再インストールまたは更新してから、モデルカタログを再読み込みしてください。",
+      "cliNotFound": "BYOK 設定は保存されましたが、この Windows アカウントの PATH で Droid CLI が見つかりません。@factory/cli をインストールまたは修復してから、モデルカタログを再読み込みしてください。",
+      "probeTimeout": "BYOK 設定は保存されましたが、Windows の Droid CLI はまだウォームアップ中です。少し待ってからモデルカタログを再読み込みするか、会話を再試行してください。",
+      "cmdShim": "BYOK 設定は保存されましたが、現在の Droid CLI は Windows の cmd shim 経由でしか到達できません。JSON-RPC に対応した JS エントリポイントを使えるよう、@factory/cli を再インストールしてください。",
+      "cliUnavailable": "BYOK 設定は保存されましたが、現在は Factory Droid CLI を検証できません。ローカル CLI を修復した後でモデルカタログを再読み込みしてください。",
+      "missingModels": "{{count}} 個の BYOK モデルを保存しましたが、Factory Droid がまだ公開していません。CLI の起動が完了してからモデルカタログを再読み込みしてください。",
+      "capabilityConflict": "{{count}} 個の BYOK モデルを保存しましたが、能力フラグが Factory Droid カタログと一致しません。設定画面で確認してください。"
     },
     "capability": {
       "editTitle": "モデル機能を編集",
@@ -530,6 +540,7 @@
   "channels.droidRuntime.listPlaceholder": "One item per line",
   "channels.droidRuntime.queueLabel": "Queue",
   "channels.droidRuntime.rejectLabel": "Reject",
+  "channels.droidRuntime.allowAllLabel": "Allow all",
   "channels.droidRuntime.safeAutoLabel": "Safe auto",
   "channels.droidRuntime.denyAllLabel": "Deny all",
   "channels.droidRuntime.customLabel": "Custom allowlists",

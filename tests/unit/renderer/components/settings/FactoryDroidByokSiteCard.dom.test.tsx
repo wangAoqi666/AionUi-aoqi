@@ -155,7 +155,7 @@ import type { IDroidByokSite } from '@/common/adapter/ipcBridge';
 const baseSite: IDroidByokSite = {
   id: 'site-1',
   baseUrl: 'https://api.example.com',
-  provider: 'anthropic',
+  providers: ['anthropic'],
   label: 'OpenRouter prod',
   hasApiKey: true,
   modelIds: ['cfg-1', 'cfg-2'],

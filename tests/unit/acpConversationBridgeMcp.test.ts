@@ -88,6 +88,11 @@ const rotateDroidByokSiteApiKeyMock = vi.hoisted(() =>
   }))
 );
 const migrateLegacyModelsIntoSitesMock = vi.hoisted(() => vi.fn(async () => undefined));
+const migrateLegacyGoogleProviderMock = vi.hoisted(() => vi.fn(async () => undefined));
+const migrateSiteLabelsToBaseUrlOnlyIdsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const fetchDroidByokModelsForSiteMock = vi.hoisted(() => vi.fn(async () => ({ models: [], providerHint: null })));
+const importDroidByokConfigsIntoSiteMock = vi.hoisted(() => vi.fn(async () => ({ imported: [], failed: [] })));
+const rebuildDroidCatalogFromRefsMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 const handlers: Record<string, (...args: unknown[]) => unknown> = {};
 function makeChannel(name: string) {
@@ -128,6 +133,8 @@ vi.mock('../../src/common', () => ({
       upsertDroidByokSite: makeChannel('upsertDroidByokSite'),
       removeDroidByokSite: makeChannel('removeDroidByokSite'),
       rotateDroidByokSiteApiKey: makeChannel('rotateDroidByokSiteApiKey'),
+      fetchDroidByokModelsForSite: makeChannel('fetchDroidByokModelsForSite'),
+      importDroidByokConfigsIntoSite: makeChannel('importDroidByokConfigsIntoSite'),
       probeModelInfo: makeChannel('probeModelInfo'),
       setModel: makeChannel('setModel'),
       setMode: makeChannel('setMode'),
@@ -227,6 +234,11 @@ vi.mock('../../src/process/bridge/services/DroidByokService', () => ({
   removeDroidByokSite: removeDroidByokSiteMock,
   rotateDroidByokSiteApiKey: rotateDroidByokSiteApiKeyMock,
   migrateLegacyModelsIntoSites: migrateLegacyModelsIntoSitesMock,
+  migrateLegacyGoogleProvider: migrateLegacyGoogleProviderMock,
+  migrateSiteLabelsToBaseUrlOnlyIds: migrateSiteLabelsToBaseUrlOnlyIdsMock,
+  fetchDroidByokModelsForSite: fetchDroidByokModelsForSiteMock,
+  importDroidByokConfigsIntoSite: importDroidByokConfigsIntoSiteMock,
+  rebuildDroidCatalogFromRefs: rebuildDroidCatalogFromRefsMock,
 }));
 
 vi.mock('../../src/common/config/factoryModels', () => ({

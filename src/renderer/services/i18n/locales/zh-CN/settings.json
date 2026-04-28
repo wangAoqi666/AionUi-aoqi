@@ -197,12 +197,12 @@
     "providerAnthropic": "Anthropic",
     "providerOpenai": "OpenAI",
     "providerGeneric": "Generic Chat Completion API",
-    "providerGoogle": "Google Gemini",
     "fetchModels": "获取模型",
     "refreshModels": "刷新",
     "fetchModelsHint": "先填写 Base URL 和 API Key，再拉取远程模型列表进行导入。",
     "fetchModelsRequired": "请先填写 Base URL 和 API Key。",
     "fetchModelsFailed": "获取远程模型失败",
+    "fetchReturnedEmpty": "远程端点没有返回任何模型，请检查 Base URL 和 API Key 或稍后重试。",
     "refreshSuccess": "远程模型列表已刷新。",
     "modelsFound": "{{count}} 个模型",
     "noRemoteModels": "尚未加载远程模型。",
@@ -249,7 +249,17 @@
       "hasApiKey": "该站点已配置 API Key。",
       "keySet": "已配置 Key",
       "loadFailed": "加载 BYOK 站点列表失败",
-      "emptyHint": "暂无 BYOK 站点，点击顶部的“添加自定义模型”来创建第一个。"
+      "emptyHint": "暂无 BYOK 站点，点击顶部的“添加自定义模型”来创建第一个。",
+      "useExistingKey": "将自动沿用该站点已存的 API Key，无需再次输入。"
+    },
+    "warning": {
+      "missingPlatformBinary": "BYOK 设置已保存，但 Windows Droid CLI 安装不完整。请重新安装或更新 @factory/cli，然后刷新模型目录。",
+      "cliNotFound": "BYOK 设置已保存，但当前 Windows 账号的 PATH 中找不到 Droid CLI。请安装或修复 @factory/cli，然后刷新模型目录。",
+      "probeTimeout": "BYOK 设置已保存，但 Windows Droid CLI 仍在冷启动。请稍等片刻后刷新模型目录，或重试对话。",
+      "cmdShim": "BYOK 设置已保存，但当前只能通过 Windows cmd shim 访问 Droid CLI。请重新安装 @factory/cli，让应用改用可进行 JSON-RPC 的 JS 入口。",
+      "cliUnavailable": "BYOK 设置已保存，但当前无法验证 Factory Droid CLI。修复本地 CLI 后请刷新模型目录。",
+      "missingModels": "已保存 {{count}} 个 BYOK 模型，但 Factory Droid 暂未暴露这些模型。请等待 CLI 完成启动后刷新模型目录。",
+      "capabilityConflict": "已保存 {{count}} 个 BYOK 模型，但其能力标记与 Factory Droid 目录不一致。请在设置中复核。"
     },
     "capability": {
       "editTitle": "编辑模型能力",
@@ -530,6 +540,7 @@
   "channels.droidRuntime.listPlaceholder": "每行一项",
   "channels.droidRuntime.queueLabel": "排队",
   "channels.droidRuntime.rejectLabel": "拒绝",
+  "channels.droidRuntime.allowAllLabel": "全部放行",
   "channels.droidRuntime.safeAutoLabel": "安全自动放行",
   "channels.droidRuntime.denyAllLabel": "全部拒绝",
   "channels.droidRuntime.customLabel": "自定义允许列表",

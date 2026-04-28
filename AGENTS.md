@@ -28,6 +28,21 @@
 3. **用户说"记住这个规矩"**：将新规则追加到 `.factory/rules/project.md`
 4. **用户说"记住这点"**：将新记忆追加到 `.factory/memories.md`
 
+### BYOK 修复期间必读（2026-04-23 起）
+
+- 存在 `tasks/byok-fixes-todo.md` 文件时，任务开始前必须先 `Read` 它恢复进度
+- 对应批准 Spec：`~/.factory/specs/2026-04-23-byok-windows.md`
+- 每完成一个 check 项立即把 `[ ]` 改为 `[x]`；全部完成后把该文件移至 `tasks/archive/byok-fixes-2026-04-23.md`
+- Provider 枚举已收窄为 Factory 官方三种（`anthropic` / `openai` / `generic-chat-completion-api`），禁止再引入 `google`；Gemini 站点走 `generic-chat-completion-api` + `/v1beta/openai`
+
+### BYOK 站点化改造期间必读（2026-04-24 起）
+
+- 存在 `tasks/byok-site-refactor-todo.md` 文件时，任务开始前必须先 `Read` 它恢复进度
+- 对应批准 Spec：`~/.factory/specs/2026-04-23-byok-site-centric-overhaul-delete-sync-windows-build.md`
+- 站点 id 改为 `sha1(normalizedBaseUrl)`——不再按 provider 区分；同一 baseUrl 不同 provider 的模型合并到同一站点
+- 从站点"+"按钮加模型时，禁止把 apiKey 回传到 renderer；走主进程内部通道（`fetchDroidByokModelsForSite` / `importDroidByokConfigsIntoSite`）
+- BYOK 删除逻辑必须保证：settings.local.json、byokModelRefs、factoryDroidCatalog 三方同步，且对话页的 `AcpModelSelector` 能感知变化
+
 ---
 
 ## Code Conventions

@@ -105,7 +105,10 @@ class AcpDetector {
    * Source 1: Built-in POTENTIAL_ACP_CLIS — parallel CLI availability check.
    */
   private async detectBuiltinAgents(): Promise<DetectedAgent[]> {
-    const promises = POTENTIAL_ACP_CLIS.map((cli) =>
+    // Only detect Droid CLI — other backends are legacy and slow down startup
+    // on Windows where each `where`/`Get-Command` call is expensive.
+    const droidOnly = [...POTENTIAL_ACP_CLIS].filter((cli) => cli.backendId === 'droid');
+    const promises = droidOnly.map((cli) =>
       Promise.resolve().then((): DetectedAgent | null =>
         this.isCliAvailable(cli.cmd)
           ? { backend: cli.backendId, name: cli.name, cliPath: cli.cmd, acpArgs: cli.args }

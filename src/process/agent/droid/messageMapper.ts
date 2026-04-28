@@ -27,6 +27,7 @@ import type {
   TurnComplete,
 } from '@factory/droid-sdk';
 import type { ToolCallUpdate } from '@/common/types/acpTypes';
+import { normalizeBackendErrorMessage } from './runtime/backendErrorMessage';
 
 export class DroidMessageMapper {
   private conversationId: string;
@@ -193,19 +194,12 @@ export class DroidMessageMapper {
   }
 
   private mapError(msg: ErrorEvent): IResponseMessage[] {
-    let errorText = msg.message || 'Unknown error';
-
-    // Detect 402 Payment Required (token/credit exhaustion)
-    if (errorText.includes('402') || errorText.includes('Payment Required')) {
-      errorText = 'Factory 算力额度不足，请前往 https://app.factory.ai/settings/usage 充值后继续使用。';
-    }
-
     return [
       {
         type: 'error',
         conversation_id: this.conversationId,
         msg_id: `error_${uuid()}`,
-        data: errorText,
+        data: normalizeBackendErrorMessage(msg.message),
       },
     ];
   }
