@@ -89,6 +89,7 @@
 
 ## Droid SDK 集成规则
 
+- 智能体框架只用 Droid SDK，所有 agent 类型（包括绘画/Joy 等）统一走 Droid SDK 后端，不再使用独立的 nanobot/其他 CLI agent 体系
 - Factory Droid + SDK 是项目的首要 Agent 集成路径
 - droid 后端走 `@factory/droid-sdk`（JSON-RPC），其他后端走 ACP 协议，互不影响
 - `@factory/droid-sdk` 的工作方式是：拉起本地 `droid` CLI 子进程并通过 JSON-RPC 通信，不是直接请求某个模型 HTTP API；分析或修改集成链路时必须按 `SDK → CLI → 流式事件` 的模型理解

@@ -63,6 +63,8 @@ import {
   type ReasoningLevel,
 } from '@/common/config/factoryModels';
 import { app } from 'electron';
+import { existsSync, readFileSync } from 'fs';
+import { join as pathJoin } from 'path';
 import { DroidMessageMapper } from './messageMapper';
 import { mainLog, mainWarn } from '@process/utils/mainLogger';
 import { getEnhancedEnv } from '@process/utils/shellEnv';
@@ -595,6 +597,7 @@ export class DroidSdkAgent {
   private async startSession(): Promise<void> {
     let preflightDiagnostic: ReturnType<typeof createDroidCliDiagnostic> | undefined;
     try {
+      this.emitInitStatus('初始化', '正在解析 Droid CLI...');
       const cliRuntime = resolveWorkingDroidCli(this.config.cliPath);
       preflightDiagnostic = cliRuntime.diagnostic;
       const env = getEnhancedEnv(undefined, {
@@ -676,6 +679,7 @@ export class DroidSdkAgent {
 
       if (this.config.acpSessionId) {
         // Resume existing session
+        this.emitInitStatus('初始化', '正在恢复会话...');
         this.session = await resumeSession(this.config.acpSessionId, {
           cwd: this.config.workingDir,
           execPath,
@@ -719,6 +723,7 @@ export class DroidSdkAgent {
           await this.applyDecompSettingsToSession(decompSessionType, this.config.decompMissionId);
         }
       } else {
+        this.emitInitStatus('初始化', '正在创建会话...');
         this.session = await createSession(sessionOptions);
         mainLog('[DroidSdkAgent]', `Created session: ${this.session.sessionId}`);
         const specModeSettings = this.buildUpdateSessionSpecModeSettings();
@@ -757,6 +762,7 @@ export class DroidSdkAgent {
       // a listMcpServers / addMcpServer failure MUST NOT break session startup.
       //
       // 同步 team / project MCP 配置到 SDK session。失败不会中断会话启动。
+      this.emitInitStatus('加载 MCP', '正在同步 MCP 工具...');
       await this.syncMcpServersOnStartup();
       // Sync SDK-reported skills (P0-1). This is best-effort — a listSkills
       // failure must NOT break the session startup (hard rule 5 in the task
@@ -765,7 +771,13 @@ export class DroidSdkAgent {
       //
       // 同步 Droid SDK `listSkills()`。失败不会中断会话启动，仅回退到
       // 原有的 prompt 注入流程。
+      this.emitInitStatus('加载技能', '正在加载 Skills...');
       await this.syncSdkSkills();
+      // Wait briefly for MCP servers to finish connecting. The SDK registers
+      // them asynchronously; without this delay the first user message may
+      // arrive before any MCP tools are available.
+      this.emitInitStatus('连接 MCP', '等待 MCP 服务就绪...');
+      await this.waitForMcpServersReady();
     } catch (error) {
       this._isConnected = false;
       let errMsg = error instanceof Error ? error.message : String(error);
@@ -2161,6 +2173,24 @@ export class DroidSdkAgent {
     });
   }
 
+  private emitInitStatus(subject: string, description: string): void {
+    this.config.onStreamEvent({
+      type: 'thought',
+      conversation_id: this.config.id,
+      msg_id: `init_${uuid()}`,
+      data: { subject, description },
+    });
+  }
+
+  private clearInitStatus(): void {
+    this.config.onStreamEvent({
+      type: 'thought',
+      conversation_id: this.config.id,
+      msg_id: `init_${uuid()}`,
+      data: { subject: '', description: '' },
+    });
+  }
+
   private getSessionSettingsForMode(mode: string | undefined): DroidModeSettings {
     switch (mode) {
       case 'spec':
@@ -2651,6 +2681,44 @@ export class DroidSdkAgent {
     const projectServers = normalizeDesiredMcpServers(this.config.projectMcpServers);
     desired.push(...projectServers);
 
+    // Read ~/.factory/mcp.json (Droid CLI's native MCP config file).
+    // The SDK's createSession does not auto-load this file, so we must
+    // register its entries explicitly via addMcpServer.
+    try {
+      const homedir = app.getPath('home');
+      const mcpJsonPath = pathJoin(homedir, '.factory', 'mcp.json');
+      if (existsSync(mcpJsonPath)) {
+        const raw = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
+        const servers = raw?.mcpServers;
+        if (servers && typeof servers === 'object') {
+          for (const [name, cfg] of Object.entries(servers)) {
+            const serverCfg = cfg as Record<string, unknown>;
+            if (serverCfg.disabled === true) continue;
+            const type = serverCfg.type as string;
+            if (type === 'stdio') {
+              desired.push({
+                name,
+                type: 'stdio',
+                command: serverCfg.command as string,
+                args: Array.isArray(serverCfg.args) ? serverCfg.args : undefined,
+                env: serverCfg.env as Record<string, string> | undefined,
+              });
+            } else if (type === 'http' || type === 'sse') {
+              desired.push({
+                name,
+                type,
+                url: serverCfg.url as string,
+                headers: serverCfg.headers as Record<string, string> | undefined,
+              });
+            }
+          }
+        }
+        mainLog('[DroidSdkAgent]', `syncMcpServersOnStartup: loaded ${desired.length} servers from ~/.factory/mcp.json`);
+      }
+    } catch (err) {
+      mainWarn('[DroidSdkAgent]', 'syncMcpServersOnStartup: failed to read ~/.factory/mcp.json', err instanceof Error ? err.message : String(err));
+    }
+
     if (desired.length === 0) {
       mainLog('[DroidSdkAgent]', 'syncMcpServersOnStartup skipped: no desired MCP servers in config');
       return;
@@ -2726,6 +2794,39 @@ export class DroidSdkAgent {
       addedOk,
       addedFail,
     });
+  }
+
+  /**
+   * Wait for MCP servers to finish connecting (up to a timeout).
+   * Polls `listMcpServers()` and checks if all servers have a connected status.
+   * Best-effort: timeout just means we proceed without all servers ready.
+   */
+  private async waitForMcpServersReady(): Promise<void> {
+    if (!this.session) return;
+    const MAX_WAIT_MS = 15_000;
+    const POLL_INTERVAL_MS = 1_000;
+    const start = Date.now();
+
+    try {
+      while (Date.now() - start < MAX_WAIT_MS) {
+        const { servers, error } = await this.listMcpServers();
+        if (error || !servers || servers.length === 0) break;
+
+        const connecting = servers.filter(
+          (s) => (s as { status?: string }).status === 'connecting' || (s as { status?: string }).status === 'not_connected'
+        );
+        if (connecting.length === 0) {
+          mainLog('[DroidSdkAgent]', `waitForMcpServersReady: all ${servers.length} servers ready`);
+          return;
+        }
+
+        this.emitInitStatus('连接 MCP', `等待 ${connecting.length} 个 MCP 服务连接中...`);
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      mainWarn('[DroidSdkAgent]', `waitForMcpServersReady: timed out after ${MAX_WAIT_MS}ms, proceeding anyway`);
+    } catch (err) {
+      mainWarn('[DroidSdkAgent]', 'waitForMcpServersReady: error during polling', err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**

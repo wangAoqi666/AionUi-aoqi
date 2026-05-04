@@ -147,14 +147,17 @@ export const useAcpMessage = (
 
       const transformedMessage = transformMessage(message);
       switch (message.type) {
-        case 'thought':
-          // Thought events are now handled by AcpAgentManager (converted to thinking messages)
-          // Only auto-recover running state if turn hasn't finished
+        case 'thought': {
+          const thoughtData = message.data as ThoughtData | undefined;
+          if (thoughtData?.subject || thoughtData?.description) {
+            setThought(thoughtData);
+          }
           if (!runningRef.current && !turnFinishedRef.current) {
             setRunning(true);
             runningRef.current = true;
           }
           break;
+        }
         case 'thinking': {
           const thinkingData = message.data as { status?: string };
           // Only set running for active thinking, not for done signal

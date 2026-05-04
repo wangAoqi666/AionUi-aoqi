@@ -92,6 +92,7 @@ const AcpSendBox: React.FC<{
   const isMission = sessionMode === 'mission';
   const { missionData, dispatch: missionDispatch, reset: missionReset } = useMissionState(conversation_id);
   const {
+    thought,
     running,
     hasHydratedRunningState,
     acpStatus,
@@ -358,7 +359,7 @@ Please check your local CLI tool authentication status`,
   return (
     <div className='w-full flex flex-col mt-auto mb-8px'>
       {isMission && <MissionPanel missionData={missionData} />}
-      <ThoughtDisplay running={running || aiProcessing} onStop={handleStop} />
+      <ThoughtDisplay thought={thought} running={running || aiProcessing} onStop={handleStop} />
       <CommandQueuePanel
         items={queuedCommands}
         paused={isQueuePaused}

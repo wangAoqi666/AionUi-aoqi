@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0-beta] - 2026-05-04
+
+Droid SDK 会话 MCP 自动加载 + 初始化体验优化。
+
+### MCP Auto-Loading from ~/.factory/mcp.json
+
+- **修复会话 MCP 不可用**：`DroidSdkAgent.syncMcpServersOnStartup()` 新增从 `~/.factory/mcp.json` 读取 Droid CLI 原生 MCP 配置的逻辑。此前 SDK 的 `createSession()` 不会自动加载该文件，导致会话中 MCP 工具不可用。现在 stdio / http / sse 三种类型的 MCP server 均会在 session 创建后自动注册，跳过 `disabled: true` 的条目（`src/process/agent/droid/DroidSdkAgent.ts`）
+- **等待 MCP 连接就绪**：新增 `waitForMcpServersReady()` 方法，在发送第一条消息前轮询 MCP server 连接状态（最长 15s），确保用户发消息时 MCP 工具已可用。此前第一条消息在 MCP server 还在连接时就发出，导致 Droid 回复"没有检测到 MCP tools"（`src/process/agent/droid/DroidSdkAgent.ts`）
+
+### Session Initialization UX
+
+- **初始化阶段状态提示**：session 创建过程中通过 `thought` 事件向前端发送阶段性状态（解析 CLI → 创建/恢复会话 → 加载 MCP → 加载 Skills → 等待 MCP 就绪），用户可在 `ThoughtDisplay` 组件看到当前初始化进度而非空白等待（`src/process/agent/droid/DroidSdkAgent.ts`）
+- **ThoughtDisplay 显示初始化详情**：`AcpSendBox` 将 `thought` 数据透传给 `ThoughtDisplay` 组件，`useAcpMessage` 的 `thought` 事件处理新增 `setThought()` 调用，使初始化阶段的 subject + description 能正确渲染为 Tag + 描述文字（`src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx`、`useAcpMessage.ts`）
+
 ## [0.1.8] - 2026-04-24
 
 修复 BYOK 模型 ID 致命 bug + 对话页模型列表实时刷新。
