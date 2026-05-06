@@ -78,7 +78,7 @@ import {
   resolvePreferredDroidCliDiagnostic,
   toDroidCliDiagnosticUserMessage,
 } from './cliRuntime';
-import { composeSdkExecArgs } from './cliResolver';
+import { composeSdkExecArgs, getBundledDroidDir } from './cliResolver';
 import { loadDroidRuntimeConfigForSource, getDroidRuntimeScopeKey, isDroidChannelPlatform } from './runtime/config';
 import { DroidPermissionPolicy } from './runtime/DroidPermissionPolicy';
 import { DroidTextAskBridge, type DroidAskUserAnswerPayload } from './runtime/DroidTextAskBridge';
@@ -667,6 +667,10 @@ export class DroidSdkAgent {
         env,
         ...typedModeSettings,
         ...(skipPermissionsUnsafe ? ({ skipPermissionsUnsafe: true } as Partial<CreateSessionOptions>) : {}),
+        // Mission / Decomp (P2-1): pass decompSessionType directly to createSession
+        // so the CLI receives it in initializeSession. Patched SDK 0.1.4 now
+        // transparently forwards these fields to initParams.
+        ...(decompSessionType ? ({ decompSessionType, ...(this.config.decompMissionId ? { decompMissionId: this.config.decompMissionId } : {}) } as Partial<CreateSessionOptions>) : {}),
         // Tool whitelist (P2-2): inline only when set (including empty array,
         // which preserves "disable all tools" intent). `undefined` MUST NOT be
         // serialized — the SDK would ignore it but the check also documents
@@ -683,9 +687,6 @@ export class DroidSdkAgent {
         this.session = await resumeSession(this.config.acpSessionId, {
           cwd: this.config.workingDir,
           execPath,
-          // Same rationale as createSession above: the SDK's ProcessTransport
-          // overrides DEFAULT_EXEC_ARGS with whatever we pass, so the launch
-          // prefix MUST be tail-merged with the stream-jsonrpc args.
           execArgs: sdkExecArgs,
           env,
           permissionHandler: (params) => this.handlePermission(params),

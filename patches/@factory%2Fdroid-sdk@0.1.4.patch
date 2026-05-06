@@ -1,0 +1,60 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index b49751e4e9f3addaa013faa5677f90c5505c0e83..6f1e9d97385fd2bcec80ac41e3061ff839316c73 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -3138,6 +3138,12 @@ function query(options) {
+     if (options.enabledToolIds !== void 0) {
+       initParams.enabledToolIds = options.enabledToolIds;
+     }
++    if (options.decompSessionType !== void 0) {
++      initParams.decompSessionType = options.decompSessionType;
++    }
++    if (options.decompMissionId !== void 0) {
++      initParams.decompMissionId = options.decompMissionId;
++    }
+     const initResult = await client.initializeSession(
+       initParams
+     );
+@@ -3526,6 +3532,12 @@ async function createSession(options = {}) {
+   if (options.enabledToolIds !== void 0) {
+     initParams.enabledToolIds = options.enabledToolIds;
+   }
++  if (options.decompSessionType !== void 0) {
++    initParams.decompSessionType = options.decompSessionType;
++  }
++  if (options.decompMissionId !== void 0) {
++    initParams.decompMissionId = options.decompMissionId;
++  }
+   try {
+     const initResult = await client.initializeSession(
+       initParams
+diff --git a/dist/index.js b/dist/index.js
+index 586a8285b8fc2108e489fe78ca0445e6b73cc838..ef574ab3ef926639c57b4334281f3daf46aa7eba 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2853,6 +2853,12 @@ function query(options) {
+     if (options.enabledToolIds !== void 0) {
+       initParams.enabledToolIds = options.enabledToolIds;
+     }
++    if (options.decompSessionType !== void 0) {
++      initParams.decompSessionType = options.decompSessionType;
++    }
++    if (options.decompMissionId !== void 0) {
++      initParams.decompMissionId = options.decompMissionId;
++    }
+     const initResult = await client.initializeSession(
+       initParams
+     );
+@@ -3241,6 +3247,12 @@ async function createSession(options = {}) {
+   if (options.enabledToolIds !== void 0) {
+     initParams.enabledToolIds = options.enabledToolIds;
+   }
++  if (options.decompSessionType !== void 0) {
++    initParams.decompSessionType = options.decompSessionType;
++  }
++  if (options.decompMissionId !== void 0) {
++    initParams.decompMissionId = options.decompMissionId;
++  }
+   try {
+     const initResult = await client.initializeSession(
+       initParams

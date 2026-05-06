@@ -358,7 +358,7 @@ Please check your local CLI tool authentication status`,
 
   return (
     <div className='w-full flex flex-col mt-auto mb-8px'>
-      {isMission && <MissionPanel missionData={missionData} />}
+      {isMission && missionData.state !== null && <MissionPanel missionData={missionData} />}
       <ThoughtDisplay thought={thought} running={running || aiProcessing} onStop={handleStop} />
       <CommandQueuePanel
         items={queuedCommands}
