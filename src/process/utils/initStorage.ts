@@ -38,7 +38,7 @@ import {
   hasElectronAppPath,
   verifyDirectoryFiles,
 } from './utils';
-import { getDatabase } from '../services/database/export';
+import { getDatabase, closeDatabase } from '../services/database/export';
 import type { AcpBackendConfig } from '@/common/types/acpTypes';
 import { migrateFromElectronConfig, importConfigFromFile } from './configMigration';
 import { probeDroidModelCatalog } from '../agent/droid/modelProbe';
@@ -68,6 +68,110 @@ const getHomePage = getConfigPath;
 
 const mkdirSync = (path: string) => {
   return _mkdirSync(path, { recursive: true });
+};
+
+/**
+ * Migrate userData from a previous directory to the current one.
+ *
+ * The app name has changed across versions:
+ *   AionUi  →  AgentFactory  →  智能体工厂 (electron-builder productName)
+ *
+ * Each rename causes Electron to use a different %APPDATA%/<name> directory,
+ * so we must copy config/ and aionui/ (database) from the most recent legacy
+ * directory that contains data.
+ *
+ * Order matters: newest first so that the most up-to-date data wins.
+ */
+const migrateRenamedUserData = async () => {
+  if (!hasElectronAppPath()) return;
+
+  const currentUserData = path.dirname(getConfigPath()); // {userData}
+  const appSupportDir = path.dirname(currentUserData);
+  const currentDirName = path.basename(currentUserData);
+
+  // All known directory names the app has used across versions.
+  // History: AionUi → AgentFactory (final)
+  const allKnownDirNames = ['AionUi'];
+  const candidateDirNames = allKnownDirNames.filter((n) => n !== currentDirName);
+
+  console.log(`[userData-migration] currentUserData=${currentUserData}, dirName=${currentDirName}`);
+  if (candidateDirNames.length === 0) return;
+
+  // Count conversations in a database file without going through the singleton.
+  const countConversations = (dbFilePath: string): number => {
+    try {
+      if (!existsSync(dbFilePath)) return 0;
+      // Use better-sqlite3 directly (already available as a dependency)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Database = require('better-sqlite3');
+      const tempDb = new Database(dbFilePath, { readonly: true });
+      try {
+        const row = tempDb.prepare('SELECT COUNT(*) as cnt FROM conversations').get() as { cnt: number };
+        return row?.cnt ?? 0;
+      } finally {
+        tempDb.close();
+      }
+    } catch {
+      return 0;
+    }
+  };
+
+  const currentDbPath = path.join(currentUserData, 'aionui', 'aionui.db');
+  // Close the db singleton first so we can accurately count conversations
+  // and avoid Windows file-locking issues during migration.
+  try { closeDatabase(); } catch { /* ignore */ }
+
+  const currentCount = countConversations(currentDbPath);
+  console.log(`[userData-migration] current db conversations: ${currentCount} (${currentDbPath})`);
+
+  if (currentCount > 0) {
+    console.log(`[userData-migration] current db has conversations, no migration needed`);
+    return;
+  }
+
+  // Current db is empty — find a candidate with actual conversations.
+  for (const candidateName of candidateDirNames) {
+    const candidateUserData = path.join(appSupportDir, candidateName);
+    const candidateDbPath = path.join(candidateUserData, 'aionui', 'aionui.db');
+    if (!existsSync(candidateDbPath)) continue;
+
+    const candidateCount = countConversations(candidateDbPath);
+    console.log(`[userData-migration] candidate ${candidateName} conversations: ${candidateCount}`);
+    if (candidateCount === 0) continue;
+
+    try {
+      console.log(`[userData-migration] migrating from ${candidateName} (${candidateCount} conversations) to ${currentDirName}`);
+
+      // Close the database singleton BEFORE deleting/overwriting files.
+      // On Windows, better-sqlite3 holds an exclusive lock on the db file;
+      // fs.rm() and copyDirectoryRecursively() will fail silently if the
+      // file is still locked.
+      try { closeDatabase(); } catch { /* ignore */ }
+
+      const subdirs = ['config', 'aionui'];
+      for (const sub of subdirs) {
+        const src = path.join(candidateUserData, sub);
+        const dst = path.join(currentUserData, sub);
+        if (!existsSync(src)) continue;
+
+        // Remove skeleton destination (empty db created by CronService import)
+        if (existsSync(dst)) {
+          try {
+            await fs.rm(dst, { recursive: true, force: true });
+          } catch { /* ignore */ }
+        }
+        _mkdirSync(dst, { recursive: true });
+        await copyDirectoryRecursively(src, dst);
+        console.log(`[userData-migration] Migrated ${sub}/ from ${candidateName}`);
+      }
+
+      console.log(`[userData-migration] Successfully migrated data from ${candidateName}`);
+
+      break;
+    } catch (error) {
+      console.error(`[userData-migration] Failed to migrate from ${candidateName}:`, error);
+    }
+  }
 };
 
 /**
@@ -1327,6 +1431,10 @@ const initStorage = async () => {
   const t0 = performance.now();
   const mark = (label: string) => console.log(`[AionUi:init] ${label} +${Math.round(performance.now() - t0)}ms`);
   mark('start');
+
+  // 0. Migrate userData from old AionUi directory (package name rename)
+  await migrateRenamedUserData();
+  mark('0. migrateRenamedUserData');
 
   // 1. 先执行数据迁移（在任何目录创建之前）
   await migrateLegacyData();

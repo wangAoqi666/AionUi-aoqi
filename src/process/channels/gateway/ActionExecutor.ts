@@ -418,6 +418,27 @@ export class ActionExecutor {
         }
       }
 
+      // Detect workspace change: if the admin changed the workspace in channel settings,
+      // clear the existing session so a new conversation is created with the new workspace
+      if (session?.conversationId) {
+        try {
+          const currentSettings = await loadChannelPublishInstanceSettings(message.pluginId, platform);
+          const configuredWorkspace = currentSettings.workspace;
+          if (configuredWorkspace) {
+            const existingWorkspace = session.workspace;
+            if (existingWorkspace !== configuredWorkspace) {
+              console.log(
+                `[ActionExecutor] Workspace changed from "${existingWorkspace}" to "${configuredWorkspace}", creating new session`
+              );
+              await this.sessionManager.clearSession(channelUser.id, chatId);
+              session = null;
+            }
+          }
+        } catch (err) {
+          console.warn('[ActionExecutor] Failed to check workspace change:', err);
+        }
+      }
+
       if (!session || !session.conversationId) {
         const source = platform;
         const instanceSettings = await loadChannelPublishInstanceSettings(message.pluginId, platform);
