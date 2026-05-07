@@ -145,6 +145,15 @@ Commit format: `<type>(<scope>): <subject>` in English. Types: feat, fix, refact
 
 For pull request creation, see the `oss-pr` skill (`.claude/skills/oss-pr/SKILL.md`).
 
+## Packaging Conventions
+
+- Version comes only from root `package.json#version`; if the user does not request a fixed version, bump only the patch number before each new packaging round.
+- If the user requests a same-version full-platform build, keep that one version for every platform and architecture.
+- Before packaging, commit the source state in Git so the artifacts are traceable; check `git diff --cached` and `git status` for secrets and generated artifacts before each commit.
+- Formal packages must include Factory Droid CLI. Verify `bundled-droid/<platform>-<arch>/manifest.json` has `skipped: false` and that the final installer contains `droid` or `droid.exe`.
+- `aionrs` is optional for local packaging. If GitHub Release download hangs or fails with TLS/x509 errors, use `AIONUI_SKIP_AIONRS=1`; do not block Droid CLI packaging on aionrs.
+- Use electron-builder and native-module mirrors for unstable GitHub downloads: `ELECTRON_BUILDER_BINARIES_MIRROR=https://registry.npmmirror.com/-/binary/electron-builder-binaries/` and the better-sqlite3 npmmirror binary host.
+
 ## Skills Index
 
 Detailed rules and guidelines are organized into Skills for better modularity:

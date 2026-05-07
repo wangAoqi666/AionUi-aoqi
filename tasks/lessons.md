@@ -2,3 +2,6 @@
 - 2026-04-08: The top-left brand slot is the app logo slot, not the Factory Droid/agent logo slot. Before changing any logo, verify whether the user means the software brand mark or the agent/backend mark.
 - 2026-04-08: For Droid SPEC mode, verify the full CLI-like flow end to end: selected mode must be applied before the first send, the plan approval must appear before normal tool permissions, and the spec handoff should not be treated like a generic permission prompt.
 - 2026-04-17: For this repo, do not assume the historical 1.9.x line is still authoritative. After the major rewrite, all displayed, runtime, packaged, and update-feed versions must follow the reset baseline from root `package.json#version`, currently `0.1.0`.
+- 2026-05-07: Never accept a packaged build that is missing Factory Droid CLI. Verify `bundled-droid/<platform>-<arch>/manifest.json` has `skipped: false` and confirm the final installer archive contains `droid` / `droid.exe`.
+- 2026-05-07: For local packaging, treat aionrs as optional and skip it with `AIONUI_SKIP_AIONRS=1` when GitHub Release downloads hang; do not block the main Factory Droid CLI build on aionrs.
+- 2026-05-07: Before every new packaging round, commit the source state first and only bump the patch version unless the user explicitly asks for a major/minor bump or a fixed same-version full-platform build.

@@ -105,12 +105,23 @@
 
 - 当前项目版本策略已重置：因做了大改，版本号从 `0.1.0` 重新开始计算，禁止继续沿用历史 `1.9.x` 版本线
 - 版本显示、运行时版本、安装包文件名、自动更新元数据等所有对内对外版本来源，统一以根目录 `package.json#version` 为唯一基准；除非用户明确要求，不要再额外推导或回退到旧版本号
+- 版本号按 `major.minor.patch` 理解；每次新一轮打包前，如果用户没有明确指定固定版本，只递增 patch，小版本从 `0.0.0` 起一路累加，禁止擅自递增 major/minor
+- 如果用户要求“同一版本打全平台/全架构”，所有目标必须保持同一个 `package.json#version`，不要在中途再次 bump
+- 打包前必须先保证源码有 Git commit 可追溯；若存在未提交源码变更，先按逻辑拆分提交并检查 `git diff --cached` / `git status`，确认无密钥、token、构建产物后再开始打包
+- 正式安装包必须包含 bundled Factory Droid CLI：`resources/bundled-droid/<platform>-<arch>/manifest.json` 中 `skipped` 必须是 `false`，且安装包/unpacked 目录里必须存在 `droid` 或 `droid.exe`
+- aionrs 是可选资源；GitHub Release 下载卡住、TLS/x509 失败或超时时，本地正式打包默认使用 `AIONUI_SKIP_AIONRS=1` 跳过，不能为了 aionrs 阻塞 Factory Droid CLI 包
+- Hub 资源下载必须设置单文件超时（推荐 `AIONUI_HUB_TIMEOUT_MS=20000`），下载失败的扩展按非致命处理继续后续目标，避免整个打包流程无限卡住
+- Windows / cross-platform 打包推荐带 `ELECTRON_BUILDER_BINARIES_MIRROR=https://registry.npmmirror.com/-/binary/electron-builder-binaries/`，规避 winCodeSign / wine / nsis 从 GitHub 下载时的 TLS/x509 问题
+- Windows x64 的 `better-sqlite3` 预编译包优先走 `https://registry.npmmirror.com/-/binary/better-sqlite3` 镜像；不要从 ARM64 macOS 主机尝试源码交叉编译 Windows x64
+- `prepareBundledDroid.js` 下载 Factory CLI 时优先走 npm 平台包；若 npm 镜像缺包，fallback 到 `https://downloads.factory.ai/factory-cli/releases/<version>/<platform>/<arch>/<binary>` 官方直链。官方直链平台名是 `windows` / `darwin` / `linux`，Windows 不是 `win32`
+- 从 macOS 交叉打 Windows 时不能执行 `droid.exe --version` 校验；只校验文件存在、checksum / manifest 和安装包内路径，因为 Windows exe 无法在 macOS 直接运行
 - macOS 上构建 Windows NSIS 安装包时，`7zip-bin` 自带的 p7zip 16.02 会把 `.7z` 格式的归档文件错误地生成为 ZIP 格式，导致 NSIS `Nsis7z::Extract` 静默解压失败、安装后只有卸载器没有主程序
 - 修复已固化在 `scripts/build-with-builder.js` 开头的 7zip-bin wrapper：`.7z` 输出走系统 `7za`，`.zip` 输出走系统 `zip`
 - 构建 macOS 主机上的 Windows 包前，必须确保 Homebrew `p7zip` 已安装（`brew install p7zip`），否则 `.7z` 归档可能退回到有问题的 bundled binary
 - 每次 `bun install` / `npm install` 后 `node_modules/7zip-bin/index.js` 会被覆盖，build script 的 wrapper 会在每次构建时重新写入，无需手动干预
 - `electron-builder.yml` 顶层 `executableName` 和 `win.executableName` 都会影响 NSIS 的 `PRODUCT_FILENAME` 变量，确保它们一致或只保留平台特定配置
 - Windows 安装包产物校验必须包含 7z 格式检查：提取内嵌 `app-64.7z`，用 `file` 命令确认为 `7-zip archive data`，不能是 `Zip archive data`
+- Windows 安装包产物校验还必须确认 `app-64.7z` / `app-arm64.7z` 内包含 `AgentFactory.exe` 和 `resources/bundled-droid/<platform>-<arch>/droid.exe`
 
 ## BYOK 修复期间必读规则（2026-04-23 起）
 

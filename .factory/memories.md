@@ -144,6 +144,12 @@
 - **不要并行跑两个 electron-builder**：electron-builder 的 Vite 构建和 asar 打包会互相锁文件，并行构建必定有一个 esbuild 冲突失败。正确做法：第一个走完整构建，后续用 `--skip-vite` 复用 Vite 产物串行跑
 - **不要在 Execute 里跑超过 600s 的构建**：electron-builder 全量构建（含 native module 重编译 + 签名）在 macOS 上经常超过 10 分钟，必须用 `fireAndForget` 后台执行 + `sleep N && tail` 轮询
 - **dmg-builder 下载偶尔卡住**：dmg-builder 的 tar.gz 从 GitHub 下载不稳定，如果 zip 产物已完成但 dmg 卡住，可以杀掉进程重跑，因为 dmg-builder 缓存一旦写入 `.complete` 标记文件后续就不会重新下载
+- **2026-05-07 Windows x64 打包修复总结**：Factory CLI 必须内置，不能因为 npm 镜像缺 `@factory/cli-win32-x64-baseline@0.119.0` 就接受缺失。正确链路是先 npmjs 平台 tarball，必要时 fallback 到 `downloads.factory.ai/factory-cli/releases/0.119.0/windows/x64-baseline/droid.exe`，并用 manifest `skipped:false` + NSIS 内部 `resources/bundled-droid/win32-x64/droid.exe` 校验。
+- **aionrs 是可选资源**：GitHub Release 下载 aionrs 在当前网络下容易 TLS/超时卡住；本地正式打包默认 `AIONUI_SKIP_AIONRS=1`，这不影响 Factory Droid CLI 主链路。
+- **Hub 资源要有单文件 timeout**：`prepareHubResources.js` 如果不用 `AIONUI_HUB_TIMEOUT_MS=20000`，会在某个 GitHub/jsDelivr 请求上无限等。Hub 扩展下载失败按非致命处理，成功数量写入 manifest。
+- **Windows native / builder 镜像**：Windows x64 的 `better-sqlite3` 预编译包走 `registry.npmmirror.com/-/binary/better-sqlite3`；electron-builder 的 `winCodeSign` / `wine` / `nsis` 走 `ELECTRON_BUILDER_BINARIES_MIRROR=https://registry.npmmirror.com/-/binary/electron-builder-binaries/`，不要反复卡 GitHub x509。
+- **DMG retry 只能用于 Mac 目标**：Windows 构建失败时如果 `out/mac/*.app` 残留，旧逻辑会误触发 DMG retry；必须按 `--mac` / `--all` 判断，Windows/Linux 失败不能走 DMG retry。
+- **版本和提交习惯**：用户要求以后每轮打包前必须先有 Git commit 可追溯；如果没有指定固定版本，每次只递增 patch。若用户要求同一版本全平台打包，所有平台/架构保持同一个版本号。
 
 ## Paper 原型状态
 
