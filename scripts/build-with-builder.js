@@ -292,7 +292,7 @@ function createDmgWithPrepackaged(appDir, targetArch) {
   });
 }
 
-function buildWithDmgRetry(cmd, targetArch) {
+function buildWithDmgRetry(cmd, targetArch, allowDmgRetry = true) {
   const isMac = process.platform === 'darwin';
   const outDir = path.resolve(__dirname, '../out');
 
@@ -301,7 +301,7 @@ function buildWithDmgRetry(cmd, targetArch) {
     return;
   } catch (error) {
     // On non-macOS or if .app doesn't exist, just throw
-    const appDir = isMac ? findAppDir(outDir) : null;
+    const appDir = isMac && allowDmgRetry ? findAppDir(outDir) : null;
     if (!appDir || dmgExists(outDir)) throw error;
 
     // .app exists but no .dmg → DMG creation failed
@@ -624,8 +624,9 @@ try {
   }
 
   const builderCommand = `bunx electron-builder ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
+  const allowDmgRetry = builderArgs.includes('--mac') || builderArgs.includes('--all');
   try {
-    buildWithDmgRetry(builderCommand, targetArch);
+    buildWithDmgRetry(builderCommand, targetArch, allowDmgRetry);
   } catch (error) {
     const winExePath = findExistingWindowsExecutable(outDir);
     const firstError = formatExecError(error);
@@ -653,7 +654,7 @@ try {
     cleanupWindowsPackOutput(targetArch);
 
     try {
-      buildWithDmgRetry(`${builderCommand} --config.win.signAndEditExecutable=false`, targetArch);
+      buildWithDmgRetry(`${builderCommand} --config.win.signAndEditExecutable=false`, targetArch, allowDmgRetry);
     } catch (retryError) {
       const retryFailure = formatExecError(retryError);
       throw new Error(

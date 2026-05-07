@@ -190,6 +190,10 @@ function rebuildSingleModule(options) {
   const env = buildEnvironment(platform, targetArch, electronVersion);
   env.npm_config_platform = platform;
   env.npm_config_target_platform = platform;
+  if (moduleName === 'better-sqlite3' && !env.npm_config_better_sqlite3_binary_host_mirror) {
+    env.npm_config_better_sqlite3_binary_host_mirror =
+      'https://registry.npmmirror.com/-/binary/better-sqlite3';
+  }
 
   const bunxCmd = getBunxCommand();
   const cmdPrefix = getCommandPrefix(platform);

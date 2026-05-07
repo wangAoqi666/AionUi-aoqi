@@ -2,6 +2,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const zlib = require('zlib');
 
 const CLI_PACKAGE_NAME = '@factory/cli';
@@ -9,6 +10,7 @@ const DOWNLOAD_RETRY_COUNT = 3;
 const NETWORK_TIMEOUT_MS = Number(process.env.AIONUI_DOWNLOAD_TIMEOUT_MS || 600000);
 const PRIMARY_REGISTRY_BASE_URL = process.env.AIONUI_NPM_REGISTRY_URL || 'https://registry.npmmirror.com';
 const FALLBACK_REGISTRY_BASE_URL = process.env.AIONUI_DROID_NPM_FALLBACK_REGISTRY_URL || 'https://registry.npmjs.org';
+const FACTORY_DOWNLOADS_BASE_URL = process.env.AIONUI_DROID_DOWNLOADS_BASE_URL || 'https://downloads.factory.ai';
 
 const PLATFORM_PACKAGES = {
   'darwin-arm64': { regular: '@factory/cli-darwin-arm64' },
@@ -47,6 +49,10 @@ function getConfiguredCliVersion() {
   return configured && configured.trim() ? configured.trim() : 'latest';
 }
 
+function shouldSkipDroidBundle() {
+  return process.env.AIONUI_SKIP_DROID_BUNDLE === '1' || process.env.AGENT_FACTORY_SKIP_DROID_BUNDLE === '1';
+}
+
 function getTargetPlatform() {
   const target = process.env.AIONUI_DROID_TARGET_PLATFORM;
   return target && target.trim() ? target.trim() : process.platform;
@@ -59,6 +65,18 @@ function getTargetArch() {
 
 function getBinaryName(platform) {
   return platform === 'win32' ? 'droid.exe' : 'droid';
+}
+
+function getDownloadsPlatform(platform) {
+  return platform === 'win32' ? 'windows' : platform;
+}
+
+function getDownloadsArch(arch, packageName) {
+  if (arch === 'x64' && packageName?.endsWith('-baseline')) {
+    return 'x64-baseline';
+  }
+
+  return arch;
 }
 
 function selectPackageName(platform, arch) {
@@ -167,6 +185,18 @@ function readJsonFromUrl(url) {
   }
 }
 
+function readTextFromUrl(url) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-droid-text-'));
+  const outputPath = path.join(tempDir, 'response.txt');
+
+  try {
+    downloadFile(url, outputPath);
+    return fs.readFileSync(outputPath, 'utf-8').trim();
+  } finally {
+    removeDirectorySafe(tempDir);
+  }
+}
+
 function getPackument(packageName, registryBaseUrl) {
   const encodedName = packageName.replace('/', '%2f');
   return readJsonFromUrl(`${registryBaseUrl}/${encodedName}`);
@@ -266,7 +296,11 @@ function resolveExpectedPlatformVersion(packageName, requestedVersion) {
   throw lastError || new Error(`Unable to resolve ${CLI_PACKAGE_NAME}@${requestedVersion}`);
 }
 
-function validateBinary(filePath) {
+function validateBinary(filePath, platform, arch) {
+  if (platform !== process.platform || arch !== process.arch) {
+    return null;
+  }
+
   const versionOutput = execFileSync(filePath, ['--version'], {
     encoding: 'utf-8',
     timeout: 10000,
@@ -277,6 +311,64 @@ function validateBinary(filePath) {
   }
 
   return versionOutput;
+}
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function prepareFromFactoryDownloads({
+  platform,
+  arch,
+  packageName,
+  requestedVersion,
+  cliVersion,
+  binaryName,
+  targetDir,
+  targetBinaryPath,
+}) {
+  const downloadsPlatform = getDownloadsPlatform(platform);
+  const downloadsArch = getDownloadsArch(arch, packageName);
+  const binaryUrl = `${FACTORY_DOWNLOADS_BASE_URL}/factory-cli/releases/${cliVersion}/${downloadsPlatform}/${downloadsArch}/${binaryName}`;
+  const shaUrl = `${binaryUrl}.sha256`;
+  const tempBinaryPath = `${targetBinaryPath}.download`;
+
+  fs.rmSync(tempBinaryPath, { force: true });
+  downloadFile(binaryUrl, tempBinaryPath);
+
+  const expectedSha = readTextFromUrl(shaUrl);
+  const actualSha = sha256File(tempBinaryPath);
+  if (expectedSha && actualSha !== expectedSha.toLowerCase()) {
+    fs.rmSync(tempBinaryPath, { force: true });
+    throw new Error(`Checksum mismatch for Factory CLI binary from ${binaryUrl}`);
+  }
+
+  fs.copyFileSync(tempBinaryPath, targetBinaryPath);
+  fs.rmSync(tempBinaryPath, { force: true });
+  ensureExecutableMode(targetBinaryPath);
+  const binaryVersion = validateBinary(targetBinaryPath, platform, arch);
+  const manifest = {
+    platform,
+    arch,
+    requestedVersion,
+    cliVersion,
+    version: cliVersion,
+    binaryVersion,
+    generatedAt: new Date().toISOString(),
+    sourceType: 'factory-downloads',
+    source: {
+      url: binaryUrl,
+      shaUrl,
+      downloadsPlatform,
+      downloadsArch,
+    },
+    files: [binaryName],
+    skipped: false,
+  };
+
+  writeJson(path.join(targetDir, 'manifest.json'), manifest);
+  console.log(`Bundled Factory CLI prepared from Factory downloads: resources/bundled-droid/${platform}-${arch}/${binaryName}`);
+  return { prepared: true, dir: targetDir, version: cliVersion };
 }
 
 function prepareBundledDroid() {
@@ -292,7 +384,7 @@ function prepareBundledDroid() {
   const targetBinaryPath = path.join(targetDir, binaryName);
 
   // Allow explicit skip to avoid network hangs (e.g. when npm registry / wget proxy stalls)
-  if (process.env.AIONUI_SKIP_DROID_BUNDLE === '1') {
+  if (shouldSkipDroidBundle()) {
     removeDirectorySafe(targetDir);
     ensureDirectory(targetDir);
     const manifest = {
@@ -304,10 +396,10 @@ function prepareBundledDroid() {
       source: {},
       files: [],
       skipped: true,
-      reason: 'Skipped via AIONUI_SKIP_DROID_BUNDLE=1',
+      reason: 'Skipped via AIONUI_SKIP_DROID_BUNDLE=1 or AGENT_FACTORY_SKIP_DROID_BUNDLE=1',
     };
     writeJson(path.join(targetDir, 'manifest.json'), manifest);
-    console.warn('Factory CLI bundle skipped (AIONUI_SKIP_DROID_BUNDLE=1)');
+    console.warn('Factory CLI bundle skipped (AIONUI_SKIP_DROID_BUNDLE=1 or AGENT_FACTORY_SKIP_DROID_BUNDLE=1)');
     return { prepared: false, reason: 'skipped' };
   }
 
@@ -356,7 +448,7 @@ function prepareBundledDroid() {
 
         fs.writeFileSync(tempBinaryPath, binaryBuffer);
         ensureExecutableMode(tempBinaryPath);
-        const binaryVersion = validateBinary(tempBinaryPath);
+        const binaryVersion = validateBinary(tempBinaryPath, platform, arch);
         fs.copyFileSync(tempBinaryPath, targetBinaryPath);
         ensureExecutableMode(targetBinaryPath);
 
@@ -386,7 +478,20 @@ function prepareBundledDroid() {
       }
     }
 
-    throw lastError || new Error('Unable to download a valid Factory CLI binary');
+    try {
+      return prepareFromFactoryDownloads({
+        platform,
+        arch,
+        packageName,
+        requestedVersion,
+        cliVersion: expectedVersion.cliVersion,
+        binaryName,
+        targetDir,
+        targetBinaryPath,
+      });
+    } catch (downloadError) {
+      throw downloadError || lastError || new Error('Unable to download a valid Factory CLI binary');
+    }
   } catch (error) {
     const manifest = {
       platform,

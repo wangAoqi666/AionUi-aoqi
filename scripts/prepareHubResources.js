@@ -19,6 +19,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 const HUB_DIR = path.join(PROJECT_ROOT, 'resources', 'hub');
 
 const DEFAULT_TAG = 'dist-latest';
+const DOWNLOAD_TIMEOUT_MS = Number(process.env.AIONUI_HUB_TIMEOUT_MS || 20000);
 const BASE_URLS = [
   `https://raw.githubusercontent.com/iOfficeAI/AionHub/${process.env.AIONUI_HUB_TAG || DEFAULT_TAG}/`,
   `https://cdn.jsdelivr.net/gh/iOfficeAI/AionHub@${process.env.AIONUI_HUB_TAG || DEFAULT_TAG}/`,
@@ -60,7 +61,7 @@ function downloadUrl(url, destPath) {
       }
 
       const get = url.startsWith('https') ? https.get : require('http').get;
-      get(url, (res) => {
+      const req = get(url, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           follow(res.headers.location, redirectCount + 1);
           return;
@@ -79,10 +80,14 @@ function downloadUrl(url, destPath) {
           resolve();
         });
         file.on('error', (err) => {
-          fs.unlinkSync(destPath);
+          if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
           reject(err);
         });
-      }).on('error', reject);
+      });
+      req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+        req.destroy(new Error(`Timeout after ${DOWNLOAD_TIMEOUT_MS}ms`));
+      });
+      req.on('error', reject);
     };
 
     follow(url);
@@ -94,8 +99,8 @@ function downloadUrl(url, destPath) {
 // ---------------------------------------------------------------------------
 
 async function prepareHubResources() {
-  if (process.env.AIONUI_HUB_SKIP === '1') {
-    console.log('[hub] Skipping hub resource preparation (AIONUI_HUB_SKIP=1)');
+  if (process.env.AIONUI_HUB_SKIP === '1' || process.env.AGENT_FACTORY_HUB_SKIP === '1') {
+    console.log('[hub] Skipping hub resource preparation (AIONUI_HUB_SKIP=1 or AGENT_FACTORY_HUB_SKIP=1)');
     return { skipped: true };
   }
 
