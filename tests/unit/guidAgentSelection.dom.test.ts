@@ -81,6 +81,7 @@ vi.mock('swr', () => ({
 }));
 
 vi.mock('../../src/renderer/utils/model/agentModes', () => ({
+  DEFAULT_MODE: { droid: 'auto' },
   getAgentModes: (backend?: string) => {
     if (backend === 'claude') {
       return [
@@ -295,7 +296,7 @@ describe('useGuidAgentSelection – preset agent config resolution', () => {
     });
   });
 
-  it('selectedMode defaults to "default" when no preferred mode is saved', async () => {
+  it('selectedMode defaults to "default" for non-droid backends when no preferred mode is saved', async () => {
     setupMocks({ acpConfig: {} });
 
     const { result } = renderHook(() => useGuidAgentSelection(hookOptions));

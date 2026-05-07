@@ -116,16 +116,24 @@ export async function loadChannelInstanceSettings(
   });
 }
 
+let updateChain = Promise.resolve();
+
 export async function updateChannelInstanceSettings(
   pluginId: string,
   updater: (current: ChannelPublishInstanceSettings) => ChannelPublishInstanceSettings
 ): Promise<void> {
-  const allSettings = sanitizeChannelPublishInstanceSettingsMap(await ConfigStorage.get(CHANNEL_PUBLISH_INSTANCES_KEY));
-  const current = sanitizeChannelPublishInstanceSettings(allSettings[pluginId]);
-  const next = sanitizeChannelPublishInstanceSettings(updater(current));
+  const task = updateChain.then(async () => {
+    const allSettings = sanitizeChannelPublishInstanceSettingsMap(
+      await ConfigStorage.get(CHANNEL_PUBLISH_INSTANCES_KEY)
+    );
+    const current = sanitizeChannelPublishInstanceSettings(allSettings[pluginId]);
+    const next = sanitizeChannelPublishInstanceSettings(updater(current));
 
-  await ConfigStorage.set(CHANNEL_PUBLISH_INSTANCES_KEY, {
-    ...allSettings,
-    [pluginId]: next,
+    await ConfigStorage.set(CHANNEL_PUBLISH_INSTANCES_KEY, {
+      ...allSettings,
+      [pluginId]: next,
+    });
   });
+  updateChain = task.catch(() => {});
+  return task;
 }

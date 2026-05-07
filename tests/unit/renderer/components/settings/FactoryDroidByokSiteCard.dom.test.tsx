@@ -167,7 +167,7 @@ describe('FactoryDroidByokSiteCard', () => {
     vi.clearAllMocks();
   });
 
-  it('shows the label when present and falls back to "untitled" when empty', () => {
+  it('shows the label when present and falls back to hostname when empty', () => {
     const { rerender } = render(
       <FactoryDroidByokSiteCard
         site={baseSite}
@@ -194,7 +194,7 @@ describe('FactoryDroidByokSiteCard', () => {
         onEditModel={vi.fn()}
       />
     );
-    expect(screen.getByText('settings.droidByok.site.untitled')).toBeInTheDocument();
+    expect(screen.getByText('api.example.com')).toBeInTheDocument();
   });
 
   it('invokes callbacks for add model / rotate key / remove site', () => {

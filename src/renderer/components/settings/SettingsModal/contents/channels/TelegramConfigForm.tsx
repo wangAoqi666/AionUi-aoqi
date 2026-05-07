@@ -477,7 +477,7 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
             onChange={(value) => handleWorkspaceChange(typeof value === 'string' ? value : undefined)}
             allowClear
             showSearch
-            disabled={workspaceOptions.length === 0}
+            allowCreate
             placeholder={t('settings.channels.workspacePlaceholder', 'Select a workspace')}
             style={{ width: 240 }}
           >

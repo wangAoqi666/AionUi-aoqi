@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import { getAgentModes, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import { DEFAULT_MODE, getAgentModes, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
@@ -89,7 +89,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
   const modes = getAgentModes(backend);
-  const defaultMode = modes[0]?.value ?? 'default';
+  const defaultMode = DEFAULT_MODE[backend] ?? modes[0]?.value ?? 'default';
   // Validate initialMode against available modes; fall back to backend's default
   // when the provided value doesn't match (e.g. opencode has 'build'/'plan', not 'default')
   const validInitialMode = initialMode && modes.some((m) => m.value === initialMode) ? initialMode : defaultMode;

@@ -488,6 +488,17 @@ export const fs = {
   ), // 重命名文件或文件夹
   readBuiltinRule: bridge.buildProvider<string, { fileName: string }>('read-builtin-rule'), // 读取内置 rules 文件
   readBuiltinSkill: bridge.buildProvider<string, { fileName: string }>('read-builtin-skill'), // 读取内置 skills 文件
+  // Project-level rule/memory/agents files
+  readProjectFile: bridge.buildProvider<string, { workspace: string; fileType: ProjectFileType }>(
+    'read-project-file',
+  ),
+  writeProjectFile: bridge.buildProvider<boolean, { workspace: string; fileType: ProjectFileType; content: string }>(
+    'write-project-file',
+  ),
+  ensureProjectFiles: bridge.buildProvider<boolean, { workspace: string }>('ensure-project-files'),
+  // ~/.factory/mcp.json read/write
+  readMcpJsonFile: bridge.buildProvider<IMcpServer[], void>('read-mcp-json-file'),
+  writeMcpJsonFile: bridge.buildProvider<boolean, { servers: IMcpServer[] }>('write-mcp-json-file'),
   // 助手规则文件操作 / Assistant rule file operations
   readAssistantRule: bridge.buildProvider<string, { assistantId: string; locale?: string }>('read-assistant-rule'), // 读取助手规则文件
   writeAssistantRule: bridge.buildProvider<boolean, { assistantId: string; content: string; locale?: string }>(
@@ -1388,6 +1399,8 @@ export interface IFactoryRuleFile {
   name: string;
   path: string;
 }
+
+export type ProjectFileType = 'rules' | 'memories' | 'agents-md';
 
 export interface IResponseMessage {
   type: string;

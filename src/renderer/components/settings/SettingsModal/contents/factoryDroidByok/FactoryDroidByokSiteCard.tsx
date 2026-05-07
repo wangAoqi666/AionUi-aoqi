@@ -168,7 +168,13 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
     [byokConfigs, factoryModels, site]
   );
 
-  const displayLabel = site.label?.trim() || t('settings.droidByok.site.untitled');
+  const displayLabel = site.label?.trim() || (() => {
+    try {
+      return new URL(site.baseUrl).hostname;
+    } catch {
+      return site.baseUrl || t('settings.droidByok.site.untitled');
+    }
+  })();
   const collapseKey = `byok-site-${site.id}`;
 
   const commitLabel = async () => {
@@ -202,7 +208,7 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
           name={collapseKey}
           header={
             <div className='flex items-center justify-between w-full min-h-36px gap-8px min-w-0'>
-              <div className='flex items-center gap-8px min-w-0 flex-1'>
+              <div className='flex items-center gap-6px min-w-0 flex-1'>
                 <LinkCloud size='18' className='text-t-secondary shrink-0' />
                 {editingLabel ? (
                   <div
@@ -245,41 +251,21 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                     {displayLabel}
                   </span>
                 )}
-                <span className='text-11px text-t-tertiary truncate min-w-0 hidden md:inline'>{site.baseUrl}</span>
-              </div>
-
-              <div
-                className='flex items-center gap-6px shrink-0'
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {site.providers.map((provider) => (
-                  <Tag key={provider} size='small' color={getProviderTagColor(provider)}>
-                    {t(getProviderLabelKey(provider))}
-                  </Tag>
-                ))}
-                {site.supportsImageInput === true && (
-                  <Tooltip content={t('settings.droidByok.capability.multimodalTooltip')}>
-                    <Tag size='small' color='magenta' icon={<Pic size='12' />}>
-                      {t('settings.droidByok.capability.multimodalTag')}
-                    </Tag>
-                  </Tooltip>
-                )}
-                {site.hasApiKey && (
-                  <Tooltip content={t('settings.droidByok.site.hasApiKey')}>
-                    <Tag size='small' color='gold' icon={<Key size='12' />}>
-                      {t('settings.droidByok.site.keySet')}
-                    </Tag>
-                  </Tooltip>
-                )}
                 <span className='text-12px text-t-secondary whitespace-nowrap'>
                   {site.modelCount} {t('settings.modelCount')}
                 </span>
+              </div>
 
+              <div
+                className='flex items-center gap-2px shrink-0'
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
                 {!editingLabel && (
                   <Tooltip content={t('settings.droidByok.site.editLabel')}>
                     <Button
                       size='mini'
+                      type='text'
                       className='!w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
                       icon={<Edit size='14' />}
                       disabled={busy}
@@ -293,6 +279,7 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                 <Tooltip content={t('settings.droidByok.site.addModel')}>
                   <Button
                     size='mini'
+                    type='text'
                     className='!w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
                     icon={<Plus size='14' />}
                     disabled={busy}
@@ -302,6 +289,7 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                 <Tooltip content={t('settings.droidByok.site.rotateKey')}>
                   <Button
                     size='mini'
+                    type='text'
                     className='!w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
                     icon={<Refresh size='14' />}
                     disabled={busy}
@@ -312,6 +300,7 @@ const FactoryDroidByokSiteCard: React.FC<FactoryDroidByokSiteCardProps> = ({
                   <Tooltip content={t('settings.droidByok.site.removeSite')}>
                     <Button
                       size='mini'
+                      type='text'
                       className='!w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
                       icon={<Delete size='14' />}
                       loading={removing}

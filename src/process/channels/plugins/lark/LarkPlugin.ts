@@ -5,8 +5,10 @@
  */
 
 import * as lark from '@larksuiteoapi/node-sdk';
+import fs from 'fs';
+import path from 'path';
 
-import type { BotInfo, IChannelPluginConfig, IUnifiedOutgoingMessage, PluginType } from '../../types';
+import type { BotInfo, IChannelMediaAction, IChannelPluginConfig, IUnifiedOutgoingMessage, PluginType } from '../../types';
 import { BasePlugin } from '../BasePlugin';
 import { extractCardAction, LARK_MESSAGE_LIMIT, toLarkSendParams, toUnifiedIncomingMessage } from './LarkAdapter';
 
@@ -239,6 +241,79 @@ export class LarkPlugin extends BasePlugin {
     } catch (error) {
       console.error('[LarkPlugin] Failed to send message:', error);
       throw error;
+    } finally {
+      // Process media actions (images/files) as separate messages after the text reply
+      if (message.mediaActions?.length) {
+        void this.sendMediaActions(chatId, receiveIdType, message.mediaActions);
+      }
+    }
+  }
+
+  /**
+   * Upload and send media actions (images/files) to Lark
+   */
+  private async sendMediaActions(
+    chatId: string,
+    receiveIdType: ReturnType<LarkPlugin['getReceiveIdType']>,
+    actions: IChannelMediaAction[],
+  ): Promise<void> {
+    if (!this.client) return;
+
+    for (const action of actions) {
+      try {
+        if (!fs.existsSync(action.path)) {
+          console.warn(`[LarkPlugin] Media file not found: ${action.path}`);
+          continue;
+        }
+
+        const fileStream = fs.createReadStream(action.path);
+
+        if (action.type === 'image') {
+          const uploadRes = await this.client.im.image.create({
+            data: {
+              image_type: 'message',
+              image: fileStream,
+            },
+          });
+          const imageKey = (uploadRes as unknown as { data?: { image_key?: string } }).data?.image_key;
+          if (!imageKey) {
+            console.warn('[LarkPlugin] Image upload returned no image_key');
+            continue;
+          }
+          await this.client.im.message.create({
+            params: { receive_id_type: receiveIdType },
+            data: {
+              receive_id: chatId,
+              msg_type: 'image',
+              content: JSON.stringify({ image_key: imageKey }),
+            },
+          });
+        } else {
+          const fileName = action.fileName || path.basename(action.path);
+          const uploadRes = await this.client.im.file.create({
+            data: {
+              file_type: 'stream',
+              file_name: fileName,
+              file: fileStream,
+            },
+          });
+          const fileKey = (uploadRes as unknown as { data?: { file_key?: string } }).data?.file_key;
+          if (!fileKey) {
+            console.warn('[LarkPlugin] File upload returned no file_key');
+            continue;
+          }
+          await this.client.im.message.create({
+            params: { receive_id_type: receiveIdType },
+            data: {
+              receive_id: chatId,
+              msg_type: 'file',
+              content: JSON.stringify({ file_key: fileKey }),
+            },
+          });
+        }
+      } catch (error) {
+        console.error(`[LarkPlugin] Failed to send media action (${action.type}):`, error);
+      }
     }
   }
 

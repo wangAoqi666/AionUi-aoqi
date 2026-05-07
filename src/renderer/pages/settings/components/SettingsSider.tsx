@@ -33,6 +33,7 @@ export const BUILTIN_TAB_IDS = [
   'model',
   'assistants',
   'skills-hub',
+  'mcp',
   'rules',
   'memory',
   'agents-md',
@@ -140,6 +141,12 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         label: t('settings.skillsHub.title', { defaultValue: 'Skills Hub' }),
         icon: <Lightning />,
         path: 'skills-hub',
+      },
+      mcp: {
+        id: 'mcp',
+        label: t('settings.mcp', { defaultValue: 'MCP' }),
+        icon: <Puzzle />,
+        path: 'mcp',
       },
       rules: {
         id: 'rules',

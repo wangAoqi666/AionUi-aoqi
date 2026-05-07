@@ -101,6 +101,14 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
 };
 
 /**
+ * Default mode per backend.
+ * When a backend is not listed, falls back to the first entry in AGENT_MODES.
+ */
+export const DEFAULT_MODE: Record<string, string> = {
+  droid: 'auto',
+};
+
+/**
  * Get available modes for a given backend
  * Returns empty array if backend doesn't support mode switching
  *

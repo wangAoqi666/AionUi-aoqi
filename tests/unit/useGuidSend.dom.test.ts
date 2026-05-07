@@ -21,6 +21,9 @@ vi.mock('../../src/common', () => ({
       create: { invoke: (...args: unknown[]) => mockCreate(...args) },
       warmup: { invoke: (...args: unknown[]) => mockWarmup(...args) },
     },
+    fs: {
+      ensureProjectFiles: { invoke: vi.fn().mockResolvedValue(true) },
+    },
   },
 }));
 

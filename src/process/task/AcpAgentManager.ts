@@ -27,6 +27,7 @@ import { ACP_BACKENDS_ALL } from '@/common/types/acpTypes';
 import { ExtensionRegistry } from '@process/extensions';
 import { getDatabase } from '@process/services/database';
 import { ProcessConfig } from '@process/utils/initStorage';
+import { app } from 'electron';
 import {
   addMessage,
   addOrUpdateMessage,
@@ -194,6 +195,30 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
     // Recompute manager-side auto-approval after BaseAgentManager applies legacy yoloMode.
     // Droid relies on SDK-native autonomy, so manager-side auto-confirm must stay disabled.
     this.yoloMode = this.shouldManagerAutoApprove(this.currentMode, data.yoloMode);
+
+    // Auto-create project-level rules/memory/agents files in workspace
+    if (this.workspace) {
+      void AcpAgentManager.ensureProjectFiles(this.workspace);
+    }
+  }
+
+  private static ensureProjectFiles(workspace: string): void {
+    const projectFiles: Record<string, string> = {
+      '.factory/rules/project.md': '',
+      '.factory/memories.md': '',
+      'AGENTS.md': '',
+    };
+    for (const [relativePath, defaultContent] of Object.entries(projectFiles)) {
+      const filePath = path.join(workspace, relativePath);
+      try {
+        if (!fs.existsSync(filePath)) {
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, defaultContent, 'utf-8');
+        }
+      } catch {
+        // Silently ignore — workspace may be read-only
+      }
+    }
   }
 
   private makeStreamBufferKey(message: Extract<TMessage, { type: 'text' }>): string {
@@ -385,7 +410,7 @@ class AcpAgentManager extends BaseAgentManager<AcpAgentManagerData, AcpPermissio
           | undefined;
         this.agent = new DroidSdkAgent({
           id: data.conversation_id,
-          workingDir: data.workspace || '.',
+          workingDir: data.workspace || app.getPath('home'),
           cliPath: cliPath || 'droid',
           modelId: this.persistedModelId ?? undefined,
           source: data.source,

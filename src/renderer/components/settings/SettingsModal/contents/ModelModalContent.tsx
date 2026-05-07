@@ -212,7 +212,7 @@ const resolveFactoryDroidDisplayModels = (
 
 const FactoryDroidBuiltInSection: React.FC = () => {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
   const factoryModels = factoryCatalog.filter((model) => !model.deprecated);
   const builtInModels = factoryModels.filter((model) => !(model.isCustom || isFactoryCustomModel(model.id)));
@@ -286,7 +286,7 @@ const FactoryDroidByokSection: React.FC<{
   onRemoveCustomModel: (config: IDroidByokModelConfig) => void;
 }> = ({ byokConfigs, loading = false, removingId = null, onEditCustomModel, onRemoveCustomModel }) => {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
   const factoryModels = factoryCatalog.filter((model) => !model.deprecated);
   const displayModels = resolveFactoryDroidDisplayModels(factoryModels, byokConfigs);
@@ -838,9 +838,7 @@ const ModelModalContent: React.FC = () => {
 
       {/* Content Area */}
       <AionScrollArea className='flex-1 min-h-0' disableOverflow={isPageMode}>
-        {/* Factory Droid Built-in Models */}
-        <FactoryDroidBuiltInSection />
-
+        {/* BYOK Models (user-configured, displayed first) */}
         {byokLegacyUi ? (
           <FactoryDroidByokSection
             byokConfigs={droidByokConfigs}
@@ -871,6 +869,9 @@ const ModelModalContent: React.FC = () => {
             }}
           />
         )}
+
+        {/* Factory Droid Built-in Models */}
+        <FactoryDroidBuiltInSection />
 
         {/* User-configured providers */}
         {data && data.length > 0 ? (

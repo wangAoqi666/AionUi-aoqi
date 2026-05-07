@@ -24,7 +24,7 @@ import type { IProvider } from '@/common/config/storage';
 import { ConfigStorage } from '@/common/config/storage';
 import type { AcpSessionConfigOption } from '@/common/types/acpTypes';
 import type { AcpBackend, AcpBackendConfig, AcpModelInfo, AvailableAgent, EffectiveAgentInfo } from '../types';
-import { getAgentModes } from '@/renderer/utils/model/agentModes';
+import { DEFAULT_MODE, getAgentModes } from '@/renderer/utils/model/agentModes';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import useSWR, { mutate } from 'swr';
 import {
@@ -149,7 +149,7 @@ export const useGuidAgentSelection = ({
   const factoryCatalog = useSyncExternalStore(subscribeFactoryModelCatalog, getFactoryModels, getFactoryModels);
   const [selectedAgentKey, _setSelectedAgentKey] = useState<string>('droid');
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>();
-  const [selectedMode, _setSelectedMode] = useState<string>('default');
+  const [selectedMode, _setSelectedMode] = useState<string>(DEFAULT_MODE.droid ?? 'default');
   // Track whether mode was loaded from preferences to avoid overwriting during initial load
   const selectedAgentRef = useRef<string | null>(null);
   const probedModelBackendsRef = useRef(new Set<string>());
@@ -632,7 +632,8 @@ export const useGuidAgentSelection = ({
 
   // Read preferred mode or fallback to legacy yoloMode config
   useEffect(() => {
-    _setSelectedMode('default');
+    const effectiveBackend = isPresetAgent ? currentEffectiveAgentInfo.agentType : selectedAgent;
+    _setSelectedMode(DEFAULT_MODE[effectiveBackend ?? 'droid'] ?? 'default');
     // For preset agents, use the effective backend type for config lookup and mode saving
     const configKey = isPresetAgent ? currentEffectiveAgentInfo.agentType : selectedAgent;
     selectedAgentRef.current = configKey;

@@ -15,6 +15,7 @@ const GeminiSettings = React.lazy(() => import('@renderer/pages/settings/GeminiS
 const ModeSettings = React.lazy(() => import('@renderer/pages/settings/ModeSettings'));
 const SystemSettings = React.lazy(() => import('@renderer/pages/settings/SystemSettings'));
 const ToolsSettings = React.lazy(() => import('@renderer/pages/settings/ToolsSettings'));
+const McpSettings = React.lazy(() => import('@renderer/pages/settings/McpSettings'));
 const WebuiSettings = React.lazy(() => import('@renderer/pages/settings/WebuiSettings'));
 const ExtensionSettingsPage = React.lazy(() => import('@renderer/pages/settings/ExtensionSettingsPage'));
 const LoginPage = React.lazy(() => import('@renderer/pages/login'));
@@ -70,6 +71,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/assistants' element={withRouteFallback(AssistantSettings)} />
           <Route path='/settings/agent' element={withRouteFallback(AgentSettings)} />
           <Route path='/settings/skills-hub' element={withRouteFallback(SkillsHubSettings)} />
+          <Route path='/settings/mcp' element={withRouteFallback(McpSettings)} />
           <Route path='/settings/rules' element={withRouteFallback(FactoryGlobalSettings)} />
           <Route path='/settings/memory' element={withRouteFallback(FactoryGlobalSettings)} />
           <Route path='/settings/agents-md' element={withRouteFallback(FactoryGlobalSettings)} />

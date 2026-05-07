@@ -19,6 +19,10 @@ vi.mock('@/renderer/pages/conversation/components/ChatLayout/WorkspaceOpenButton
   ),
 }));
 
+vi.mock('@/renderer/pages/conversation/components/ChatLayout/ProjectConfigButton', () => ({
+  default: () => <div data-testid='project-config-button' />,
+}));
+
 import WorkspacePanelHeader, {
   DesktopWorkspaceToggle,
 } from '@/renderer/pages/conversation/components/ChatLayout/WorkspacePanelHeader';

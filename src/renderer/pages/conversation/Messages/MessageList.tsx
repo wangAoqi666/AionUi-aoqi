@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { TMessage } from '@/common/chat/chatLib';
+import type { IMessageText, TMessage } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
@@ -365,6 +365,43 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
     prev.highlighted === next.highlighted
 );
 
+/**
+ * Collapsible section for intermediate process text (tool call narration).
+ * Default collapsed; shows step count summary.
+ */
+const IntermediateTextCollapse: React.FC<{ texts: IMessageText[] }> = ({ texts }) => {
+  const [open, setOpen] = React.useState(false);
+  const { t } = useTranslation();
+  if (!texts.length) return null;
+
+  const label = t('chat.intermediateSteps', {
+    defaultValue: '{{count}} intermediate steps',
+    count: texts.length,
+  });
+
+  return (
+    <div className='mb-4px'>
+      <button
+        type='button'
+        className='flex items-center gap-4px text-12px color-text-3 cursor-pointer bg-transparent border-none p-0 hover:color-text-1'
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <IconDown style={{ fontSize: 12 }} /> : <IconRight style={{ fontSize: 12 }} />}
+        <span>{label}</span>
+      </button>
+      {open && (
+        <div className='mt-4px pl-16px border-l-2px border-fill-3'>
+          {texts.map((msg) => (
+            <div key={msg.id} className='text-13px color-text-3 mb-4px whitespace-pre-wrap'>
+              {msg.content.content}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MessageList: React.FC<{ className?: string }> = ({ className }) => {
   const list = useMessageList();
   const conversationContext = useConversationContextSafe();
@@ -511,7 +548,14 @@ const MessageList: React.FC<{ className?: string }> = ({ className }) => {
         >
           <div className='message-turn-stack'>
             <MessageActivitySummaryCard activities={item.activities} />
-            {item.type === 'assistant_turn' && <MessageText message={item.message} />}
+            {item.type === 'assistant_turn' && (
+              <>
+                {item.intermediateTexts && item.intermediateTexts.length > 0 && (
+                  <IntermediateTextCollapse texts={item.intermediateTexts} />
+                )}
+                <MessageText message={item.finalMessage ?? item.message} />
+              </>
+            )}
           </div>
         </div>
       );

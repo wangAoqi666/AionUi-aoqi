@@ -41,6 +41,10 @@ export type AssistantTurnItem = {
   messageMsgIds: string[];
   activities: AssistantActivityItem[];
   sourceMessageIds: string[];
+  /** Text segments that appeared between tool calls (intermediate process text) */
+  intermediateTexts?: IMessageText[];
+  /** The final text after all activities */
+  finalMessage?: IMessageText;
 };
 
 export type ActivityGroupItem = {
@@ -269,6 +273,9 @@ export const buildProcessedMessageList = (list: TMessage[]): ProcessedMessageIte
   let pendingActivities: AssistantActivityItem[] = [];
   let pendingTexts: IMessageText[] = [];
   let pendingSourceMessageIds: string[] = [];
+  // Track text segments that appeared before any activity in this turn
+  let textsBeforeActivities: IMessageText[] = [];
+  let hasSeenActivityInTurn = false;
 
   const flushPendingAssistantItems = () => {
     if (!pendingActivities.length && !pendingTexts.length) return;
@@ -286,6 +293,11 @@ export const buildProcessedMessageList = (list: TMessage[]): ProcessedMessageIte
       });
     } else {
       const { message, messageMsgIds } = mergeAssistantTextMessages(pendingTexts);
+      // Texts that appeared before activities are intermediate process text
+      const intermediateTexts = textsBeforeActivities.length > 0 ? [...textsBeforeActivities] : undefined;
+      // The final text is the last text segment (after all activities)
+      const lastText = pendingTexts[pendingTexts.length - 1];
+      const finalMessage = hasSeenActivityInTurn && lastText ? lastText : undefined;
       result.push({
         type: 'assistant_turn',
         id: `assistant-turn-${sourceMessageIds[0] || message.id}`,
@@ -293,16 +305,29 @@ export const buildProcessedMessageList = (list: TMessage[]): ProcessedMessageIte
         messageMsgIds,
         activities: pendingActivities,
         sourceMessageIds,
+        intermediateTexts,
+        finalMessage,
       });
     }
 
     pendingActivities = [];
     pendingTexts = [];
     pendingSourceMessageIds = [];
+    textsBeforeActivities = [];
+    hasSeenActivityInTurn = false;
   };
 
   for (const item of baseList) {
     if (isActivityItem(item)) {
+      // Mark any text accumulated so far as "before activities" (intermediate)
+      if (!hasSeenActivityInTurn && pendingTexts.length > 0) {
+        textsBeforeActivities.push(...pendingTexts);
+      } else if (hasSeenActivityInTurn && pendingTexts.length > textsBeforeActivities.length) {
+        // More text appeared between activities, add them to intermediate
+        const newTexts = pendingTexts.slice(textsBeforeActivities.length);
+        textsBeforeActivities.push(...newTexts);
+      }
+      hasSeenActivityInTurn = true;
       pendingActivities.push(item);
       pendingSourceMessageIds.push(...getProcessedItemSourceMessageIds(item));
       continue;

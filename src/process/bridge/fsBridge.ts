@@ -240,8 +240,109 @@ export function initFsBridge(): void {
       const base64 = await fs.readFile(filePath, { encoding: 'base64' });
       return `data:${mime};base64,${base64}`;
     } catch (error) {
-      // Return a placeholder data URL instead of throwing
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
+    }
+  });
+
+  // Project-level rule/memory/agents file paths
+  const PROJECT_FILE_PATHS: Record<import('@/common/adapter/ipcBridge').ProjectFileType, string> = {
+    rules: '.factory/rules/project.md',
+    memories: '.factory/memories.md',
+    'agents-md': 'AGENTS.md',
+  };
+
+  ipcBridge.fs.readProjectFile.provider(async ({ workspace, fileType }) => {
+    const relativePath = PROJECT_FILE_PATHS[fileType];
+    if (!relativePath) return '';
+    const filePath = path.join(workspace, relativePath);
+    try {
+      return await fs.readFile(filePath, 'utf-8');
+    } catch {
+      return '';
+    }
+  });
+
+  ipcBridge.fs.writeProjectFile.provider(async ({ workspace, fileType, content }) => {
+    const relativePath = PROJECT_FILE_PATHS[fileType];
+    if (!relativePath) return false;
+    const filePath = path.join(workspace, relativePath);
+    try {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, content, 'utf-8');
+      return true;
+    } catch (error) {
+      console.error(`[fsBridge] Failed to write project file ${filePath}:`, error);
+      return false;
+    }
+  });
+
+  ipcBridge.fs.ensureProjectFiles.provider(async ({ workspace }) => {
+    try {
+      for (const relativePath of Object.values(PROJECT_FILE_PATHS)) {
+        const filePath = path.join(workspace, relativePath);
+        try {
+          await fs.access(filePath);
+        } catch {
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          await fs.writeFile(filePath, '', 'utf-8');
+        }
+      }
+      return true;
+    } catch (error) {
+      console.error(`[fsBridge] Failed to ensure project files in ${workspace}:`, error);
+      return false;
+    }
+  });
+
+  // ~/.factory/mcp.json read/write
+  const getMcpJsonPath = () => path.join(os.homedir(), '.factory', 'mcp.json');
+
+  ipcBridge.fs.readMcpJsonFile.provider(async () => {
+    try {
+      const raw = await fs.readFile(getMcpJsonPath(), 'utf-8');
+      const parsed = JSON.parse(raw);
+      const servers = parsed?.mcpServers || {};
+      const result: import('@/common/config/storage').IMcpServer[] = [];
+      for (const [name, cfg] of Object.entries(servers)) {
+        const c = cfg as Record<string, unknown>;
+        const transport = (() => {
+          const type = (c.type as string) || 'stdio';
+          if (type === 'stdio') {
+            return { type: 'stdio' as const, command: (c.command as string) || '', args: (c.args as string[]) || [], env: (c.env as Record<string, string>) || undefined };
+          }
+          return { type: type as 'http' | 'sse' | 'streamable_http', url: (c.url as string) || '', headers: (c.headers as Record<string, string>) || undefined };
+        })();
+        result.push({
+          id: name,
+          name,
+          enabled: c.disabled !== true,
+          transport,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          originalJson: JSON.stringify(c, null, 2),
+        });
+      }
+      return result;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcBridge.fs.writeMcpJsonFile.provider(async ({ servers }) => {
+    try {
+      const mcpServers: Record<string, Record<string, unknown>> = {};
+      for (const s of servers) {
+        const entry: Record<string, unknown> = { ...s.transport, disabled: !s.enabled };
+        delete entry.type;
+        mcpServers[s.id] = { type: s.transport.type, ...entry };
+      }
+      const mcpPath = getMcpJsonPath();
+      await fs.mkdir(path.dirname(mcpPath), { recursive: true });
+      await fs.writeFile(mcpPath, JSON.stringify({ mcpServers }, null, 2), 'utf-8');
+      return true;
+    } catch (error) {
+      console.error('[fsBridge] Failed to write mcp.json:', error);
+      return false;
     }
   });
 

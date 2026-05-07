@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Message } from '@arco-design/web-react';
-import { ConfigStorage } from '@/common/config/storage';
 import type { IMcpServer } from '@/common/config/storage';
 import { ipcBridge } from '@/common';
 import { getActiveConversationId } from '@/renderer/pages/conversation/GroupedHistory/hooks/useConversationListSync';
@@ -19,17 +18,17 @@ export const useMcpServers = () => {
   /** Extension-contributed MCP servers (read-only, from extensions) */
   const [extensionMcpServers, setExtensionMcpServers] = useState<IMcpServer[]>([]);
 
-  // 加载MCP服务器配置
+  // 加载MCP服务器配置 — 从 ~/.factory/mcp.json 读取
   useEffect(() => {
-    // Load user-configured MCP servers
-    void ConfigStorage.get('mcp.config')
+    void ipcBridge.fs.readMcpJsonFile
+      .invoke()
       .then((data) => {
-        if (data) {
+        if (data && data.length > 0) {
           setMcpServers(data);
         }
       })
       .catch((error) => {
-        console.error('[useMcpServers] Failed to load MCP config:', error);
+        console.error('[useMcpServers] Failed to load mcp.json:', error);
       });
 
     // Load extension-contributed MCP servers
@@ -120,19 +119,18 @@ export const useMcpServers = () => {
     void refreshFromLiveSession();
   }, [refreshFromLiveSession]);
 
-  // 保存MCP服务器配置（仅保存用户配置的，不保存扩展的）
+  // 保存MCP服务器配置到 ~/.factory/mcp.json（仅保存用户配置的，不保存扩展的）
   const saveMcpServers = useCallback((serversOrUpdater: IMcpServer[] | ((prev: IMcpServer[]) => IMcpServer[])) => {
     return new Promise<void>((resolve, reject) => {
       setMcpServers((prev) => {
-        // 计算新值
         const newServers = typeof serversOrUpdater === 'function' ? serversOrUpdater(prev) : serversOrUpdater;
 
-        // 异步保存到存储（在微任务中执行）
         queueMicrotask(() => {
-          ConfigStorage.set('mcp.config', newServers)
+          ipcBridge.fs.writeMcpJsonFile
+            .invoke({ servers: newServers })
             .then(() => resolve())
             .catch((error) => {
-              console.error('Failed to save MCP servers:', error);
+              console.error('Failed to save mcp.json:', error);
               reject(error);
             });
         });

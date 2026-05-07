@@ -109,10 +109,10 @@ describe('DroidSdkAgent — mission / decomp mode (P2-1)', () => {
       expect.objectContaining({
         interactionMode: 'auto',
         autonomyLevel: 'medium',
+        decompSessionType: 'orchestrator',
+        decompMissionId: 'mission-abc',
       })
     );
-    expect(options).not.toHaveProperty('decompSessionType');
-    expect(options).not.toHaveProperty('decompMissionId');
 
     // The post-init updateSettings call MUST push the decomp fields.
     const decompPush = session.updateSettings.mock.calls.find(

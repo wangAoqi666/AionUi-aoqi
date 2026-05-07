@@ -263,12 +263,17 @@ export function isFactoryCustomModel(modelId?: string | null): boolean {
 
 export function getFactoryDroidModelInfo(currentModelId: string = getFactoryDefaultModelId()): AcpModelInfo {
   const currentModel = getFactoryModelOrDefault(currentModelId);
+  const activeModels = getActiveFactoryCatalog().filter((m) => !m.deprecated);
+  // Sort: BYOK (isCustom) models first, then built-in models
+  const sorted = [...activeModels].sort((a, b) => {
+    if (a.isCustom && !b.isCustom) return -1;
+    if (!a.isCustom && b.isCustom) return 1;
+    return 0;
+  });
   return {
     currentModelId: currentModel.id,
     currentModelLabel: currentModel.name,
-    availableModels: getActiveFactoryCatalog()
-      .filter((m) => !m.deprecated)
-      .map((m) => ({ id: m.id, label: m.name })),
+    availableModels: sorted.map((m) => ({ id: m.id, label: m.name })),
     canSwitch: true,
     source: 'models',
   };

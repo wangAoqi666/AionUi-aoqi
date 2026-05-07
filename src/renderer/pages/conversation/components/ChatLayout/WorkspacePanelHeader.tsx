@@ -3,6 +3,7 @@ import { dispatchWorkspaceToggleEvent } from '@/renderer/utils/workspace/workspa
 import { ExpandLeft, ExpandRight } from '@icon-park/react';
 import React from 'react';
 import WorkspaceOpenButton from './WorkspaceOpenButton';
+import ProjectConfigButton from './ProjectConfigButton';
 
 type WorkspaceHeaderProps = {
   children?: React.ReactNode;
@@ -39,6 +40,7 @@ const WorkspacePanelHeader: React.FC<WorkspaceHeaderProps> = ({
     <div className='flex-1 truncate'>{children}</div>
 
     {/* Open workspace button - shown when workspace path is provided */}
+    {workspacePath && !collapsed && <ProjectConfigButton workspace={workspacePath} />}
     {workspacePath && !collapsed && <WorkspaceOpenButton workspacePath={workspacePath} />}
 
     {showToggle && togglePlacement === 'right' && (

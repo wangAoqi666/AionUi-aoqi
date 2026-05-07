@@ -138,6 +138,13 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     const isCustomWorkspace = !!dir;
     const finalWorkspace = dir || '';
 
+    // Auto-create project-level rules/memory/agents files in workspace
+    if (finalWorkspace) {
+      void ipcBridge.fs.ensureProjectFiles.invoke({ workspace: finalWorkspace }).catch((err) => {
+        console.warn('[GuidSend] Failed to ensure project files:', err);
+      });
+    }
+
     const agentInfo = selectedAgentInfo;
     const isPreset = isPresetAgent;
     const isBuiltinPresetAssistant =

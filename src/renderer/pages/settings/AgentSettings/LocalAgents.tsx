@@ -614,36 +614,8 @@ const LocalAgents: React.FC = () => {
                 >
                   {t('settings.agentManagement.refreshStatus')}
                 </Button>
-                {!data?.available || data?.cliSource !== 'system' ? (
-                  <Button
-                    type='primary'
-                    status='success'
-                    icon={<Download theme='outline' size='14' />}
-                    loading={installBusy}
-                    onClick={() => void handleInstallOrUpdateCli('install')}
-                  >
-                    {t('settings.agentManagement.installCli')}
-                  </Button>
-                ) : null}
-                {data?.available && cliUpdateInfo?.updateAvailable ? (
-                  <Button
-                    type='primary'
-                    status='warning'
-                    icon={<Download theme='outline' size='14' />}
-                    loading={installBusy}
-                    onClick={() => void handleInstallOrUpdateCli('update')}
-                  >
-                    {t('settings.agentManagement.updateCli')}
-                  </Button>
-                ) : null}
-                <Button
-                  type='secondary'
-                  icon={<Refresh theme='outline' size='14' />}
-                  loading={cliUpdateChecking}
-                  onClick={() => void handleCheckCliUpdate()}
-                >
-                  {t('settings.agentManagement.checkCliUpdate')}
-                </Button>
+                {!data?.available || data?.cliSource !== 'system' ? null : null}
+                {data?.available && cliUpdateInfo?.updateAvailable ? null : null}
                 <Button
                   type='outline'
                   icon={<Setting theme='outline' size='14' />}
@@ -652,24 +624,6 @@ const LocalAgents: React.FC = () => {
                   {t('settings.agentManagement.openModelSettings')}
                 </Button>
               </div>
-
-              {cliUpdateAlert ? (
-                <Alert
-                  type={cliUpdateAlert.type}
-                  content={
-                    <div className='flex flex-col gap-6px'>
-                      <Typography.Text className='text-13px font-600 text-t-primary'>
-                        {cliUpdateAlert.title}
-                      </Typography.Text>
-                      {cliUpdateAlert.details.map((item) => (
-                        <Typography.Text key={item} className='text-12px leading-18px text-t-secondary'>
-                          {item}
-                        </Typography.Text>
-                      ))}
-                    </div>
-                  }
-                />
-              ) : null}
             </div>
           </div>
         </div>

@@ -57,6 +57,12 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       icon: <Puzzle theme='outline' size='16' />,
       path: 'skills-hub',
     },
+    mcp: {
+      id: 'mcp',
+      label: t('settings.mcp', { defaultValue: 'MCP' }),
+      icon: <Puzzle theme='outline' size='16' />,
+      path: 'mcp',
+    },
     rules: {
       id: 'rules',
       label: t('settings.rules', { defaultValue: 'Rules' }),

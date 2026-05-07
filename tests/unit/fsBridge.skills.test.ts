@@ -227,6 +227,11 @@ describe('fsBridge skills functionality', () => {
             removeCustomExternalPath: createCommandMock('remove-custom-external-path'),
             enableSkillsMarket: createCommandMock('enable-skills-market'),
             disableSkillsMarket: createCommandMock('disable-skills-market'),
+            readProjectFile: createCommandMock('read-project-file'),
+            writeProjectFile: createCommandMock('write-project-file'),
+            ensureProjectFiles: createCommandMock('ensure-project-files'),
+            readMcpJsonFile: createCommandMock('read-mcp-json-file'),
+            writeMcpJsonFile: createCommandMock('write-mcp-json-file'),
           },
           fileStream: {
             contentUpdate: { emit: vi.fn() },

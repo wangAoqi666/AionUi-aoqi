@@ -212,8 +212,9 @@ const McpManagement: React.FC<McpManagementProps> = ({ message }) => {
   };
 
   return (
-    <div>
-      <Collapse.Item
+    <>
+      <Collapse defaultActiveKey={['mcp-servers']} bordered={false}>
+        <Collapse.Item
         className={' [&_div.arco-collapse-item-header-title]:flex-1'}
         header={
           <div className='flex items-center justify-between'>
@@ -310,6 +311,7 @@ const McpManagement: React.FC<McpManagementProps> = ({ message }) => {
             ))}
         </div>
       </Collapse.Item>
+      </Collapse>
 
       <AddMcpServerModal
         visible={showMcpModal}
@@ -335,7 +337,7 @@ const McpManagement: React.FC<McpManagementProps> = ({ message }) => {
       >
         <p>{t('settings.mcpDeleteConfirm')}</p>
       </Modal>
-    </div>
+    </>
   );
 };
 

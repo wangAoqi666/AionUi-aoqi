@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.3.0] - 2026-05-06
+
+远程通道 workspace 管理 + MCP 独立设置页 + 项目级配置 + UI 精简 + 遗留代码清理。
+
+### Remote Channel Workspace
+
+- **修复 workspace 持久化竞态条件**：`updateChannelInstanceSettings` 新增 Promise 序列化机制，防止多个并发调用（workspace / agent / model / runtime settings）互相覆盖，导致 workspace 字段丢失（`src/renderer/components/settings/SettingsModal/contents/channels/channelInstanceSettings.ts`）
+- **workspace 切换检测**：`ActionExecutor` 在复用 session 时检测 workspace 是否变更，若管理员在设置中切换了 workspace，自动创建新对话而非继续使用旧 workspace 的对话（`src/process/channels/gateway/ActionExecutor.ts`）
+- **Select 支持自定义输入**：微信/飞书/Telegram/钉钉 4 个平台的 workspace 选择器均添加 `allowCreate`，支持手动输入新路径
+
+### MCP Settings
+
+- **MCP 独立设置页**：新增一级菜单 MCP 设置页，独立于工具设置（`src/renderer/pages/settings/McpSettings.tsx`）
+- **数据源迁移到 ~/.factory/mcp.json**：MCP 设置读写切换为 `~/.factory/mcp.json` 作为唯一数据源，通过 IPC bridge 的 `readMcpJsonFile` / `writeMcpJsonFile` 通道实现（`src/process/bridge/fsBridge.ts`，`src/renderer/hooks/mcp/useMcpServers.ts`）
+- **Collapse 渲染修复**：`McpManagement` 组件的 `Collapse.Item` 包裹在 `<Collapse>` 父组件内，修复空白页问题
+
+### Project-level Config
+
+- **项目文件自动创建**：新会话启动时自动在 workspace 中创建 `.factory/rules/project.md`、`.factory/memories.md`、`AGENTS.md`（`src/process/task/AcpAgentManager.ts` 构造函数 + `src/renderer/pages/guid/hooks/useGuidSend.ts`）
+- **项目配置 UI**：新增 `ProjectConfigButton` 组件，支持在工作面板中编辑项目规则和记忆文件
+- **IPC 通道**：新增 `readProjectFile` / `writeProjectFile` / `ensureProjectFiles` IPC 通道
+
+### UI Improvements
+
+- **BYOK 模型排序优先**：`getFactoryDroidModelInfo()` 中 BYOK（isCustom）模型排在内置模型之前
+- **BYOK 站点卡片简化**：移除冗余标签（multimodal / hasApiKey / providers），标题行改为名称 + 模型数左侧、操作按钮右侧，无自定义标签时显示 baseUrl hostname
+- **中间思考文本折叠**：长推理过程自动折叠为可展开的区块
+- **CLI 按钮隐藏**：Agent 设置中移除安装 CLI、更新 CLI、检查更新按钮（CLI 已内置）
+- **默认权限模式 "auto"**：`DEFAULT_MODE` 映射新增 auto 模式
+
+### Feishu / Lark
+
+- **媒体动作处理**：支持通过飞书 SDK 上传图片和文件
+
+### Codebase Cleanup
+
+- **移除 89 个遗留文件**：清理 ACP adapter、Gemini CLI、Aionrs 等不再使用的后端代码（`src/process/agent/acp/`、`src/process/agent/gemini/`、`src/process/agent/aionrs/` 等）
+
 ## [0.2.0] - 2026-05-04
 
 Droid SDK 会话 MCP 自动加载 + 初始化体验优化。
