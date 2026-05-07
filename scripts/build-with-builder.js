@@ -10,10 +10,12 @@
  * - Packaging only: use --pack-only to skip electron-builder distributable creation
  */
 
-const { execSync, spawnSync } = require('child_process');
+const { execFileSync, execSync, spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const yaml = require('js-yaml');
 const prepareBundledBun = require('./prepareBundledBun');
 const prepareBundledDroid = require('./prepareBundledDroid');
 const prepareAionrs = require('./prepareAionrs');
@@ -24,7 +26,7 @@ const prepareAionrs = require('./prepareAionrs');
 // Fix: write a wrapper that routes .7z outputs through system 7za (which
 // produces valid 7z format) while keeping .zip outputs via system zip.
 if (process.platform === 'darwin') {
-  const wrapperDir = path.join(require('os').tmpdir(), '7zip-bin-compat');
+  const wrapperDir = path.join(os.tmpdir(), '7zip-bin-compat');
   const wrapperPath = path.join(wrapperDir, '7za');
   const bundled7za = path.resolve(__dirname, '../node_modules/7zip-bin/mac', process.arch, '7za');
   try {
@@ -277,6 +279,247 @@ function findExistingWindowsExecutable(outDir, unpackedDir = 'win-unpacked') {
 
 function formatExecError(error) {
   return [error?.message, error?.stdout?.toString?.(), error?.stderr?.toString?.()].filter(Boolean).join('\n').trim();
+}
+
+function findAppBundle(parentDir) {
+  if (!fs.existsSync(parentDir)) return null;
+  const appName = fs.readdirSync(parentDir).find((entry) => entry.endsWith('.app'));
+  return appName ? path.join(parentDir, appName) : null;
+}
+
+function findMacAppPath(outDir, arch) {
+  const candidates =
+    arch === 'arm64'
+      ? ['mac-arm64', 'mac', 'mac-x64', 'mac-universal']
+      : ['mac', 'mac-x64', 'mac-arm64', 'mac-universal'];
+
+  for (const candidate of candidates) {
+    const appPath = findAppBundle(path.join(outDir, candidate));
+    if (appPath) return appPath;
+  }
+
+  return null;
+}
+
+function findMacDmgPath(outDir, arch) {
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  const version = packageJson.version;
+  const exactSuffix = `-${version}-mac-${arch}.dmg`;
+
+  const candidates = fs
+    .readdirSync(outDir)
+    .filter((entry) => entry.endsWith(exactSuffix))
+    .map((entry) => path.join(outDir, entry));
+
+  if (candidates.length === 0) return null;
+
+  return candidates.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
+}
+
+function assertMacAppHasLaunchFramework(appPath) {
+  const executableDir = path.join(appPath, 'Contents', 'MacOS');
+  const frameworkDir = path.join(appPath, 'Contents', 'Frameworks', 'Electron Framework.framework');
+  const frameworkBinary = path.join(frameworkDir, 'Versions', 'A', 'Electron Framework');
+  const frameworkSymlink = path.join(frameworkDir, 'Electron Framework');
+
+  if (!fs.existsSync(executableDir)) {
+    throw new Error(`Missing macOS executable directory: ${executableDir}`);
+  }
+
+  const executableNames = fs
+    .readdirSync(executableDir)
+    .filter((entry) => !entry.startsWith('.'))
+    .filter((entry) => {
+      const executablePath = path.join(executableDir, entry);
+      try {
+        const stat = fs.statSync(executablePath);
+        return stat.isFile() && (stat.mode & 0o111) !== 0;
+      } catch {
+        return false;
+      }
+    });
+
+  if (executableNames.length === 0) {
+    throw new Error(`Missing executable in ${executableDir}`);
+  }
+
+  if (!fs.existsSync(frameworkBinary)) {
+    throw new Error(`Missing Electron Framework binary: ${frameworkBinary}`);
+  }
+
+  try {
+    fs.realpathSync(frameworkSymlink);
+  } catch (error) {
+    throw new Error(`Broken Electron Framework symlink: ${frameworkSymlink} (${error.message})`);
+  }
+}
+
+function detachMountedDmg(mountDir) {
+  try {
+    execFileSync('hdiutil', ['detach', mountDir, '-force'], { stdio: 'ignore' });
+  } catch {}
+}
+
+function verifyMacDmgArtifact(dmgPath) {
+  const mountDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-factory-dmg-mount-'));
+  try {
+    execFileSync('hdiutil', ['attach', dmgPath, '-mountpoint', mountDir, '-nobrowse', '-readonly'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const appPath = findAppBundle(mountDir);
+    if (!appPath) {
+      throw new Error(`No .app bundle found in mounted DMG: ${dmgPath}`);
+    }
+
+    assertMacAppHasLaunchFramework(appPath);
+  } finally {
+    detachMountedDmg(mountDir);
+    fs.rmSync(mountDir, { recursive: true, force: true });
+  }
+}
+
+function repairMacDmgFromApp(dmgPath, appPath) {
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-factory-dmg-stage-'));
+  const repairedDmgPath = path.join(path.dirname(dmgPath), `.${path.basename(dmgPath)}.repairing.dmg`);
+  const stagedAppPath = path.join(stagingDir, path.basename(appPath));
+
+  try {
+    fs.rmSync(repairedDmgPath, { force: true });
+    execFileSync('ditto', ['--rsrc', '--extattr', '--acl', appPath, stagedAppPath], { stdio: 'inherit' });
+    fs.symlinkSync('/Applications', path.join(stagingDir, 'Applications'));
+    execFileSync(
+      'hdiutil',
+      [
+        'create',
+        '-volname',
+        path.basename(appPath, '.app'),
+        '-srcfolder',
+        stagingDir,
+        '-ov',
+        '-format',
+        'UDZO',
+        repairedDmgPath,
+      ],
+      { stdio: 'inherit' }
+    );
+    fs.renameSync(repairedDmgPath, dmgPath);
+  } finally {
+    fs.rmSync(repairedDmgPath, { force: true });
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
+}
+
+function getAppBuilderBinary() {
+  if (process.platform === 'darwin') {
+    return path.resolve(
+      __dirname,
+      '../node_modules/app-builder-bin/mac',
+      process.arch === 'arm64' ? 'app-builder_arm64' : 'app-builder_amd64'
+    );
+  }
+
+  if (process.platform === 'win32') {
+    return path.resolve(__dirname, '../node_modules/app-builder-bin/win', process.arch, 'app-builder.exe');
+  }
+
+  return path.resolve(__dirname, '../node_modules/app-builder-bin/linux', process.arch, 'app-builder');
+}
+
+function regenerateBlockMap(artifactPath) {
+  const appBuilder = getAppBuilderBinary();
+  if (!fs.existsSync(appBuilder)) {
+    console.log(`   ⚠️  app-builder binary not found, skipped blockmap regeneration: ${appBuilder}`);
+    return;
+  }
+
+  execFileSync(appBuilder, ['blockmap', '--input', artifactPath, '--output', `${artifactPath}.blockmap`], {
+    stdio: 'inherit',
+  });
+}
+
+function sha512Base64(filePath) {
+  return crypto.createHash('sha512').update(fs.readFileSync(filePath)).digest('base64');
+}
+
+function refreshLatestMacDmgMetadata(dmgPath) {
+  const outDir = path.dirname(dmgPath);
+  const latestFiles = ['latest-mac.yml', 'latest-arm64-mac.yml'].map((entry) => path.join(outDir, entry));
+
+  for (const latestPath of latestFiles) {
+    if (!fs.existsSync(latestPath)) continue;
+
+    try {
+      const metadata = yaml.load(fs.readFileSync(latestPath, 'utf8'));
+      if (!metadata || typeof metadata !== 'object' || !Array.isArray(metadata.files)) continue;
+
+      const dmgName = path.basename(dmgPath);
+      const dmgSize = fs.statSync(dmgPath).size;
+      const dmgSha512 = sha512Base64(dmgPath);
+      const blockMapPath = `${dmgPath}.blockmap`;
+      const blockMapSize = fs.existsSync(blockMapPath) ? fs.statSync(blockMapPath).size : undefined;
+      let updated = false;
+
+      for (const file of metadata.files) {
+        if (!file || typeof file.url !== 'string' || !file.url.endsWith('.dmg')) continue;
+        file.url = dmgName;
+        file.sha512 = dmgSha512;
+        file.size = dmgSize;
+        if (blockMapSize != null) {
+          file.blockMapSize = blockMapSize;
+        } else {
+          delete file.blockMapSize;
+        }
+        updated = true;
+      }
+
+      if (typeof metadata.path === 'string' && metadata.path.endsWith('.dmg')) {
+        metadata.path = dmgName;
+        metadata.sha512 = dmgSha512;
+        updated = true;
+      }
+
+      if (updated) {
+        fs.writeFileSync(latestPath, yaml.dump(metadata, { lineWidth: 120 }));
+      }
+    } catch (error) {
+      console.log(`   ⚠️  Failed to refresh ${path.basename(latestPath)}: ${error.message}`);
+    }
+  }
+}
+
+function verifyAndRepairMacDmgArtifacts(outDir, targetArchs) {
+  if (process.platform !== 'darwin') return;
+
+  for (const arch of targetArchs) {
+    const dmgPath = findMacDmgPath(outDir, arch);
+    const appPath = findMacAppPath(outDir, arch);
+
+    if (!dmgPath) {
+      throw new Error(`Missing macOS DMG artifact for ${arch}`);
+    }
+
+    if (!appPath) {
+      throw new Error(`Missing macOS .app bundle for ${arch}`);
+    }
+
+    assertMacAppHasLaunchFramework(appPath);
+
+    try {
+      verifyMacDmgArtifact(dmgPath);
+      console.log(`✅ DMG verified: ${path.basename(dmgPath)}`);
+      continue;
+    } catch (error) {
+      console.log(`⚠️  DMG verification failed for ${path.basename(dmgPath)}: ${error.message}`);
+      console.log('   Rebuilding DMG from the verified .app bundle...');
+    }
+
+    repairMacDmgFromApp(dmgPath, appPath);
+    regenerateBlockMap(dmgPath);
+    refreshLatestMacDmgMetadata(dmgPath);
+    verifyMacDmgArtifact(dmgPath);
+    console.log(`✅ DMG repaired and verified: ${path.basename(dmgPath)}`);
+  }
 }
 
 // Create DMG using electron-builder --prepackaged with .app path
@@ -667,6 +910,11 @@ try {
         ].join('\n')
       );
     }
+  }
+
+  if (allowDmgRetry) {
+    const macTargetArchs = multiArch ? archArgs : [targetArch];
+    verifyAndRepairMacDmgArtifacts(outDir, macTargetArchs);
   }
 
   console.log('✅ Build completed!');
