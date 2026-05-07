@@ -14,6 +14,10 @@ export function getDevAppName(): string {
   return isMultiInstance ? 'AionUi-Dev-2' : 'AionUi-Dev';
 }
 
+export function getPackagedUserDataDirName(): string {
+  return 'AgentFactory';
+}
+
 export function registerPlatformServices(services: IPlatformServices): void {
   _services = services;
 }
@@ -44,6 +48,8 @@ export function getPlatformServices(): IPlatformServices {
           const devAppName = getDevAppName();
           app.setName(devAppName);
           app.setPath('userData', path.join(path.dirname(app.getPath('userData')), devAppName));
+        } else {
+          app.setPath('userData', path.join(path.dirname(app.getPath('userData')), getPackagedUserDataDirName()));
         }
         // Typed as IPlatformPaths so tsc enforces completeness: any new method
         // added to the interface will cause a compile error here if omitted below.

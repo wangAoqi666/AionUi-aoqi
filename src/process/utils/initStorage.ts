@@ -73,8 +73,11 @@ const mkdirSync = (path: string) => {
 /**
  * Migrate userData from a previous directory to the current one.
  *
- * The app name has changed across versions:
- *   AionUi  →  AgentFactory  →  智能体工厂 (electron-builder productName)
+ * The data directory has changed across versions:
+ *   AionUi  →  AgentFactory
+ *
+ * The packaged app is displayed as 智能体工厂, but userData remains AgentFactory
+ * so upgrades keep using the same local paths.
  *
  * Each rename causes Electron to use a different %APPDATA%/<name> directory,
  * so we must copy config/ and aionui/ (database) from the most recent legacy
@@ -90,7 +93,7 @@ const migrateRenamedUserData = async () => {
   const currentDirName = path.basename(currentUserData);
 
   // All known directory names the app has used across versions.
-  // History: AionUi → AgentFactory (final)
+  // History: AionUi → AgentFactory (current)
   const allKnownDirNames = ['AionUi'];
   const candidateDirNames = allKnownDirNames.filter((n) => n !== currentDirName);
 
@@ -119,7 +122,11 @@ const migrateRenamedUserData = async () => {
   const currentDbPath = path.join(currentUserData, 'aionui', 'aionui.db');
   // Close the db singleton first so we can accurately count conversations
   // and avoid Windows file-locking issues during migration.
-  try { closeDatabase(); } catch { /* ignore */ }
+  try {
+    closeDatabase();
+  } catch {
+    /* ignore */
+  }
 
   const currentCount = countConversations(currentDbPath);
   console.log(`[userData-migration] current db conversations: ${currentCount} (${currentDbPath})`);
@@ -140,13 +147,19 @@ const migrateRenamedUserData = async () => {
     if (candidateCount === 0) continue;
 
     try {
-      console.log(`[userData-migration] migrating from ${candidateName} (${candidateCount} conversations) to ${currentDirName}`);
+      console.log(
+        `[userData-migration] migrating from ${candidateName} (${candidateCount} conversations) to ${currentDirName}`
+      );
 
       // Close the database singleton BEFORE deleting/overwriting files.
       // On Windows, better-sqlite3 holds an exclusive lock on the db file;
       // fs.rm() and copyDirectoryRecursively() will fail silently if the
       // file is still locked.
-      try { closeDatabase(); } catch { /* ignore */ }
+      try {
+        closeDatabase();
+      } catch {
+        /* ignore */
+      }
 
       const subdirs = ['config', 'aionui'];
       for (const sub of subdirs) {
@@ -158,7 +171,9 @@ const migrateRenamedUserData = async () => {
         if (existsSync(dst)) {
           try {
             await fs.rm(dst, { recursive: true, force: true });
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         _mkdirSync(dst, { recursive: true });
         await copyDirectoryRecursively(src, dst);

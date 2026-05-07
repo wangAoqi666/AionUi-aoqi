@@ -1,6 +1,6 @@
 appId: com.aionui.app
-productName: AgentFactory
-executableName: AgentFactory
+productName: 智能体工厂
+executableName: 智能体工厂
 copyright: Copyright © 2024 Agent Factory
 
 protocols:
@@ -122,7 +122,7 @@ win:
     - nsis
     #    - msi
     - zip
-  executableName: AgentFactory
+  executableName: 智能体工厂
   icon: resources/app.ico # Use the checked-in Windows icon resource for executable metadata/icon patching
   artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
