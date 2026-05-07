@@ -301,7 +301,7 @@ describe('configureChromium CDP (lightweight mock + file sandbox)', () => {
       restores.push(ctx.restore);
 
       expect(ctx.setNameSpy).not.toHaveBeenCalled();
-      expect(ctx.setPathSpy).toHaveBeenCalledWith('userData', path.join(ctx.sandbox, 'AgentFactory'));
+      expect(ctx.setPathSpy).toHaveBeenCalledWith('userData', path.join(ctx.sandbox, 'AionUi'));
     });
   });
 });

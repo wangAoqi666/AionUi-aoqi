@@ -15,7 +15,7 @@ export function getDevAppName(): string {
 }
 
 export function getPackagedUserDataDirName(): string {
-  return 'AgentFactory';
+  return 'AionUi';
 }
 
 export function registerPlatformServices(services: IPlatformServices): void {

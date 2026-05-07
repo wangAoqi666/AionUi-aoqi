@@ -73,11 +73,8 @@ const mkdirSync = (path: string) => {
 /**
  * Migrate userData from a previous directory to the current one.
  *
- * The data directory has changed across versions:
- *   AionUi  →  AgentFactory
- *
- * The packaged app is displayed as 智能体工厂, but userData remains AgentFactory
- * so upgrades keep using the same local paths.
+ * The packaged app is displayed as 智能体工厂, but userData remains AionUi
+ * so upgrades keep using the same local paths as earlier production builds.
  *
  * Each rename causes Electron to use a different %APPDATA%/<name> directory,
  * so we must copy config/ and aionui/ (database) from the most recent legacy
@@ -88,13 +85,13 @@ const mkdirSync = (path: string) => {
 const migrateRenamedUserData = async () => {
   if (!hasElectronAppPath()) return;
 
-  const currentUserData = path.dirname(getConfigPath()); // {userData}
+  const currentUserData = getPlatformServices().paths.getDataDir();
   const appSupportDir = path.dirname(currentUserData);
   const currentDirName = path.basename(currentUserData);
 
   // All known directory names the app has used across versions.
-  // History: AionUi → AgentFactory (current)
-  const allKnownDirNames = ['AionUi'];
+  // History: AionUi (current) with AgentFactory as a short-lived migration target.
+  const allKnownDirNames = ['AgentFactory', 'AionUi'];
   const candidateDirNames = allKnownDirNames.filter((n) => n !== currentDirName);
 
   console.log(`[userData-migration] currentUserData=${currentUserData}, dirName=${currentDirName}`);
